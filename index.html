@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<!--
+  Synthetic Order Book
+  
+  Copyright (c) 2025 Daniel Boorn <daniel.boorn@gmail.com>
+  
+  This software is free for personal, non-commercial use only.
+  Commercial reproduction or distribution is prohibited without license.
+  For commercial licensing inquiries, contact daniel.boorn@gmail.com
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synthetic Order Book</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1><span id="headerSymbol">BTC</span><span class="accent">ORDERBOOK</span></h1>
+                <span class="subtitle">Synthetic Multi-Exchange</span>
+            </div>
+            <div class="header-center">
+                <div class="symbol-selector">
+                    <input type="text" id="symbolInput" value="BTC" placeholder="BTC" maxlength="10" title="Enter cryptocurrency symbol (e.g. BTC, ETH, SOL)">
+                    <span class="symbol-slash">/USD</span>
+                </div>
+                <div class="price-display" id="priceDisplay">
+                    <span class="price-value" id="currentPrice">--</span>
+                    <span class="price-change" id="priceChange">--</span>
+                </div>
+                <button class="price-toggle" id="priceToggle" title="Toggle Price Visibility">
+                    <svg class="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    <svg class="eye-closed" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="header-right">
+                <div class="exchange-status" id="exchangeStatus">
+                    <span class="status-dot"></span>
+                    <span>Connecting...</span>
+                </div>
+                <a href="tradingview.html" class="btn-refresh" title="TradingView Version" style="text-decoration:none; margin-right:8px;">
+                    <svg width="16" height="16" viewBox="0 0 36 28" fill="currentColor">
+                        <path d="M14 22H7V6h7v16zm8-16h7v16h-7V6zm-4 0v16h-4V6h4z"/>
+                    </svg>
+                </a>
+                <button class="btn-refresh" id="btnRefresh" title="Refresh Data">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Chart Container -->
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="timeframe-selector">
+                        <select id="timeframeSelect" class="tf-select">
+                            <option value="1m">1m</option>
+                            <option value="3m">3m</option>
+                            <option value="5m">5m</option>
+                            <option value="15m">15m</option>
+                            <option value="30m">30m</option>
+                            <option value="1h">1h</option>
+                            <option value="2h">2h</option>
+                            <option value="4h" selected>4h</option>
+                            <option value="6h">6h</option>
+                            <option value="12h">12h</option>
+                            <option value="1d">1D</option>
+                            <option value="3d">3D</option>
+                            <option value="1w">1W</option>
+                        </select>
+                        <span class="bar-countdown" id="barCountdown" title="Time until next bar">--:--</span>
+                    </div>
+                    <div class="chart-controls">
+                        <button class="icon-btn" id="btnLegend" title="Chart Legend">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4M12 8h.01"/>
+                            </svg>
+                        </button>
+                        <button class="icon-btn" id="btnLevelSettings" title="Settings">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="chart-container" id="chartContainer"></div>
+            </div>
+
+            <!-- Left Sidebar - Order Flow Metrics -->
+            <div class="sidebar sidebar-left">
+                <!-- Depth Chart -->
+                <div class="panel depth-panel collapsible expanded" data-panel="depth">
+                    <div class="panel-header">
+                        <h3>Market Depth</h3>
+                        <div class="exchange-selector">
+                            <span class="panel-badge clickable" id="depthSources">-</span>
+                            <div class="exchange-dropdown" id="exchangeDropdown">
+                                <label class="exchange-option">
+                                    <input type="checkbox" id="exKraken" checked>
+                                    <span>Kraken</span>
+                                </label>
+                                <label class="exchange-option">
+                                    <input type="checkbox" id="exCoinbase" checked>
+                                    <span>Coinbase</span>
+                                </label>
+                                <label class="exchange-option">
+                                    <input type="checkbox" id="exBitstamp" checked>
+                                    <span>Bitstamp</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="depth-chart" id="depthChart"></div>
+                        <div class="depth-stats">
+                            <div class="depth-stat">
+                                <span class="stat-label">Bid Volume</span>
+                                <span class="stat-value bid" id="totalBidVol">--</span>
+                            </div>
+                            <div class="depth-stat">
+                                <span class="stat-label">Ask Volume</span>
+                                <span class="stat-value ask" id="totalAskVol">--</span>
+                            </div>
+                            <div class="depth-stat">
+                                <span class="stat-label">Imbalance</span>
+                                <span class="stat-value" id="imbalance">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Order Flow Pressure Panel -->
+                <div class="panel pressure-panel collapsible expanded" data-panel="orderflow">
+                    <div class="panel-header">
+                        <h3>Order Flow</h3>
+                        <span class="panel-badge" id="pressureStatus">Live</span>
+                    </div>
+                    <div class="panel-content">
+                    <!-- BPR - Book Pressure Ratio -->
+                    <div class="pressure-row">
+                        <div class="pressure-label">
+                            <span class="pressure-name">BPR
+                                <span class="info-icon">?
+                                    <span class="info-tooltip">
+                                        <strong>Book Pressure Ratio</strong>
+                                        <span class="tip-formula">BPR = Bid Vol ÷ Ask Vol</span>
+                                        <span class="tip-bullish">▲ &gt;1.0 = More bids (bullish)</span><br>
+                                        <span class="tip-bearish">▼ &lt;1.0 = More asks (bearish)</span><br>
+                                        ~1.0 = Balanced book
+                                    </span>
+                                </span>
+                            </span>
+                            <span class="pressure-hint">Bid/Ask Ratio</span>
+                        </div>
+                        <div class="pressure-gauge">
+                            <div class="bpr-gauge">
+                                <div class="bpr-bar bid" id="bprBarBid"></div>
+                                <div class="bpr-bar ask" id="bprBarAsk"></div>
+                                <div class="bpr-center"></div>
+                            </div>
+                            <span class="pressure-value" id="bprValue">1.00</span>
+                        </div>
+                    </div>
+                    <div class="indicator-analysis" id="bprAnalysis">Balanced order book</div>
+                    
+                    <!-- LD - Liquidity Delta (Enhanced) -->
+                    <div class="pressure-row">
+                        <div class="pressure-label">
+                            <span class="pressure-name">LD
+                                <span class="info-icon">?
+                                    <span class="info-tooltip">
+                                        <strong>Liquidity Delta (Killer Indicator)</strong>
+                                        <span class="tip-formula">LD = Σ(Bids×Weight) - Σ(Asks×Weight)</span>
+                                        Weighted by proximity — closer orders matter more.<br><br>
+                                        <span class="tip-bullish">▲ Positive = Bid pressure</span><br>
+                                        <span class="tip-bearish">▼ Negative = Ask pressure</span><br>
+                                        Watch for <em>changes</em> in LD to predict moves.
+                                    </span>
+                                </span>
+                            </span>
+                            <span class="pressure-hint">Liquidity Delta</span>
+                        </div>
+                        <div class="pressure-delta">
+                            <span class="delta-value" id="ldValue">0</span>
+                            <span class="delta-unit" id="ldUnit">BTC</span>
+                            <span class="delta-arrow" id="ldArrow">→</span>
+                        </div>
+                    </div>
+                    <div class="indicator-analysis" id="ldAnalysis">Neutral liquidity balance</div>
+                    
+                    <!-- LD Enhanced Metrics -->
+                    <div class="ld-enhanced-section">
+                        <!-- LD Velocity -->
+                        <div class="ld-metric-row">
+                            <span class="ld-metric-label">
+                                LD_VEL
+                                <span class="info-icon small">?
+                                    <span class="info-tooltip">
+                                        <strong>LD Velocity</strong>
+                                        Measures how much pressure comes from <em>near-price</em> orders.<br><br>
+                                        <span class="tip-bullish">🟢 Green = Real pressure (near price)</span><br>
+                                        <span class="tip-bearish">🔴 Red = Possible spoof (far orders)</span><br>
+                                        <span class="tip-neutral">🟡 Yellow = Mixed signals</span>
+                                    </span>
+                                </span>
+                            </span>
+                            <div class="ld-velocity-gauge">
+                                <div class="velocity-bar-container">
+                                    <div class="velocity-bar" id="ldVelocityBar"></div>
+                                </div>
+                                <span class="ld-metric-value" id="ldVelocity">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- LD Cluster -->
+                        <div class="ld-metric-row">
+                            <span class="ld-metric-label">
+                                LD_CLU
+                                <span class="info-icon small">?
+                                    <span class="info-tooltip">
+                                        <strong>LD Cluster Strength</strong>
+                                        LD weighted by order clustering density.<br><br>
+                                        Clustered orders = real walls<br>
+                                        Scattered orders = noise/spoofs<br>
+                                        <span class="tip-bullish">Green outline = Cluster-backed</span><br>
+                                        <span class="tip-neutral">Thin text = Unclustered</span>
+                                    </span>
+                                </span>
+                            </span>
+                            <div class="ld-velocity-gauge">
+                                <div class="velocity-bar-container">
+                                    <div class="velocity-bar cluster-bar" id="ldClusterBar"></div>
+                                </div>
+                                <span class="ld-metric-value" id="ldCluster">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- LD Projection (3-bar forecast) -->
+                        <div class="ld-metric-row">
+                            <span class="ld-metric-label">
+                                PROJ
+                                <span class="info-icon small">?
+                                    <span class="info-tooltip">
+                                        <strong>LD Projection</strong>
+                                        3-bar forecast of future LD values.<br><br>
+                                        Dots show expected LD in +1, +2, +3 bars.<br>
+                                        <span class="tip-bullish">Green = Bullish drift expected</span><br>
+                                        <span class="tip-bearish">Red = Bearish drift expected</span>
+                                    </span>
+                                </span>
+                            </span>
+                            <div class="ld-projection-dots" id="ldProjection">
+                                <span class="proj-dot neutral">0</span>
+                                <span class="proj-dot neutral">0</span>
+                                <span class="proj-dot neutral">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- LD Heatmap (Pressure Map) -->
+                        <div class="ld-metric-row ld-heatmap-row">
+                            <span class="ld-metric-label">
+                                PRESS
+                                <span class="info-icon small">?
+                                    <span class="info-tooltip">
+                                        <strong>LD Pressure Map</strong>
+                                        Shows where bid/ask pressure is concentrated.<br><br>
+                                        Left = Below price, Right = Above price<br>
+                                        <span class="tip-bullish">Cyan bars = Bid pressure (support)</span><br>
+                                        <span class="tip-bearish">Pink bars = Ask pressure (resistance)</span>
+                                    </span>
+                                </span>
+                            </span>
+                            <div class="ld-heatmap-container" id="ldHeatmap"></div>
+                        </div>
+                        
+                        <!-- Absorption/Displacement & Divergence -->
+                        <div class="ld-signals-row">
+                            <span class="ld-signal" id="ldAbsorption"></span>
+                            <span class="ld-signal" id="ldDivergence"></span>
+                        </div>
+                        
+                        <!-- Market Maker Model -->
+                        <div class="ld-mm-row">
+                            <span class="ld-mm-signal" id="ldMM"></span>
+                        </div>
+                        
+                        <!-- LD Alerts -->
+                        <div class="ld-alerts-row" id="ldAlerts"></div>
+                    </div>
+                    
+                    <!-- LD Trading Guide -->
+                    <div class="ld-trading-guide">
+                        <div class="guide-header" id="ldGuideToggle">
+                            <span class="guide-arrow">▶</span>
+                            <span class="guide-title">LD TRADING GUIDE</span>
+                        </div>
+                        <div class="guide-content" id="ldGuideContent">
+                            <div class="guide-section">
+                                <span class="guide-section-icon">🎯</span>
+                                <span class="guide-section-title">WHAT'S HAPPENING</span>
+                                <p class="guide-text" id="ldGuideHappening">Analyzing order flow...</p>
+                            </div>
+                            <div class="guide-section">
+                                <span class="guide-section-icon">⚡</span>
+                                <span class="guide-section-title">WHAT TO DO</span>
+                                <p class="guide-text" id="ldGuideTodo">Calculating...</p>
+                            </div>
+                            <div class="guide-section">
+                                <span class="guide-section-icon">📍</span>
+                                <span class="guide-section-title">KEY FLOW ZONES</span>
+                                <p class="guide-text" id="ldGuideZones">Loading levels...</p>
+                            </div>
+                            <div class="guide-section newbie-section">
+                                <span class="guide-section-icon">🟢</span>
+                                <span class="guide-section-title">NEWBIE TAKEAWAY</span>
+                                <p class="guide-text newbie-text" id="ldGuideNewbie">"Waiting for data..."</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- OBIC - Order Book Imbalance Curve -->
+                    <div class="pressure-row obic-row">
+                        <div class="pressure-label">
+                            <span class="pressure-name">OBIC
+                                <span class="info-icon">?
+                                    <span class="info-tooltip">
+                                        <strong>Order Book Imbalance Curve</strong>
+                                        Shows cumulative imbalance at each price level.<br><br>
+                                        <span class="tip-bullish">Green area = Support strength</span><br>
+                                        <span class="tip-bearish">Red area = Resistance strength</span><br>
+                                        Spikes show where big walls exist.<br>
+                                        Price tends to move toward balanced areas.
+                                    </span>
+                                </span>
+                            </span>
+                            <span class="pressure-hint">Imbalance Curve</span>
+                        </div>
+                    </div>
+                    <div class="obic-chart-container">
+                        <canvas id="obicCanvas" class="obic-canvas"></canvas>
+                        <div class="obic-labels">
+                            <span class="obic-label support">Support</span>
+                            <span class="obic-label mid">Mid</span>
+                            <span class="obic-label resistance">Resistance</span>
+                        </div>
+                    </div>
+                    <div class="indicator-analysis" id="obicAnalysis">Imbalance profile loading...</div>
+                    </div>
+                </div>
+
+                <!-- Price Forecast Panel (moved from right sidebar) -->
+                <div class="panel direction-panel collapsible expanded" data-panel="forecast">
+                    <div class="panel-header">
+                        <h3>Price Forecast</h3>
+                        <span class="panel-badge" id="forecastStatus">Live</span>
+                    </div>
+                    <div class="panel-content">
+                    <!-- 3 Timeframe Forecasts -->
+                    <div class="forecast-grid">
+                        <!-- SHORT TERM (±5%) -->
+                        <div class="forecast-card" id="forecastShort">
+                            <div class="forecast-header">
+                                <span class="forecast-label">SHORT</span>
+                                <span class="forecast-range">±5%</span>
+                                <span class="forecast-arrow neutral" id="shortArrow">→</span>
+                            </div>
+                            <div class="forecast-levels">
+                                <div class="forecast-level resistance">
+                                    <span class="level-icon">▼</span>
+                                    <span class="level-price" id="shortResPrice">$--</span>
+                                    <span class="level-vol" id="shortResVol">--</span>
+                                </div>
+                                <div class="forecast-level support">
+                                    <span class="level-icon">▲</span>
+                                    <span class="level-price" id="shortSupPrice">$--</span>
+                                    <span class="level-vol" id="shortSupVol">--</span>
+                                </div>
+                            </div>
+                            <div class="forecast-gauge">
+                                <div class="mini-gauge">
+                                    <div class="mini-gauge-fill bid" id="shortGaugeBid" style="width: 50%"></div>
+                                    <div class="mini-gauge-fill ask" id="shortGaugeAsk" style="width: 50%"></div>
+                                </div>
+                                <span class="mini-gauge-value" id="shortGaugeValue">--</span>
+                            </div>
+                        </div>
+                        
+                        <!-- MEDIUM TERM (±15%) -->
+                        <div class="forecast-card" id="forecastMedium">
+                            <div class="forecast-header">
+                                <span class="forecast-label">MEDIUM</span>
+                                <span class="forecast-range">±15%</span>
+                                <span class="forecast-arrow neutral" id="mediumArrow">→</span>
+                            </div>
+                            <div class="forecast-levels">
+                                <div class="forecast-level resistance">
+                                    <span class="level-icon">▼</span>
+                                    <span class="level-price" id="mediumResPrice">$--</span>
+                                    <span class="level-vol" id="mediumResVol">--</span>
+                                </div>
+                                <div class="forecast-level support">
+                                    <span class="level-icon">▲</span>
+                                    <span class="level-price" id="mediumSupPrice">$--</span>
+                                    <span class="level-vol" id="mediumSupVol">--</span>
+                                </div>
+                            </div>
+                            <div class="forecast-gauge">
+                                <div class="mini-gauge">
+                                    <div class="mini-gauge-fill bid" id="mediumGaugeBid" style="width: 50%"></div>
+                                    <div class="mini-gauge-fill ask" id="mediumGaugeAsk" style="width: 50%"></div>
+                                </div>
+                                <span class="mini-gauge-value" id="mediumGaugeValue">--</span>
+                            </div>
+                        </div>
+                        
+                        <!-- LONG TERM (±30%) -->
+                        <div class="forecast-card" id="forecastLong">
+                            <div class="forecast-header">
+                                <span class="forecast-label">LONG</span>
+                                <span class="forecast-range">±30%</span>
+                                <span class="forecast-arrow neutral" id="longArrow">→</span>
+                            </div>
+                            <div class="forecast-levels">
+                                <div class="forecast-level resistance">
+                                    <span class="level-icon">▼</span>
+                                    <span class="level-price" id="longResPrice">$--</span>
+                                    <span class="level-vol" id="longResVol">--</span>
+                                </div>
+                                <div class="forecast-level support">
+                                    <span class="level-icon">▲</span>
+                                    <span class="level-price" id="longSupPrice">$--</span>
+                                    <span class="level-vol" id="longSupVol">--</span>
+                                </div>
+                            </div>
+                            <div class="forecast-gauge">
+                                <div class="mini-gauge">
+                                    <div class="mini-gauge-fill bid" id="longGaugeBid" style="width: 50%"></div>
+                                    <div class="mini-gauge-fill ask" id="longGaugeAsk" style="width: 50%"></div>
+                                </div>
+                                <span class="mini-gauge-value" id="longGaugeValue">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Overall Summary -->
+                    <div class="forecast-summary">
+                        <div class="summary-item">
+                            <span class="summary-label">Overall Bias</span>
+                            <span class="summary-value" id="overallBias">--</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Confidence</span>
+                            <span class="summary-value" id="overallConfidence">--</span>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Fair Value Panel -->
+                <div class="panel fair-value-panel collapsible expanded" data-panel="fairvalue">
+                    <div class="panel-header">
+                        <h3>Fair Value</h3>
+                        <span class="panel-badge" id="fvStatus">Live</span>
+                    </div>
+                    <div class="panel-content">
+                    <div class="fv-metrics">
+                        <div class="fv-row">
+                            <span class="fv-label">Current</span>
+                            <span class="fv-value" id="fvCurrentPrice">$--</span>
+                        </div>
+                        <div class="fv-row">
+                            <span class="fv-label">Mid</span>
+                            <span class="fv-value" id="fvMidValue">$--</span>
+                            <span class="fv-diff" id="fvMidDiff">--</span>
+                        </div>
+                        <div class="fv-row">
+                            <span class="fv-label">VWMP</span>
+                            <span class="fv-value" id="fvVwmpValue">$--</span>
+                            <span class="fv-diff" id="fvVwmpDiff">--</span>
+                        </div>
+                        <div class="fv-row">
+                            <span class="fv-label">IFV</span>
+                            <span class="fv-value" id="fvIfvValue">$--</span>
+                            <span class="fv-diff" id="fvIfvDiff">--</span>
+                        </div>
+                    </div>
+                    
+                    <div class="fv-analysis" id="fvAnalysis">
+                        <div class="fv-analysis-text" id="fvAnalysisText">Calculating fair values...</div>
+                    </div>
+                    
+                    <!-- Trade Setup Section -->
+                    <div class="trade-setup" id="tradeSetup">
+                        <div class="trade-filter">
+                            <label>Min Gain %</label>
+                            <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
+                        </div>
+                        <div class="trade-filter">
+                            <label>Show on Chart</label>
+                            <input type="checkbox" id="showTradeOnChart">
+                        </div>
+                        <div class="trade-header">
+                            <span class="trade-direction" id="tradeDirection">WAIT</span>
+                            <span class="trade-confidence" id="tradeConfidence">--</span>
+                        </div>
+                        <div class="trade-levels">
+                            <div class="trade-level entry">
+                                <span class="level-label">Entry Zone</span>
+                                <span class="level-value" id="tradeEntry">$--</span>
+                            </div>
+                            <div class="trade-level stop">
+                                <span class="level-label">Stop Loss</span>
+                                <span class="level-value" id="tradeStop">$--</span>
+                            </div>
+                            <div class="trade-level target">
+                                <span class="level-label">Target 1</span>
+                                <span class="level-value" id="tradeTarget1">$--</span>
+                            </div>
+                            <div class="trade-level target">
+                                <span class="level-label">Target 2</span>
+                                <span class="level-value" id="tradeTarget2">$--</span>
+                            </div>
+                        </div>
+                        <div class="trade-rr">
+                            <span class="rr-label">Risk/Reward</span>
+                            <span class="rr-value" id="tradeRR">--</span>
+                        </div>
+                        <div class="trade-reasoning" id="tradeReasoning">
+                            Analyzing order book...
+                        </div>
+                    </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Sidebar - Alpha, Regime & Levels -->
+            <div class="sidebar sidebar-right">
+                <!-- Market Consensus Signal Panel -->
+                <div class="panel mcs-panel collapsible expanded" data-panel="mcs" id="mcsPanel">
+                    <!-- Trend Color Stripe (Enhancement #5) -->
+                    <div class="mcs-stripe" id="mcsStripe">
+                        <div class="stripe-segment neutral"></div>
+                        <div class="stripe-segment neutral"></div>
+                        <div class="stripe-segment neutral"></div>
+                    </div>
+                    
+                    <div class="panel-header">
+                        <h3>MARKET CONSENSUS</h3>
+                        <!-- Mode Selector (Enhancement #4) -->
+                        <div class="mcs-mode-selector" id="mcsModeSelector">
+                            <button class="mcs-mode-btn" data-mode="aggressive" title="Aggressive: Heavy weight on MM for scalping">⚡</button>
+                            <button class="mcs-mode-btn active" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
+                            <button class="mcs-mode-btn" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
+                        </div>
+                        <span class="live-badge">Live</span>
+                    </div>
+                    <div class="panel-content">
+                        <!-- MCS Header with main signal + confidence + dots -->
+                        <div class="mcs-header" id="mcsHeader">
+                            <div class="mcs-main-signal neutral">
+                                <span class="mcs-icon">🟡</span>
+                                <span class="mcs-label">LOADING...</span>
+                                <span class="mcs-score">(--/100)</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Quant Summary (Enhancement #3) -->
+                        <div class="mcs-quant-summary" id="mcsQuant">
+                            <div class="quant-row"><span class="quant-label">Loading...</span></div>
+                        </div>
+                        
+                        <!-- MM Row -->
+                        <div class="mcs-row" id="mcsMM">
+                            <div class="mcs-row-header">
+                                <span class="mcs-row-title">⚡ MM (Microstructure)</span>
+                                <span class="mcs-row-bias">--</span>
+                            </div>
+                            <div class="mcs-row-details">Loading...</div>
+                        </div>
+                        
+                        <!-- Swing Row -->
+                        <div class="mcs-row" id="mcsSwing">
+                            <div class="mcs-row-header">
+                                <span class="mcs-row-title">📊 Swing (Short-term)</span>
+                                <span class="mcs-row-bias">--</span>
+                            </div>
+                            <div class="mcs-row-details">Loading...</div>
+                        </div>
+                        
+                        <!-- HTF Row -->
+                        <div class="mcs-row" id="mcsHTF">
+                            <div class="mcs-row-header">
+                                <span class="mcs-row-title">🏦 HTF (Macro)</span>
+                                <span class="mcs-row-bias">--</span>
+                            </div>
+                            <div class="mcs-row-details">Loading...</div>
+                        </div>
+                        
+                        <!-- Trade Plan -->
+                        <div class="mcs-trade-plan" id="mcsTradePlan">
+                            <div class="trade-plan-header">
+                                <span class="trade-plan-action neutral">🟡 CALCULATING...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Newbie Takeaway -->
+                        <div class="mcs-newbie" id="mcsNewbie">
+                            <span class="mcs-newbie-icon">💡</span>
+                            <span class="mcs-newbie-text">"Waiting for data..."</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alpha Score Panel (moved from left sidebar) -->
+                <div class="panel alpha-score-panel collapsible expanded" data-panel="alpha">
+                    <div class="panel-header">
+                        <h3>Alpha Score</h3>
+                        <span class="alpha-badge" id="alphaRegime">--</span>
+                    </div>
+                    <div class="panel-content">
+                    <div class="alpha-score-display">
+                        <div class="alpha-gauge">
+                            <div class="alpha-gauge-track">
+                                <div class="alpha-gauge-fill" id="alphaGaugeFill"></div>
+                                <div class="alpha-gauge-zones">
+                                    <span class="zone bearish">BEAR</span>
+                                    <span class="zone neutral">NEUTRAL</span>
+                                    <span class="zone bullish">BULL</span>
+                                </div>
+                            </div>
+                            <div class="alpha-gauge-marker" id="alphaGaugeMarker"></div>
+                        </div>
+                        <div class="alpha-value-display">
+                            <span class="alpha-value" id="alphaValue">--</span>
+                            <span class="alpha-label">/ 100</span>
+                        </div>
+                    </div>
+                    <div class="alpha-components">
+                        <div class="alpha-component">
+                            <span class="comp-name">LD</span>
+                            <div class="comp-bar"><div class="comp-fill" id="alphaLdFill"></div></div>
+                            <span class="comp-weight">40%</span>
+                        </div>
+                        <div class="alpha-component">
+                            <span class="comp-name">BPR</span>
+                            <div class="comp-bar"><div class="comp-fill" id="alphaBprFill"></div></div>
+                            <span class="comp-weight">25%</span>
+                        </div>
+                        <div class="alpha-component">
+                            <span class="comp-name">IFV</span>
+                            <div class="comp-bar"><div class="comp-fill" id="alphaIfvFill"></div></div>
+                            <span class="comp-weight">25%</span>
+                        </div>
+                        <div class="alpha-component">
+                            <span class="comp-name">VWMP</span>
+                            <div class="comp-bar"><div class="comp-fill" id="alphaVwmpFill"></div></div>
+                            <span class="comp-weight">10%</span>
+                        </div>
+                    </div>
+                    <div class="alpha-interpretation" id="alphaInterpretation">
+                        Calculating microstructure alpha...
+                    </div>
+                    
+                    <!-- Alpha Newbie Summary - Easy to understand trading advice -->
+                    <div class="alpha-newbie-summary" id="alphaNewbieSummary">
+                        <!-- Populated dynamically with actionable advice -->
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Regime Engine Panel -->
+                <div class="panel regime-panel collapsible expanded" data-panel="regime">
+                    <div class="panel-header">
+                        <h3>Regime Engine</h3>
+                        <span class="panel-badge live" id="regimeStatus">Live</span>
+                    </div>
+                    <div class="panel-content">
+                    
+                    <!-- Regime Mode Selector -->
+                    <div class="regime-mode-selector">
+                        <button class="regime-mode-btn active" data-mode="marketMaker" title="Very sensitive - rapid regime changes for scalping">
+                            <span class="mode-icon">⚡</span>
+                            <span class="mode-label">MM</span>
+                        </button>
+                        <button class="regime-mode-btn" data-mode="swingTrader" title="Moderate sensitivity - smoother transitions for swing trading">
+                            <span class="mode-icon">📊</span>
+                            <span class="mode-label">Swing</span>
+                        </button>
+                        <button class="regime-mode-btn" data-mode="investor" title="Low sensitivity - only major structural shifts for position trading">
+                            <span class="mode-icon">🏦</span>
+                            <span class="mode-label">HTF</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Current Regime Display -->
+                    <div class="regime-current" id="regimeCurrent">
+                        <span class="regime-icon" id="regimeIcon">⏳</span>
+                        <span class="regime-name" id="regimeName">Analyzing...</span>
+                    </div>
+                    <div class="regime-description" id="regimeDescription">
+                        Waiting for data to classify market regime...
+                    </div>
+                    
+                    <!-- Momentum Signals Section -->
+                    <div class="regime-section">
+                        <div class="regime-section-header">
+                            <span class="section-title">MOMENTUM</span>
+                            <span class="info-icon" data-tooltip="Rate of change signals showing how fast pressure is shifting">ⓘ</span>
+                        </div>
+                        <div class="regime-row">
+                            <span class="regime-label">LD_ROC</span>
+                            <div class="regime-mini-gauge">
+                                <div class="mini-bar-container">
+                                    <div class="mini-bar-fill negative" id="ldRocBarNeg" style="width: 0%"></div>
+                                    <div class="mini-bar-center"></div>
+                                    <div class="mini-bar-fill positive" id="ldRocBarPos" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span class="regime-value" id="ldRocValue">--</span>
+                        </div>
+                        <div class="regime-row">
+                            <span class="regime-label">BPR_ROC</span>
+                            <div class="regime-mini-gauge">
+                                <div class="mini-bar-container">
+                                    <div class="mini-bar-fill negative" id="bprRocBarNeg" style="width: 0%"></div>
+                                    <div class="mini-bar-center"></div>
+                                    <div class="mini-bar-fill positive" id="bprRocBarPos" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span class="regime-value" id="bprRocValue">--</span>
+                        </div>
+                        <div class="regime-row">
+                            <span class="regime-label">Alpha_ROC</span>
+                            <div class="regime-mini-gauge">
+                                <div class="mini-bar-container">
+                                    <div class="mini-bar-fill negative" id="alphaRocBarNeg" style="width: 0%"></div>
+                                    <div class="mini-bar-center"></div>
+                                    <div class="mini-bar-fill positive" id="alphaRocBarPos" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <span class="regime-value" id="alphaRocValue">--</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Extension Section -->
+                    <div class="regime-section">
+                        <div class="regime-section-header">
+                            <span class="section-title">EXTENSION</span>
+                            <span class="info-icon" data-tooltip="How far price is stretched from fair value — positive = premium, negative = discount">ⓘ</span>
+                        </div>
+                        <div class="regime-row">
+                            <span class="regime-label">VWMP_ext</span>
+                            <span class="regime-value ext" id="vwmpExtValue">--</span>
+                            <span class="regime-hint" id="vwmpExtHint">--</span>
+                        </div>
+                        <div class="regime-row">
+                            <span class="regime-label">IFV_ext</span>
+                            <span class="regime-value ext" id="ifvExtValue">--</span>
+                            <span class="regime-hint" id="ifvExtHint">--</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Liquidity Structure Section -->
+                    <div class="regime-section">
+                        <div class="regime-section-header">
+                            <span class="section-title">LIQUIDITY STRUCTURE</span>
+                            <span class="info-icon" data-tooltip="Shows where big orders are clustered and potential price vacuums">ⓘ</span>
+                        </div>
+                        <div class="regime-row gap-row">
+                            <div class="gap-item">
+                                <span class="gap-label">Support Gap</span>
+                                <span class="gap-value" id="supportGapValue">--</span>
+                            </div>
+                            <div class="gap-item">
+                                <span class="gap-label">Resist Gap</span>
+                                <span class="gap-value" id="resistGapValue">--</span>
+                            </div>
+                        </div>
+                        <div class="regime-row share-row">
+                            <span class="regime-label">Volume Share</span>
+                            <div class="share-gauge">
+                                <div class="share-bar support" id="supportShareBar" style="width: 50%">
+                                    <span class="share-label" id="supportShareLabel">50%</span>
+                                </div>
+                                <div class="share-bar resistance" id="resistShareBar" style="width: 50%">
+                                    <span class="share-label" id="resistShareLabel">50%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Regime Interpretation -->
+                    <div class="regime-interpretation" id="regimeInterpretation">
+                        <span class="interpretation-text">Collecting signals for regime classification...</span>
+                    </div>
+                    
+                    <!-- Newbie Summary - Easy to understand trading advice -->
+                    <div class="regime-newbie-summary" id="regimeNewbieSummary">
+                        <!-- Populated dynamically with actionable advice -->
+                    </div>
+                    
+                    <!-- Regime Transition Probability -->
+                    <div class="regime-transition-section">
+                        <div class="transition-header">
+                            <span class="transition-title">📊 Next Regime Probability</span>
+                        </div>
+                        <div class="regime-transition-probs" id="regimeTransitionProbs">
+                            <div class="transition-loading">Calculating transition probabilities...</div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                <!-- Levels Panel -->
+                <div class="panel levels-panel collapsible expanded" data-panel="levels">
+                    <div class="panel-header">
+                        <h3>Key Levels</h3>
+                        <div class="level-filter">
+                            <button class="filter-btn active" data-filter="all">All</button>
+                            <button class="filter-btn" data-filter="support">Bids</button>
+                            <button class="filter-btn" data-filter="resistance">Asks</button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="levels-list" id="levelsList">
+                            <div class="loading">Loading levels...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-left">
+                <span class="cache-status" id="cacheStatus">Cache: --</span>
+                <!-- WebSocket Data Source Indicator -->
+                <span class="data-source-indicator" id="dataSourceIndicator" title="Order book data source">
+                    <span class="source-dot"></span>
+                    <span class="source-label">PHP</span>
+                </span>
+            </div>
+            <div class="footer-center">
+                <span id="lastUpdate">Last update: --</span>
+                <span class="footer-separator">·</span>
+                <span class="footer-copyright">© 2025 <a href="mailto:daniel.boorn@gmail.com">Daniel Boorn</a> · Personal use · <a href="mailto:daniel.boorn@gmail.com">Contact for commercial</a></span>
+                <span class="footer-separator">·</span>
+                <span class="footer-disclaimer">Use at own risk · Not financial advice</span>
+            </div>
+            <div class="footer-right">
+                <span class="auto-refresh">
+                    Data refresh: 
+                    <select id="refreshInterval">
+                        <option value="0">Off</option>
+                        <option value="5000">5s</option>
+                        <option value="10000" selected>10s</option>
+                        <option value="30000">30s</option>
+                        <option value="60000">1m</option>
+                    </select>
+                </span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Legend Modal -->
+    <div class="modal" id="legendModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Chart Legend</h2>
+                <button class="modal-close" id="closeLegend">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="legend-section">
+                    <h3>Price Levels</h3>
+                    <div class="legend-item">
+                        <span class="legend-line support"></span>
+                        <div>
+                            <strong>Support (Green)</strong>
+                            <p>Buy orders aggregated from order books. These are price levels where buyers are placing bids. Stronger support = more buy volume.</p>
+                        </div>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-line resistance"></span>
+                        <div>
+                            <strong>Resistance (Red)</strong>
+                            <p>Sell orders aggregated from order books. These are price levels where sellers are placing asks. Stronger resistance = more sell volume.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="legend-section">
+                    <h3>Level Labels</h3>
+                    <p>Each level shows: <code>▲/▼ [Volume] <span class="legend-symbol">BTC</span> [Price]</code></p>
+                    <ul>
+                        <li><strong>▲</strong> = Support (bids below price)</li>
+                        <li><strong>▼</strong> = Resistance (asks above price)</li>
+                        <li><strong>Volume</strong> = Total <span class="legend-symbol">BTC</span> at this level</li>
+                        <li><strong>Line thickness</strong> = Relative strength</li>
+                    </ul>
+                </div>
+                <div class="legend-section">
+                    <h3>Data Sources</h3>
+                    <p>Levels are synthesized from order books across multiple exchanges (Kraken, Coinbase, Bitstamp). Orders at similar prices are clustered together to show significant support/resistance zones.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal (Full Screen) -->
+    <div class="modal fullscreen-modal" id="settingsModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content fullscreen-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" id="closeSettings">&times;</button>
+            </div>
+            <div class="modal-body settings-grid">
+                <!-- Column 1: Chart Overlays -->
+                <div class="settings-column">
+                    <h3 class="settings-section-title">Chart Overlays</h3>
+                    
+                    <div class="settings-toggles-group">
+                        <h4>Order Book</h4>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showLevels" checked>
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Support/Resistance Levels</span>
+                                <span class="toggle-hint">Show order book levels on chart</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showVolume">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Volume Bars</span>
+                                <span class="toggle-hint">Show volume histogram below chart</span>
+                            </div>
+                        </label>
+                        <!-- Historical features disabled for WebSocket performance - may revisit later -->
+                        <div style="display:none" aria-hidden="true">
+                            <input type="checkbox" id="showHistoricalLevels">
+                            <input type="checkbox" id="showHistoricalFairValue">
+                        </div>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showLDFlowZones" checked>
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">LD Flow Zones</span>
+                                <span class="toggle-hint">Show support/resistance labels from LD analysis</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="settings-toggles-group">
+                        <h4>Projections</h4>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showTargets">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Target Lines</span>
+                                <span class="toggle-hint">Horizontal lines at projected targets</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showRays">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Projection Rays</span>
+                                <span class="toggle-hint">Angled rays toward targets</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showConfidence">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Confidence %</span>
+                                <span class="toggle-hint">Show confidence on projections</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="settings-toggles-group">
+                        <h4>Technical</h4>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showEmaGrid">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">EMA Grid (20)</span>
+                                <span class="toggle-hint">Show 20-period EMA with grid</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="settings-toggles-group">
+                        <h4>Fair Value Indicators</h4>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showMid">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Simple Mid</span>
+                                <span class="toggle-hint">(Best Bid + Best Ask) / 2</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showIFV">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">IFV (Implied Fair Value)</span>
+                                <span class="toggle-hint">Volume-weighted strongest levels</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showVWMP">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">VWMP</span>
+                                <span class="toggle-hint">Volume-Weighted Mid Price</span>
+                            </div>
+                        </label>
+                    </div>
+                    
+                    <div class="settings-toggles-group">
+                        <h4>Analytics Data Source</h4>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="useFullBook" checked>
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Use Full Order Book</span>
+                                <span class="toggle-hint">Analytics use all data (not just visible)</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Column 2: Level Filtering -->
+                <div class="settings-column">
+                    <h3 class="settings-section-title">Level Filtering</h3>
+                    
+                    <div class="settings-group">
+                        <label>
+                            <span>Update Throttle</span>
+                            <span class="setting-hint">WebSocket update frequency (lower = faster, more CPU)</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingUpdateThrottle" min="100" max="2000" step="100" value="500">
+                            <span class="setting-value" id="updateThrottleValue">500ms</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>Price Clustering %</span>
+                            <span class="setting-hint">Group orders within this % range (0 = no clustering)</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="number" id="settingCluster" min="0" max="20" step="0.01" value="0.15" class="number-input">
+                            <span class="setting-value">%</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>Max Levels</span>
+                            <span class="setting-hint">Maximum levels to display</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingMaxLevels" min="10" max="500" step="10" value="500">
+                            <span class="setting-value" id="maxLevelsValue">500</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>Min Volume (<span id="minVolSymbol">BTC</span>)</span>
+                            <span class="setting-hint">Hide levels below this volume</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingMinVol" min="0" max="100" step="5" value="15">
+                            <span class="setting-value" id="minVolValue">15 BTC</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>Price Range %</span>
+                            <span class="setting-hint">Show levels within ±X% of price</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingPriceRange" min="5" max="100" step="5" value="100">
+                            <span class="setting-value" id="priceRangeValue">±100%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-divider"></div>
+                    <h3 class="settings-section-title">Level Appearance</h3>
+                    
+                    <div class="settings-group">
+                        <label>
+                            <span>Signal Amplifier</span>
+                            <span class="setting-hint">High = amplify weak signals</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingBrightness" min="10" max="100" step="5" value="50">
+                            <span class="setting-value" id="brightnessValue">50%</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>Thickness Amplifier</span>
+                            <span class="setting-hint">High = thicker weak levels</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="range" id="settingThickness" min="0.5" max="5" step="0.5" value="5">
+                            <span class="setting-value" id="thicknessValue">5</span>
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>EMA Grid Spacing</span>
+                            <span class="setting-hint">Multiplier (0.1 = EMA×1.1, 1.2...)</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="number" id="settingEmaGridSpacing" min="0.001" max="1" step="0.001" value="0.005" class="number-input">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Column 3: Colors -->
+                <div class="settings-column">
+                    <h3 class="settings-section-title">Chart Colors</h3>
+                    
+                    <div class="settings-group color-group">
+                        <label>
+                            <span>Price Bars</span>
+                            <span class="setting-hint">Up / Down colors</span>
+                        </label>
+                        <div class="color-inputs">
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorBarUp" value="#10b981" title="Up bar color">
+                                <span>Up</span>
+                            </div>
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorBarDown" value="#ef4444" title="Down bar color">
+                                <span>Down</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-group color-group">
+                        <label>
+                            <span>Order Book Levels</span>
+                            <span class="setting-hint">Support / Resistance colors</span>
+                        </label>
+                        <div class="color-inputs">
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorLevelSupport" value="#00d9ff" title="Support level color">
+                                <span>Support</span>
+                            </div>
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorLevelResistance" value="#ff006e" title="Resistance level color">
+                                <span>Resist</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <div class="settings-actions">
+                    <button class="btn-secondary" id="resetSettings">Reset Defaults</button>
+                    <button class="btn-primary" id="applySettings">Apply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/db.js"></script>
+    <script src="js/websocket-orderbook.js"></script>
+    <script src="js/orderbook-aggregator.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/websocket.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/depth.js"></script>
+    <script src="js/direction.js"></script>
+    <script src="js/app.js"></script>
+    
+    <!-- Global Tooltip Container -->
+    <div id="globalTooltip" class="global-tooltip"></div>
+    
+    <script>
+    // Global tooltip positioning
+    document.querySelectorAll('.info-icon').forEach(icon => {
+        const tooltipContent = icon.querySelector('.info-tooltip');
+        if (!tooltipContent) return;
+        
+        const globalTooltip = document.getElementById('globalTooltip');
+        
+        icon.addEventListener('mouseenter', (e) => {
+            globalTooltip.innerHTML = tooltipContent.innerHTML;
+            globalTooltip.classList.add('visible');
+            
+            const rect = icon.getBoundingClientRect();
+            const tooltipRect = globalTooltip.getBoundingClientRect();
+            
+            // Position to the right of the icon, or left if no room
+            let left = rect.right + 10;
+            if (left + 220 > window.innerWidth) {
+                left = rect.left - 230;
+            }
+            
+            let top = rect.top + (rect.height / 2) - (tooltipRect.height / 2);
+            // Keep within viewport
+            if (top < 10) top = 10;
+            if (top + tooltipRect.height > window.innerHeight - 10) {
+                top = window.innerHeight - tooltipRect.height - 10;
+            }
+            
+            globalTooltip.style.left = left + 'px';
+            globalTooltip.style.top = top + 'px';
+        });
+        
+        icon.addEventListener('mouseleave', () => {
+            globalTooltip.classList.remove('visible');
+        });
+    });
+    
+    // Min gain input - trigger recalculation on change
+    const minGainInput = document.getElementById('minGainPercent');
+    const showTradeOnChart = document.getElementById('showTradeOnChart');
+    
+    // Load saved values from localStorage
+    if (minGainInput) {
+        const savedMinGain = localStorage.getItem('tradeSetup_minGain');
+        if (savedMinGain) {
+            minGainInput.value = savedMinGain;
+        }
+        
+        minGainInput.addEventListener('change', () => {
+            localStorage.setItem('tradeSetup_minGain', minGainInput.value);
+            if (window.app && window.app.chart) {
+                window.app.chart.updateFairValueIndicators();
+            }
+        });
+        minGainInput.addEventListener('input', () => {
+            clearTimeout(window.minGainTimeout);
+            window.minGainTimeout = setTimeout(() => {
+                localStorage.setItem('tradeSetup_minGain', minGainInput.value);
+                if (window.app && window.app.chart) {
+                    window.app.chart.updateFairValueIndicators();
+                }
+            }, 300);
+        });
+    }
+    
+    // Show trade on chart checkbox
+    if (showTradeOnChart) {
+        const savedShowTrade = localStorage.getItem('tradeSetup_showOnChart');
+        showTradeOnChart.checked = savedShowTrade === 'true';
+        
+        showTradeOnChart.addEventListener('change', () => {
+            localStorage.setItem('tradeSetup_showOnChart', showTradeOnChart.checked);
+            if (window.app && window.app.chart) {
+                window.app.chart.updateFairValueIndicators();
+            }
+        });
+    }
+    </script>
+
+    <!-- Disclaimer Modal -->
+    <div class="disclaimer-modal" id="disclaimerModal">
+        <div class="disclaimer-backdrop"></div>
+        <div class="disclaimer-content">
+            <div class="disclaimer-header">
+                <h2>⚠️ Important Disclaimer</h2>
+            </div>
+            <div class="disclaimer-body">
+                <p><strong>Educational Purpose Only</strong></p>
+                <p>This tool is provided strictly for educational and informational purposes. The data, analysis, and visualizations presented are not intended to constitute financial, investment, trading, or any other type of professional advice.</p>
+                
+                <p><strong>No Financial Advice</strong></p>
+                <p>Nothing in this application should be construed as a recommendation to buy, sell, or hold any cryptocurrency or financial instrument. Always conduct your own research and consult with qualified financial advisors before making any investment decisions.</p>
+                
+                <p><strong>Use at Your Own Risk</strong></p>
+                <p>You acknowledge that cryptocurrency trading involves substantial risk of loss. The creators and operators of this tool accept no responsibility for any financial losses or damages resulting from the use of this application.</p>
+                
+                <p><strong>License Agreement</strong></p>
+                <p>This software is free for personal, non-commercial use only. Commercial reproduction or distribution is prohibited without license. For commercial licensing, contact <a href="mailto:daniel.boorn@gmail.com">daniel.boorn@gmail.com</a>.</p>
+                
+                <label class="disclaimer-checkbox">
+                    <input type="checkbox" id="disclaimerAgree">
+                    <span>I understand and agree to the above terms. I acknowledge this tool is for educational purposes only and does not constitute financial advice.</span>
+                </label>
+            </div>
+            <div class="disclaimer-footer">
+                <button class="disclaimer-btn" id="disclaimerAccept" disabled>Accept & Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Disclaimer Modal Logic
+    (function() {
+        const STORAGE_KEY = 'orderbook_disclaimer_accepted';
+        const modal = document.getElementById('disclaimerModal');
+        const checkbox = document.getElementById('disclaimerAgree');
+        const acceptBtn = document.getElementById('disclaimerAccept');
+        
+        // Check if already accepted
+        if (localStorage.getItem(STORAGE_KEY) === 'true') {
+            modal.style.display = 'none';
+            return;
+        }
+        
+        // Show modal
+        modal.classList.add('open');
+        
+        // Enable button when checkbox is checked
+        checkbox.addEventListener('change', function() {
+            acceptBtn.disabled = !this.checked;
+        });
+        
+        // Accept and remember
+        acceptBtn.addEventListener('click', function() {
+            if (checkbox.checked) {
+                localStorage.setItem(STORAGE_KEY, 'true');
+                modal.classList.remove('open');
+                setTimeout(() => modal.style.display = 'none', 300);
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
+
