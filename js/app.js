@@ -656,6 +656,10 @@ class OrderBookApp {
             document.getElementById('priceRangeValue').textContent = '±' + e.target.value + '%';
         });
         
+        document.getElementById('settingFairValueRange').addEventListener('input', (e) => {
+            document.getElementById('fairValueRangeValue').textContent = '±' + e.target.value + '%';
+        });
+        
         document.getElementById('settingBrightness').addEventListener('input', (e) => {
             document.getElementById('brightnessValue').textContent = e.target.value + '%';
         });
@@ -695,6 +699,11 @@ class OrderBookApp {
         
         document.getElementById('settingPriceRange').value = this.levelSettings.priceRange;
         document.getElementById('priceRangeValue').textContent = '±' + this.levelSettings.priceRange + '%';
+        
+        // Fair Value Range (stored separately for chart.js)
+        const fairValueRange = parseInt(localStorage.getItem('fairValueRange') || '15');
+        document.getElementById('settingFairValueRange').value = fairValueRange;
+        document.getElementById('fairValueRangeValue').textContent = '±' + fairValueRange + '%';
         
         // Color settings
         document.getElementById('colorBarUp').value = this.levelSettings.barUpColor;
@@ -769,6 +778,8 @@ class OrderBookApp {
             brightness: 50, // 50% = balanced signal amplifier
             thickness: 5    // Max thickness amplifier
         };
+        // Reset Fair Value Range to default
+        localStorage.setItem('fairValueRange', '15');
         this.saveSettings(); // Persist reset
         this.applyChartColors(); // Apply default colors
         this.applyLevelAppearance(); // Apply appearance settings
@@ -793,6 +804,10 @@ class OrderBookApp {
         const emaGridSpacing = parseFloat(document.getElementById('settingEmaGridSpacing').value);
         localStorage.setItem('emaGridSpacing', emaGridSpacing);
         this.chart.setEmaGridSpacing(emaGridSpacing);
+        
+        // Save Fair Value Range separately (used by chart.js for VWMP/IFV calculation)
+        const fairValueRange = parseInt(document.getElementById('settingFairValueRange').value);
+        localStorage.setItem('fairValueRange', fairValueRange);
         
         this.saveSettings(); // Persist to localStorage
         this.applyChartColors(); // Apply new colors

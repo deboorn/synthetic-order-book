@@ -2102,14 +2102,28 @@ class OrderBookChart {
     /**
      * Calculate Implied Fair Value
      * Volume-weighted center of the strongest support/resistance levels
+     * @param {Array} levels - Order book levels
+     * @param {number} currentPrice - Current market price (optional, for range filtering)
      */
-    calculateIFV(levels) {
+    calculateIFV(levels, currentPrice = null) {
         if (!levels || levels.length === 0) return null;
+        
+        // Get fair value range from settings (default 15%)
+        const fairValueRange = parseFloat(localStorage.getItem('fairValueRange') || '15') / 100;
         
         // Filter out invalid levels (price must be > 0 and reasonable)
         const validLevels = levels.filter(l => {
             const price = parseFloat(l.price);
-            return price > 1000; // Filter out $0 or unreasonable prices
+            if (price <= 1000) return false; // Filter out $0 or unreasonable prices
+            
+            // If currentPrice provided, filter to within ±fairValueRange%
+            if (currentPrice && fairValueRange < 1) {
+                const minPrice = currentPrice * (1 - fairValueRange);
+                const maxPrice = currentPrice * (1 + fairValueRange);
+                if (price < minPrice || price > maxPrice) return false;
+            }
+            
+            return true;
         });
         
         if (validLevels.length === 0) return null;
@@ -2137,14 +2151,28 @@ class OrderBookChart {
     /**
      * Calculate Volume-Weighted Mid Price
      * Weighted average of all bid/ask levels
+     * @param {Array} levels - Order book levels
+     * @param {number} currentPrice - Current market price (optional, for range filtering)
      */
-    calculateVWMP(levels) {
+    calculateVWMP(levels, currentPrice = null) {
         if (!levels || levels.length === 0) return null;
+        
+        // Get fair value range from settings (default 15%)
+        const fairValueRange = parseFloat(localStorage.getItem('fairValueRange') || '15') / 100;
         
         // Filter out invalid levels (price must be > 0 and reasonable)
         const validLevels = levels.filter(l => {
             const price = parseFloat(l.price);
-            return price > 1000; // Filter out $0 or unreasonable prices
+            if (price <= 1000) return false; // Filter out $0 or unreasonable prices
+            
+            // If currentPrice provided, filter to within ±fairValueRange%
+            if (currentPrice && fairValueRange < 1) {
+                const minPrice = currentPrice * (1 - fairValueRange);
+                const maxPrice = currentPrice * (1 + fairValueRange);
+                if (price < minPrice || price > maxPrice) return false;
+            }
+            
+            return true;
         });
         
         // Separate support (bids) and resistance (asks)
@@ -2218,10 +2246,10 @@ class OrderBookChart {
         // Clear existing lines
         this.clearFairValueLines();
         
-        // Calculate all values
+        // Calculate all values (pass currentPrice for range filtering)
         const mid = this.calculateMid(levels);
-        const ifv = this.calculateIFV(levels);
-        const vwmp = this.calculateVWMP(levels);
+        const ifv = this.calculateIFV(levels, this.currentPrice);
+        const vwmp = this.calculateVWMP(levels, this.currentPrice);
         
         // Track historical fair values
         this.trackHistoricalFairValue(vwmp, ifv);
@@ -6266,11 +6294,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     updateRegimeEngine(levels, currentPrice, alpha) {
         if (!levels || !currentPrice) return;
         
-        // Calculate core indicators
+        // Calculate core indicators (pass currentPrice for range filtering)
         const bpr = this.calculateBPR(levels);
         const ld = this.calculateLiquidityDelta(levels, currentPrice);
-        const vwmp = this.calculateVWMP(levels);
-        const ifv = this.calculateIFV(levels);
+        const vwmp = this.calculateVWMP(levels, currentPrice);
+        const ifv = this.calculateIFV(levels, currentPrice);
         
         // Calculate ROC (Rate of Change) signals
         const signals = this.regimeEngine.signals;
