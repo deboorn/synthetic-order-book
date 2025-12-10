@@ -1620,6 +1620,10 @@ class OrderBookApp {
     renderLevelsList() {
         const container = this.elements.levelsList;
         
+        // Preserve sidebar scroll position during updates
+        const sidebar = document.querySelector('.sidebar-right');
+        const scrollTop = sidebar ? sidebar.scrollTop : 0;
+        
         // Filter levels
         let filtered = this.levels;
         if (this.filter !== 'all') {
@@ -1658,6 +1662,11 @@ class OrderBookApp {
         }).join('');
 
         container.innerHTML = html || '<div class="loading">No levels found</div>';
+        
+        // Restore sidebar scroll position after DOM updates
+        if (sidebar && scrollTop > 0) {
+            sidebar.scrollTop = scrollTop;
+        }
     }
 
     highlightLevel(level) {

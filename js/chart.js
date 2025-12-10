@@ -741,6 +741,9 @@ class OrderBookChart {
             window.dispatchEvent(new CustomEvent('newBarOpened', {
                 detail: { time: candleTime, interval: this.currentInterval, source: 'ohlc_stream' }
             }));
+            
+            // Force immediate signal update on new bar (bypass throttle)
+            this._lastSignalUpdate = 0;
         }
         
         // Store/update in local history
@@ -805,6 +808,27 @@ class OrderBookChart {
         // Restore view position
         if (savedRange) {
             this.chart.timeScale().setVisibleLogicalRange(savedRange);
+        }
+        
+        // Update signal markers (throttled - max once per 5 seconds to prevent flicker)
+        // Signals need to be recalculated when new candle data arrives
+        const now = Date.now();
+        if (!this._lastSignalUpdate) this._lastSignalUpdate = 0;
+        
+        const signalThrottle = 5000; // 5 seconds
+        if ((now - this._lastSignalUpdate) >= signalThrottle) {
+            this._lastSignalUpdate = now;
+            
+            // Update EMA/ZEMA grids if enabled (they depend on candle data)
+            if (this.emaGrid && this.emaGrid.show) {
+                this.drawEmaGrid();
+            }
+            if (this.zemaGrid && this.zemaGrid.show) {
+                this.drawZemaGrid();
+            }
+            
+            // Update all signal markers (BB Pulse, EMA signals, ZEMA signals)
+            this.updateAllSignalMarkers();
         }
     }
     
@@ -878,6 +902,31 @@ class OrderBookChart {
                 this.trackLevelChanges(levels);
             }
         }
+
+        // Create a signature of current levels for change detection
+        // Only redraw if levels have changed significantly
+        const createLevelSignature = (lvls) => {
+            if (!lvls || lvls.length === 0) return '';
+            // Create signature from top 20 levels by volume (most visible)
+            const sorted = [...lvls].sort((a, b) => b.volume - a.volume).slice(0, 20);
+            return sorted.map(l => `${Math.round(l.price)}:${Math.round(l.volume)}`).join('|');
+        };
+        
+        const newSignature = createLevelSignature(levels);
+        const hasSignificantChange = newSignature !== this._lastLevelSignature;
+        
+        // Skip redraw if no significant change
+        if (!hasSignificantChange && this.priceLines.length > 0) {
+            // Still update fair value indicators (they have their own change detection)
+            if (levels && levels.length > 0) {
+                this.levelLines = levels;
+                this.setFairValueLevels(levels);
+            }
+            return;
+        }
+        
+        // Store signature for next comparison
+        this._lastLevelSignature = newSignature;
 
         // Remove existing price lines
         this.clearLevels();
@@ -2854,55 +2903,84 @@ class OrderBookChart {
         
         const levels = this.fairValueIndicators.currentLevels;
         
-        // Clear existing lines
-        this.clearFairValueLines();
+        // Preserve sidebar scroll position during updates
+        const sidebar = document.querySelector('.sidebar-right');
+        const scrollTop = sidebar ? sidebar.scrollTop : 0;
         
         // Calculate all values (pass currentPrice for range filtering)
         const mid = this.calculateMid(levels);
         const ifv = this.calculateIFV(levels, this.currentPrice);
         const vwmp = this.calculateVWMP(levels, this.currentPrice);
         
-        // Track historical fair values
-        this.trackHistoricalFairValue(vwmp, ifv);
+        // Check if values have changed significantly (0.05% threshold)
+        const threshold = 0.0005;
+        const lastVals = this.fairValueIndicators.lastValues || {};
+        const hasSignificantChange = (
+            !lastVals.mid || Math.abs((mid - lastVals.mid) / lastVals.mid) > threshold ||
+            !lastVals.ifv || Math.abs((ifv - lastVals.ifv) / lastVals.ifv) > threshold ||
+            !lastVals.vwmp || Math.abs((vwmp - lastVals.vwmp) / lastVals.vwmp) > threshold
+        );
         
-        // Draw Simple Mid line
-        if (this.fairValueIndicators.showMid && mid !== null) {
-            this.fairValueIndicators.midLine = this.candleSeries.createPriceLine({
-                price: mid,
-                color: 'rgba(229, 231, 235, 0.9)', // Light gray
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Dotted,
-                axisLabelVisible: true,
-                title: 'Mid'
-            });
+        // Skip line redraw if no significant change (but still update panel)
+        const shouldRedrawLines = hasSignificantChange || 
+            !this.fairValueIndicators.midLine && this.fairValueIndicators.showMid ||
+            !this.fairValueIndicators.ifvLine && this.fairValueIndicators.showIFV ||
+            !this.fairValueIndicators.vwmpLine && this.fairValueIndicators.showVWMP;
+        
+        if (shouldRedrawLines) {
+            // Store values for next comparison
+            this.fairValueIndicators.lastValues = { mid, ifv, vwmp };
+            
+            // Clear existing lines
+            this.clearFairValueLines();
+            
+            // Track historical fair values
+            this.trackHistoricalFairValue(vwmp, ifv);
+            
+            // Draw Simple Mid line
+            if (this.fairValueIndicators.showMid && mid !== null) {
+                this.fairValueIndicators.midLine = this.candleSeries.createPriceLine({
+                    price: mid,
+                    color: 'rgba(229, 231, 235, 0.9)', // Light gray
+                    lineWidth: 2,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: true,
+                    title: 'Mid'
+                });
+            }
+            
+            // Draw IFV line
+            if (this.fairValueIndicators.showIFV && ifv !== null) {
+                this.fairValueIndicators.ifvLine = this.candleSeries.createPriceLine({
+                    price: ifv,
+                    color: 'rgba(167, 139, 250, 0.9)', // Purple
+                    lineWidth: 3,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'IFV'
+                });
+            }
+            
+            // Draw VWMP line
+            if (this.fairValueIndicators.showVWMP && vwmp !== null) {
+                this.fairValueIndicators.vwmpLine = this.candleSeries.createPriceLine({
+                    price: vwmp,
+                    color: 'rgba(52, 211, 153, 0.9)', // Green
+                    lineWidth: 3,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'VWMP'
+                });
+            }
         }
         
-        // Draw IFV line
-        if (this.fairValueIndicators.showIFV && ifv !== null) {
-            this.fairValueIndicators.ifvLine = this.candleSeries.createPriceLine({
-                price: ifv,
-                color: 'rgba(167, 139, 250, 0.9)', // Purple
-                lineWidth: 3,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'IFV'
-            });
-        }
-        
-        // Draw VWMP line
-        if (this.fairValueIndicators.showVWMP && vwmp !== null) {
-            this.fairValueIndicators.vwmpLine = this.candleSeries.createPriceLine({
-                price: vwmp,
-                color: 'rgba(52, 211, 153, 0.9)', // Green
-                lineWidth: 3,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: 'VWMP'
-            });
-        }
-        
-        // Update Fair Value Panel in sidebar
+        // Always update Fair Value Panel in sidebar (text updates are fine)
         this.updateFairValuePanel(mid, vwmp, ifv);
+        
+        // Restore sidebar scroll position after DOM updates
+        if (sidebar && scrollTop > 0) {
+            sidebar.scrollTop = scrollTop;
+        }
     }
     
     /**
@@ -3955,12 +4033,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      * Draw trade setup levels on the chart
      */
     drawTradeSetupOnChart(direction, entry, stop, target1, target2) {
-        // Clear existing trade lines first
-        this.clearTradeSetupLines();
-        
         // Check if "Show on Chart" is enabled
         const showTradeOnChart = document.getElementById('showTradeOnChart');
         if (!showTradeOnChart?.checked || direction === 'WAIT') {
+            this.clearTradeSetupLines();
             return;
         }
         
@@ -3969,7 +4045,30 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         // Initialize trade lines storage
         if (!this.tradeSetupLines) {
             this.tradeSetupLines = {};
+            this.tradeSetupLastValues = {};
         }
+        
+        // Check if values have changed significantly (0.1% threshold)
+        const threshold = 0.001; // 0.1%
+        const lastVals = this.tradeSetupLastValues || {};
+        const hasSignificantChange = (
+            lastVals.direction !== direction ||
+            !lastVals.entry || Math.abs((entry - lastVals.entry) / lastVals.entry) > threshold ||
+            !lastVals.stop || Math.abs((stop - lastVals.stop) / lastVals.stop) > threshold ||
+            !lastVals.target1 || Math.abs((target1 - lastVals.target1) / lastVals.target1) > threshold ||
+            !lastVals.target2 || Math.abs((target2 - lastVals.target2) / lastVals.target2) > threshold
+        );
+        
+        // Skip redraw if no significant change
+        if (!hasSignificantChange && this.tradeSetupLines.entry) {
+            return;
+        }
+        
+        // Store current values for next comparison
+        this.tradeSetupLastValues = { direction, entry, stop, target1, target2 };
+        
+        // Clear existing trade lines before redrawing
+        this.clearTradeSetupLines();
         
         const isLong = direction === 'LONG';
         
@@ -5818,6 +5917,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const levels = this.orderFlowPressure.levels;
         const currentPrice = this.orderFlowPressure.currentPrice;
         
+        // Preserve sidebar scroll position during updates
+        const sidebar = document.querySelector('.sidebar-right');
+        const scrollTop = sidebar ? sidebar.scrollTop : 0;
+        
         // Calculate all indicators
         const bpr = this.calculateBPR(levels);
         const ld = this.calculateLiquidityDelta(levels, currentPrice);
@@ -5832,6 +5935,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         // Get alpha score if available
         const alpha = this.alphaScore || 50;
         this.updateRegimeEngine(levels, currentPrice, alpha);
+        
+        // Restore sidebar scroll position after DOM updates
+        if (sidebar && scrollTop > 0) {
+            sidebar.scrollTop = scrollTop;
+        }
     }
     
     /**
@@ -6911,24 +7019,58 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const vwmp = this.calculateVWMP(levels, currentPrice);
         const ifv = this.calculateIFV(levels, currentPrice);
         
-        // Calculate ROC (Rate of Change) signals
+        // Calculate ROC (Rate of Change) signals with smoothing based on mode
         const signals = this.regimeEngine.signals;
+        const mode = this.regimeEngine.currentMode || 'marketMaker';
+        const modeSettings = this.regimeEngine.modePresets[mode] || this.regimeEngine.modePresets.marketMaker;
+        const rocWindow = modeSettings.rocWindow || 2;
         
-        // LD_ROC - Liquidity Delta Rate of Change
-        if (this.regimeEngine.prevLD !== null) {
-            signals.ld_roc = ld.delta - this.regimeEngine.prevLD;
-        }
+        // Helper function to calculate smoothed ROC using buffer
+        const calculateSmoothedRoc = (buffer, currentValue, prevValue, windowSize) => {
+            if (prevValue === null) return 0;
+            
+            // Calculate current tick's ROC
+            const tickRoc = currentValue - prevValue;
+            
+            // Add to buffer
+            buffer.push(tickRoc);
+            
+            // Trim buffer to window size
+            while (buffer.length > windowSize) {
+                buffer.shift();
+            }
+            
+            // Return average ROC over the window
+            if (buffer.length === 0) return 0;
+            return buffer.reduce((sum, val) => sum + val, 0) / buffer.length;
+        };
+        
+        // LD_ROC - Liquidity Delta Rate of Change (smoothed)
+        signals.ld_roc = calculateSmoothedRoc(
+            this.regimeEngine.ldBuffer, 
+            ld.delta, 
+            this.regimeEngine.prevLD, 
+            rocWindow
+        );
         this.regimeEngine.prevLD = ld.delta;
         
-        // BPR_ROC - Book Pressure Rate of Change
-        if (this.regimeEngine.prevBPR !== null) {
-            signals.bpr_roc = bpr.ratio - this.regimeEngine.prevBPR;
-        }
+        // BPR_ROC - Book Pressure Rate of Change (smoothed)
+        signals.bpr_roc = calculateSmoothedRoc(
+            this.regimeEngine.bprBuffer, 
+            bpr.ratio, 
+            this.regimeEngine.prevBPR, 
+            rocWindow
+        );
         this.regimeEngine.prevBPR = bpr.ratio;
         
-        // Alpha_ROC - Alpha Score Rate of Change
-        if (this.regimeEngine.prevAlpha !== null && alpha !== null) {
-            signals.alpha_roc = alpha - this.regimeEngine.prevAlpha;
+        // Alpha_ROC - Alpha Score Rate of Change (smoothed)
+        if (alpha !== null) {
+            signals.alpha_roc = calculateSmoothedRoc(
+                this.regimeEngine.alphaBuffer, 
+                alpha, 
+                this.regimeEngine.prevAlpha, 
+                rocWindow
+            );
         }
         this.regimeEngine.prevAlpha = alpha;
         
@@ -6951,12 +7093,46 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         signals.nearest_support = liquidityStructure.nearest_support;
         signals.nearest_resist = liquidityStructure.nearest_resist;
         
-        // Classify regime
-        const regime = this.classifyRegime(signals, bpr, ld, alpha, vwmp, ifv, currentPrice);
-        this.regimeEngine.currentRegime = regime;
+        // Classify regime (potential new regime)
+        const newRegime = this.classifyRegime(signals, bpr, ld, alpha, vwmp, ifv, currentPrice);
         
-        // Update UI
-        this.updateRegimeUI(signals, regime, currentPrice);
+        // Get stabilization settings (mode and modeSettings already defined above)
+        const minTicks = modeSettings.regimeMinTicks || 1;
+        
+        // Regime stabilization logic - prevents flickering
+        const lastRegimeType = this.regimeEngine.lastRegime;
+        const currentRegimeType = this.regimeEngine.currentRegime?.type;
+        
+        let regimeToApply = this.regimeEngine.currentRegime || newRegime;
+        
+        if (newRegime.type !== currentRegimeType) {
+            // New regime detected - check if it's consistent with pending change
+            if (newRegime.type === lastRegimeType) {
+                // Same as pending regime, increment counter
+                this.regimeEngine.regimeTickCount++;
+            } else {
+                // Different regime, reset counter and start tracking new one
+                this.regimeEngine.regimeTickCount = 1;
+                this.regimeEngine.lastRegime = newRegime.type;
+            }
+            
+            // Only commit regime change after minTicks consecutive detections
+            if (this.regimeEngine.regimeTickCount >= minTicks) {
+                regimeToApply = newRegime;
+                this.regimeEngine.currentRegime = newRegime;
+                this.regimeEngine.regimeTickCount = 0;
+                this.regimeEngine.lastRegime = newRegime.type;
+            }
+            // Otherwise keep the current regime (regimeToApply already set)
+        } else {
+            // Same as current regime - reset pending counter
+            this.regimeEngine.regimeTickCount = 0;
+            this.regimeEngine.lastRegime = currentRegimeType;
+            regimeToApply = this.regimeEngine.currentRegime;
+        }
+        
+        // Update UI with the stabilized regime
+        this.updateRegimeUI(signals, regimeToApply, currentPrice);
     }
     
     /**
