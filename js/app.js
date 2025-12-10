@@ -94,6 +94,9 @@ class OrderBookApp {
         // Load price visibility preference
         this.loadPriceVisibility();
         
+        // Setup sidebar collapse functionality
+        this.setupSidebarCollapse();
+        
         // Set initial symbol in UI
         this.elements.symbolInput.value = this.currentSymbol;
         
@@ -325,12 +328,10 @@ class OrderBookApp {
     cacheElements() {
         this.elements = {
             currentPrice: document.getElementById('currentPrice'),
-            priceChange: document.getElementById('priceChange'),
             priceDisplay: document.getElementById('priceDisplay'),
             priceToggle: document.getElementById('priceToggle'),
             symbolInput: document.getElementById('symbolInput'),
             exchangeStatus: document.getElementById('exchangeStatus'),
-            btnRefresh: document.getElementById('btnRefresh'),
             showLevels: document.getElementById('showLevels'),
             showVolume: document.getElementById('showVolume'),
             showTargets: document.getElementById('showTargets'),
@@ -357,9 +358,6 @@ class OrderBookApp {
     }
 
     setupEventListeners() {
-        // Refresh button
-        this.elements.btnRefresh.addEventListener('click', () => this.loadData());
-
         // Timeframe selector dropdown
         const tfSelect = document.getElementById('timeframeSelect');
         if (tfSelect) {
@@ -1219,17 +1217,6 @@ class OrderBookApp {
             maximumFractionDigits: 2
         });
 
-        // Show price direction based on previous price
-        const changeEl = this.elements.priceChange;
-        if (this.previousPrice > 0 && price !== this.previousPrice) {
-            const isUp = price > this.previousPrice;
-            changeEl.textContent = isUp ? '▲' : '▼';
-            changeEl.className = 'price-change ' + (isUp ? 'positive' : 'negative');
-        } else {
-            changeEl.textContent = 'LIVE';
-            changeEl.className = 'price-change positive';
-        }
-
         // Only update chart from price if OHLC stream is NOT connected
         // (OHLC stream provides much more accurate candle data)
         if (this.chart && price > 0 && priceData && !priceData.ohlcConnected) {
@@ -1506,11 +1493,17 @@ class OrderBookApp {
     togglePriceVisibility() {
         const display = this.elements.priceDisplay;
         const toggle = this.elements.priceToggle;
+        const headerMetrics = document.querySelector('.header-metrics');
         const isHidden = display.classList.toggle('hidden-price');
         
         // Toggle eye icons
         toggle.querySelector('.eye-open').style.display = isHidden ? 'none' : 'block';
         toggle.querySelector('.eye-closed').style.display = isHidden ? 'block' : 'none';
+        
+        // Hide/show header metrics (LD Delta, Alpha)
+        if (headerMetrics) {
+            headerMetrics.style.display = isHidden ? 'none' : 'flex';
+        }
         
         // Save preference
         localStorage.setItem('hidePriceDisplay', isHidden);
@@ -1518,10 +1511,77 @@ class OrderBookApp {
 
     loadPriceVisibility() {
         const isHidden = localStorage.getItem('hidePriceDisplay') === 'true';
+        const headerMetrics = document.querySelector('.header-metrics');
+        
         if (isHidden) {
             this.elements.priceDisplay.classList.add('hidden-price');
             this.elements.priceToggle.querySelector('.eye-open').style.display = 'none';
             this.elements.priceToggle.querySelector('.eye-closed').style.display = 'block';
+            
+            // Hide header metrics too
+            if (headerMetrics) {
+                headerMetrics.style.display = 'none';
+            }
+        }
+    }
+    
+    /**
+     * Setup sidebar collapse functionality
+     */
+    setupSidebarCollapse() {
+        const leftSidebar = document.getElementById('sidebarLeft');
+        const rightSidebar = document.getElementById('sidebarRight');
+        const collapseLeft = document.getElementById('collapseLeftSidebar');
+        const collapseRight = document.getElementById('collapseRightSidebar');
+        
+        // Load saved states
+        const leftCollapsed = localStorage.getItem('sidebarLeftCollapsed') === 'true';
+        const rightCollapsed = localStorage.getItem('sidebarRightCollapsed') === 'true';
+        
+        // Apply saved states
+        if (leftCollapsed && leftSidebar) {
+            leftSidebar.classList.add('collapsed');
+        }
+        if (rightCollapsed && rightSidebar) {
+            rightSidebar.classList.add('collapsed');
+        }
+        
+        // Left sidebar toggle
+        if (collapseLeft && leftSidebar) {
+            collapseLeft.addEventListener('click', () => {
+                leftSidebar.classList.toggle('collapsed');
+                const isCollapsed = leftSidebar.classList.contains('collapsed');
+                localStorage.setItem('sidebarLeftCollapsed', isCollapsed);
+                
+                // Trigger chart resize after animation
+                setTimeout(() => {
+                    if (this.chart && this.chart.chart) {
+                        this.chart.chart.resize(
+                            this.chart.container.clientWidth,
+                            this.chart.container.clientHeight
+                        );
+                    }
+                }, 300);
+            });
+        }
+        
+        // Right sidebar toggle
+        if (collapseRight && rightSidebar) {
+            collapseRight.addEventListener('click', () => {
+                rightSidebar.classList.toggle('collapsed');
+                const isCollapsed = rightSidebar.classList.contains('collapsed');
+                localStorage.setItem('sidebarRightCollapsed', isCollapsed);
+                
+                // Trigger chart resize after animation
+                setTimeout(() => {
+                    if (this.chart && this.chart.chart) {
+                        this.chart.chart.resize(
+                            this.chart.container.clientWidth,
+                            this.chart.container.clientHeight
+                        );
+                    }
+                }, 300);
+            });
         }
     }
 
@@ -1714,7 +1774,7 @@ class OrderBookApp {
     }
 
     setLoadingState(loading) {
-        this.elements.btnRefresh.classList.toggle('loading', loading);
+        // Loading state - no longer need visual indicator since always live
     }
 
     updateLastUpdate() {

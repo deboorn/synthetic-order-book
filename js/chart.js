@@ -27,6 +27,7 @@ class OrderBookChart {
         this.localCandles = new Map(); // Local candle history (time => candle)
         this.useOHLCStream = false; // Flag when OHLC stream is active
         this._viewRestored = false; // Flag to prevent duplicate view restoration
+        this.userSelectedPosition = null; // User's selected trade position (LONG, SHORT, or null)
         
         this.colors = {
             background: '#0a0e17',
@@ -696,6 +697,36 @@ class OrderBookChart {
                 price: price,
                 color: isUp ? this.colors.upColor : this.colors.downColor
             });
+        }
+    }
+    
+    /**
+     * Update header metrics (LD Delta and Alpha Score)
+     * Called from updateAlphaScore to show key metrics in the header
+     */
+    updateHeaderMetrics(ldDelta, alpha, regimeClass) {
+        const headerLd = document.getElementById('headerLdDelta');
+        const headerAlpha = document.getElementById('headerAlpha');
+        
+        // Update LD Delta
+        if (headerLd) {
+            const ldFormatted = ldDelta >= 0 ? `+${ldDelta.toFixed(0)}` : ldDelta.toFixed(0);
+            headerLd.textContent = ldFormatted;
+            headerLd.classList.remove('bullish', 'bearish', 'neutral');
+            if (ldDelta > 20) {
+                headerLd.classList.add('bullish');
+            } else if (ldDelta < -20) {
+                headerLd.classList.add('bearish');
+            } else {
+                headerLd.classList.add('neutral');
+            }
+        }
+        
+        // Update Alpha Score
+        if (headerAlpha) {
+            headerAlpha.textContent = alpha;
+            headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
+            headerAlpha.classList.add(regimeClass);
         }
     }
 
@@ -3116,7 +3147,10 @@ class OrderBookChart {
             html += `<span class="signal ${signalClass}">${signal}</span>`;
         }
         
-        fvAnalysisText.innerHTML = html;
+        // Only update if content changed (prevents flicker)
+        if (fvAnalysisText.innerHTML !== html) {
+            fvAnalysisText.innerHTML = html;
+        }
         
         // Update Alpha Score
         this.updateAlphaScore(currentPrice, mid, vwmp, ifv);
@@ -3496,6 +3530,9 @@ class OrderBookChart {
         
         const alpha = Math.round(Math.max(0, Math.min(100, alphaRaw * 100)));
         
+        // Store for other components
+        this.alphaScore = alpha;
+        
         // ========================================
         // STEP 4: Determine regime
         // ========================================
@@ -3518,6 +3555,9 @@ class OrderBookChart {
         // Main value display
         alphaValue.textContent = alpha;
         alphaValue.className = 'alpha-value ' + regimeClass;
+        
+        // Update header metrics (LD Delta and Alpha Score)
+        this.updateHeaderMetrics(ld.delta, alpha, regimeClass);
         
         // Gauge fill and marker
         if (alphaGaugeFill) {
@@ -3602,8 +3642,14 @@ class OrderBookChart {
                 interpretation += `<br><span style="color:#fbbf24">↔️ Mixed signals — wait or scalp only.</span>`;
             }
             
-            alphaInterpretation.innerHTML = interpretation;
-            alphaInterpretation.className = 'alpha-interpretation ' + regimeClass;
+            // Only update if content changed (prevents flicker)
+            if (alphaInterpretation.innerHTML !== interpretation) {
+                alphaInterpretation.innerHTML = interpretation;
+            }
+            const newClass = 'alpha-interpretation ' + regimeClass;
+            if (alphaInterpretation.className !== newClass) {
+                alphaInterpretation.className = newClass;
+            }
         }
         
         // Update Alpha Newbie Summary (collapsible, default hidden)
@@ -3611,7 +3657,11 @@ class OrderBookChart {
         if (alphaSummary) {
             const newbieSummary = this.generateAlphaNewbieSummary(alpha, regime, currentPrice, vwmp, ifv, bpr, ld);
             const isExpanded = localStorage.getItem('alphaNewbieSummaryExpanded') === 'true';
-            alphaSummary.innerHTML = this.formatAlphaNewbieSummary(newbieSummary, regimeClass, isExpanded);
+            const newHtml = this.formatAlphaNewbieSummary(newbieSummary, regimeClass, isExpanded);
+            // Only update if content changed (prevents flicker)
+            if (alphaSummary.innerHTML !== newHtml) {
+                alphaSummary.innerHTML = newHtml;
+            }
             alphaSummary.style.display = 'block';
             
             // Setup click handler for toggle (only once)
@@ -3730,6 +3780,27 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     }
     
     /**
+     * Set user's selected trade position
+     * @param {string|null} position - 'LONG', 'SHORT', or null to clear
+     */
+    setUserPosition(position) {
+        this.userSelectedPosition = position;
+        // Update button states
+        const longBtn = document.getElementById('positionLong');
+        const shortBtn = document.getElementById('positionShort');
+        if (longBtn) longBtn.classList.toggle('active', position === 'LONG');
+        if (shortBtn) shortBtn.classList.toggle('active', position === 'SHORT');
+        // Save to localStorage
+        if (position) {
+            localStorage.setItem('tradeSetup_position', position);
+        } else {
+            localStorage.removeItem('tradeSetup_position');
+        }
+        // Trigger update
+        this.updateFairValueIndicators();
+    }
+    
+    /**
      * Generate trade setup recommendation with timeframe analysis and min gain filter
      */
     updateTradeSetup(currentPrice, mid, vwmp, ifv) {
@@ -3743,8 +3814,12 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const tradeRR = document.getElementById('tradeRR');
         const tradeReasoning = document.getElementById('tradeReasoning');
         const minGainInput = document.getElementById('minGainPercent');
+        const recommendedDirection = document.getElementById('recommendedDirection');
         
         if (!tradeDirection || !currentPrice) return;
+        
+        // Get user's selected position (LONG, SHORT, or null for auto)
+        const userPosition = this.userSelectedPosition || null;
         
         // Get minimum gain threshold (default 1%)
         const minGainPercent = parseFloat(minGainInput?.value) || 1;
@@ -3876,13 +3951,24 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             else if (vwmp > mid * 1.005) { bearishScore += 1; }
         }
         
-        // Determine preliminary direction
+        // Determine recommended direction from analysis
         const netScore = bullishScore - bearishScore;
-        let prelimDirection = 'WAIT';
-        if (netScore >= 2) prelimDirection = 'LONG';
-        else if (netScore <= -2) prelimDirection = 'SHORT';
+        let recommendedDir = 'WAIT';
+        if (netScore >= 2) recommendedDir = 'LONG';
+        else if (netScore <= -2) recommendedDir = 'SHORT';
         
-        // Calculate potential targets based on timeframe
+        // Update recommendation display
+        if (recommendedDirection) {
+            recommendedDirection.textContent = recommendedDir;
+            recommendedDirection.className = 'rec-value ' + 
+                (recommendedDir === 'LONG' ? 'bullish' : recommendedDir === 'SHORT' ? 'bearish' : 'neutral');
+        }
+        
+        // Use user's selection if provided, otherwise use recommendation
+        let prelimDirection = userPosition || recommendedDir;
+        const isUserOverride = userPosition && userPosition !== recommendedDir;
+        
+        // Calculate potential targets based on position direction
         let entry = currentPrice;
         let stop, target1, target2, potentialGainPercent;
         
@@ -3980,18 +4066,30 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         }
         
         // Update DOM
-        tradeDirection.textContent = direction;
-        tradeDirection.className = 'trade-direction ' + directionClass;
-        
-        tradeConfidence.textContent = confidence;
-        tradeConfidence.className = 'trade-confidence ' + confidence.toLowerCase();
-        
-        tradeEntry.textContent = formatPrice(entry);
-        tradeStop.textContent = formatPrice(stop);
-        tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
-        tradeTarget2.textContent = formatPrice(target2);
-        
-        tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
+        if (!userPosition) {
+            tradeDirection.textContent = 'SELECT';
+            tradeDirection.className = 'trade-direction select';
+            tradeConfidence.textContent = '--';
+            tradeConfidence.className = 'trade-confidence';
+            tradeEntry.textContent = '$--';
+            tradeStop.textContent = '$--';
+            tradeTarget1.textContent = '$--';
+            tradeTarget2.textContent = '$--';
+            tradeRR.textContent = '--';
+        } else {
+            tradeDirection.textContent = direction;
+            tradeDirection.className = 'trade-direction ' + directionClass;
+            
+            tradeConfidence.textContent = confidence;
+            tradeConfidence.className = 'trade-confidence ' + confidence.toLowerCase();
+            
+            tradeEntry.textContent = formatPrice(entry);
+            tradeStop.textContent = formatPrice(stop);
+            tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
+            tradeTarget2.textContent = formatPrice(target2);
+            
+            tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
+        }
         const rrEl = document.getElementById('tradeRR');
         if (rrEl) {
             rrEl.className = 'rr-value ' + (parseFloat(riskReward) >= 2 ? 'good' : parseFloat(riskReward) >= 1 ? 'ok' : 'bad');
@@ -4001,29 +4099,63 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         let reasoning = '';
         const tfSummary = `[TF: S${timeframeSignals.short > 0 ? '↑' : timeframeSignals.short < 0 ? '↓' : '–'} M${timeframeSignals.medium > 0 ? '↑' : timeframeSignals.medium < 0 ? '↓' : '–'} L${timeframeSignals.long > 0 ? '↑' : timeframeSignals.long < 0 ? '↓' : '–'}]`;
         
-        if (direction === 'WAIT') {
-            if (prelimDirection !== 'WAIT' && !meetsMinGain) {
-                reasoning = `⏸️ <strong>${prelimDirection} signal exists</strong> but gain (${potentialGainPercent?.toFixed(1)}%) below your ${minGainPercent}% minimum. `;
-                reasoning += `${tfSummary} `;
-                reasoning += 'Wait for better entry or lower your min gain threshold.';
-            } else {
-                reasoning = '⏸️ <strong>No clear edge.</strong> Mixed signals — wait for better setup. ';
-                reasoning += `${tfSummary} `;
-                reasoning += reasons.length > 0 ? reasons.slice(0, 2).join(', ') + '.' : '';
-            }
+        // Check if user selected a position against the recommendation
+        const userAgainstRec = isUserOverride && recommendedDir !== 'WAIT';
+        const userWithRec = userPosition && userPosition === recommendedDir && recommendedDir !== 'WAIT';
+        
+        if (!userPosition) {
+            // No position selected - prompt user
+            reasoning = '👆 <strong>Select LONG or SHORT above</strong> to see trade plan. ';
+            reasoning += `Suggested: <strong>${recommendedDir}</strong>. `;
+            reasoning += `${tfSummary} `;
+            reasoning += reasons.length > 0 ? reasons.slice(0, 2).join(', ') + '.' : '';
+        } else if (direction === 'WAIT') {
+            // Position selected but doesn't meet min gain
+            reasoning = `⏸️ <strong>${prelimDirection} selected</strong> but gain (${potentialGainPercent?.toFixed(1)}%) below ${minGainPercent}% min. `;
+            reasoning += `${tfSummary} `;
+            reasoning += 'Lower min gain or wait for better entry.';
         } else if (direction === 'LONG') {
-            reasoning = `🟢 <strong>LONG setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
-            reasoning += reasons.slice(0, 3).join(' • ') + '. ';
-            reasoning += `${tfSummary} `;
-            reasoning += `Buy near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            if (userAgainstRec) {
+                reasoning = `⚠️ <strong>LONG selected</strong> (against ${recommendedDir} signal). `;
+                reasoning += `<em>Caution:</em> ${reasons.slice(0, 2).join(', ')}. `;
+                reasoning += `${tfSummary} `;
+                reasoning += `If going long anyway: entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            } else if (userWithRec) {
+                reasoning = `✅ <strong>LONG confirmed</strong> — aligns with analysis! `;
+                reasoning += `${potentialGainPercent?.toFixed(1)}% potential. `;
+                reasoning += reasons.slice(0, 2).join(' • ') + '. ';
+                reasoning += `${tfSummary} `;
+                reasoning += `Entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            } else {
+                reasoning = `🟢 <strong>LONG setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
+                reasoning += reasons.slice(0, 3).join(' • ') + '. ';
+                reasoning += `${tfSummary} `;
+                reasoning += `Buy near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            }
         } else {
-            reasoning = `🔴 <strong>SHORT setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
-            reasoning += reasons.slice(0, 3).join(' • ') + '. ';
-            reasoning += `${tfSummary} `;
-            reasoning += `Sell near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            if (userAgainstRec) {
+                reasoning = `⚠️ <strong>SHORT selected</strong> (against ${recommendedDir} signal). `;
+                reasoning += `<em>Caution:</em> ${reasons.slice(0, 2).join(', ')}. `;
+                reasoning += `${tfSummary} `;
+                reasoning += `If going short anyway: entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            } else if (userWithRec) {
+                reasoning = `✅ <strong>SHORT confirmed</strong> — aligns with analysis! `;
+                reasoning += `${potentialGainPercent?.toFixed(1)}% potential. `;
+                reasoning += reasons.slice(0, 2).join(' • ') + '. ';
+                reasoning += `${tfSummary} `;
+                reasoning += `Entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            } else {
+                reasoning = `🔴 <strong>SHORT setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
+                reasoning += reasons.slice(0, 3).join(' • ') + '. ';
+                reasoning += `${tfSummary} `;
+                reasoning += `Sell near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            }
         }
         
-        tradeReasoning.innerHTML = reasoning;
+        // Only update if content changed (prevents flicker)
+        if (tradeReasoning.innerHTML !== reasoning) {
+            tradeReasoning.innerHTML = reasoning;
+        }
         
         // Draw trade setup on chart if enabled
         this.drawTradeSetupOnChart(direction, entry, stop, target1, target2);
@@ -4033,9 +4165,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      * Draw trade setup levels on the chart
      */
     drawTradeSetupOnChart(direction, entry, stop, target1, target2) {
-        // Check if "Show on Chart" is enabled
+        // Check if "Show on Chart" is enabled and a position is selected
         const showTradeOnChart = document.getElementById('showTradeOnChart');
-        if (!showTradeOnChart?.checked || direction === 'WAIT') {
+        if (!showTradeOnChart?.checked || direction === 'WAIT' || direction === 'SELECT' || !this.userSelectedPosition) {
             this.clearTradeSetupLines();
             return;
         }
@@ -7620,7 +7752,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const newbieSummary = document.getElementById('regimeNewbieSummary');
         if (newbieSummary && regime.newbieSummary) {
             const isExpanded = localStorage.getItem('newbieSummaryExpanded') === 'true';
-            newbieSummary.innerHTML = this.formatNewbieSummary(regime.newbieSummary, regime.type, isExpanded);
+            const newHtml = this.formatNewbieSummary(regime.newbieSummary, regime.type, isExpanded);
+            // Only update if content changed (prevents flicker)
+            if (newbieSummary.innerHTML !== newHtml) {
+                newbieSummary.innerHTML = newHtml;
+            }
             newbieSummary.style.display = 'block';
             
             // Setup click handler for toggle (only once)

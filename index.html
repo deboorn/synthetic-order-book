@@ -14,7 +14,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Synthetic Order Book</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251211s">
+    <link rel="stylesheet" href="css/style.css?v=20251212h">
 </head>
 <body>
     <div class="app">
@@ -31,7 +31,16 @@
                 </div>
                 <div class="price-display" id="priceDisplay">
                     <span class="price-value" id="currentPrice">--</span>
-                    <span class="price-change" id="priceChange">--</span>
+                </div>
+                <div class="header-metrics">
+                    <div class="header-metric" title="Liquidity Delta - Bid pressure minus Ask pressure">
+                        <span class="metric-label">LD</span>
+                        <span class="metric-value" id="headerLdDelta">--</span>
+                    </div>
+                    <div class="header-metric" title="Alpha Score - Overall market sentiment (0-100)">
+                        <span class="metric-label">α</span>
+                        <span class="metric-value" id="headerAlpha">--</span>
+                    </div>
                 </div>
                 <button class="price-toggle" id="priceToggle" title="Toggle Price Visibility">
                     <svg class="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -49,16 +58,6 @@
                     <span class="status-dot"></span>
                     <span>Connecting...</span>
                 </div>
-                <a href="tradingview.html" class="btn-refresh" title="TradingView Version" style="text-decoration:none; margin-right:8px;">
-                    <svg width="16" height="16" viewBox="0 0 36 28" fill="currentColor">
-                        <path d="M14 22H7V6h7v16zm8-16h7v16h-7V6zm-4 0v16h-4V6h4z"/>
-                    </svg>
-                </a>
-                <button class="btn-refresh" id="btnRefresh" title="Refresh Data">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                    </svg>
-                </button>
             </div>
         </header>
 
@@ -104,7 +103,10 @@
             </div>
 
             <!-- Left Sidebar - Order Flow Metrics -->
-            <div class="sidebar sidebar-left">
+            <div class="sidebar sidebar-left" id="sidebarLeft">
+                <div class="sidebar-handle" id="collapseLeftSidebar" title="Click to collapse/expand">
+                    <span class="handle-bars">||</span>
+                </div>
                 <!-- Depth Chart -->
                 <div class="panel depth-panel collapsible expanded" data-panel="depth">
                     <div class="panel-header">
@@ -508,16 +510,26 @@
                     
                     <!-- Trade Setup Section -->
                     <div class="trade-setup" id="tradeSetup">
-                        <div class="trade-filter">
-                            <label>Min Gain %</label>
-                            <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
+                        <div class="trade-position-selector">
+                            <button class="position-btn long" id="positionLong" title="Plan a Long position">LONG</button>
+                            <button class="position-btn short" id="positionShort" title="Plan a Short position">SHORT</button>
                         </div>
-                        <div class="trade-filter">
-                            <label>Show on Chart</label>
-                            <input type="checkbox" id="showTradeOnChart">
+                        <div class="trade-recommendation" id="tradeRecommendation">
+                            <span class="rec-label">Suggested:</span>
+                            <span class="rec-value" id="recommendedDirection">--</span>
+                        </div>
+                        <div class="trade-filters-row">
+                            <div class="trade-filter">
+                                <label>Min Gain %</label>
+                                <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
+                            </div>
+                            <div class="trade-filter">
+                                <label>On Chart</label>
+                                <input type="checkbox" id="showTradeOnChart">
+                            </div>
                         </div>
                         <div class="trade-header">
-                            <span class="trade-direction" id="tradeDirection">WAIT</span>
+                            <span class="trade-direction" id="tradeDirection">SELECT</span>
                             <span class="trade-confidence" id="tradeConfidence">--</span>
                         </div>
                         <div class="trade-levels">
@@ -551,7 +563,10 @@
             </div>
 
             <!-- Right Sidebar - Alpha, Regime & Levels -->
-            <div class="sidebar sidebar-right">
+            <div class="sidebar sidebar-right" id="sidebarRight">
+                <div class="sidebar-handle" id="collapseRightSidebar" title="Click to collapse/expand">
+                    <span class="handle-bars">||</span>
+                </div>
                 <!-- Market Consensus Signal Panel -->
                 <div class="panel mcs-panel collapsible expanded" data-panel="mcs" id="mcsPanel">
                     <!-- Trend Color Stripe (Enhancement #5) -->
@@ -863,6 +878,8 @@
                 <span class="footer-copyright">© 2025 <a href="mailto:daniel.boorn@gmail.com">Daniel Boorn</a> · Personal use · <a href="mailto:daniel.boorn@gmail.com">Contact for commercial</a></span>
                 <span class="footer-separator">·</span>
                 <span class="footer-disclaimer">Use at own risk · Not financial advice</span>
+                <span class="footer-separator">·</span>
+                <span class="footer-version">v20251212.8</span>
             </div>
             <div class="footer-right">
                 <span class="auto-refresh">
@@ -882,42 +899,211 @@
     <!-- Legend Modal -->
     <div class="modal" id="legendModal">
         <div class="modal-backdrop"></div>
-        <div class="modal-content">
+        <div class="modal-content legend-modal-wide">
             <div class="modal-header">
-                <h2>Chart Legend</h2>
+                <h2>📊 Chart Legend & Feature Guide</h2>
                 <button class="modal-close" id="closeLegend">&times;</button>
             </div>
-            <div class="modal-body">
-                <div class="legend-section">
-                    <h3>Price Levels</h3>
-                    <div class="legend-item">
-                        <span class="legend-line support"></span>
-                        <div>
-                            <strong>Support (Green)</strong>
-                            <p>Buy orders aggregated from order books. These are price levels where buyers are placing bids. Stronger support = more buy volume.</p>
+            <div class="modal-body legend-grid">
+                <!-- Column 1 -->
+                <div class="legend-column">
+                    <div class="legend-section">
+                        <h3>🎯 Order Book Levels</h3>
+                        <div class="legend-item">
+                            <span class="legend-line support"></span>
+                            <div>
+                                <strong>Support (Green)</strong>
+                                <p>Aggregated buy orders from multi-exchange order books. Line thickness = relative volume strength.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-line resistance"></span>
+                            <div>
+                                <strong>Resistance (Red)</strong>
+                                <p>Aggregated sell orders. Shows where sellers are stacking asks.</p>
+                            </div>
+                        </div>
+                        <div class="legend-note">
+                            Labels: <code>▲/▼ [Vol] BTC @ [Price]</code>
                         </div>
                     </div>
-                    <div class="legend-item">
-                        <span class="legend-line resistance"></span>
-                        <div>
-                            <strong>Resistance (Red)</strong>
-                            <p>Sell orders aggregated from order books. These are price levels where sellers are placing asks. Stronger resistance = more sell volume.</p>
+
+                    <div class="legend-section">
+                        <h3>📈 Fair Value Lines</h3>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #f59e0b;"></span>
+                            <div>
+                                <strong>Mid Price</strong>
+                                <p>Midpoint between best bid/ask. True market equilibrium.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #06b6d4;"></span>
+                            <div>
+                                <strong>IFV (Imbalance Fair Value)</strong>
+                                <p>Weighted by order book imbalance. Skews toward dominant side.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #a855f7;"></span>
+                            <div>
+                                <strong>VWMP (Volume-Weighted Mid)</strong>
+                                <p>Fair value weighted by depth volume distribution.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>🎯 Trade Setup</h3>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #eab308;"></span>
+                            <div>
+                                <strong>Entry (Yellow)</strong>
+                                <p>Optimal entry price calculated from order flow analysis.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #ef4444;"></span>
+                            <div>
+                                <strong>Stop Loss (Red)</strong>
+                                <p>Suggested stop based on support/resistance structure.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #22c55e;"></span>
+                            <div>
+                                <strong>Targets (Green)</strong>
+                                <p>T1/T2 profit targets with projected rays.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="legend-section">
-                    <h3>Level Labels</h3>
-                    <p>Each level shows: <code>▲/▼ [Volume] <span class="legend-symbol">BTC</span> [Price]</code></p>
-                    <ul>
-                        <li><strong>▲</strong> = Support (bids below price)</li>
-                        <li><strong>▼</strong> = Resistance (asks above price)</li>
-                        <li><strong>Volume</strong> = Total <span class="legend-symbol">BTC</span> at this level</li>
-                        <li><strong>Line thickness</strong> = Relative strength</li>
-                    </ul>
+
+                <!-- Column 2 -->
+                <div class="legend-column">
+                    <div class="legend-section">
+                        <h3>📐 EMA & ZEMA Grids</h3>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #9ca3af;"></span>
+                            <div>
+                                <strong>EMA Grid (Gray)</strong>
+                                <p>Exponential Moving Average with percentage-spaced grid lines. Default: 20 period, 0.5% spacing.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-swatch" style="background: #8b5cf6;"></span>
+                            <div>
+                                <strong>ZEMA Grid (Purple)</strong>
+                                <p>Zero-lag EMA reduces lag via double-smoothing: <code>2×EMA - EMA(EMA)</code>. Default: 30 period, 0.3% spacing.</p>
+                            </div>
+                        </div>
+                        <div class="legend-note">
+                            <strong>Grid Signals:</strong> ⬆️ when low touches bottom grid, ⬇️ when high touches top grid.
+                        </div>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>⚡ BB Pulse Lighting Signals</h3>
+                        <div class="legend-item">
+                            <span class="legend-arrow up">▲</span>
+                            <div>
+                                <strong>Bullish Lightning (Green Arrow)</strong>
+                                <p>BB%B crosses above upper threshold during expansion. High-probability long signal.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-arrow down">▼</span>
+                            <div>
+                                <strong>Bearish Lightning (Red Arrow)</strong>
+                                <p>BB%B crosses below lower threshold during expansion. High-probability short signal.</p>
+                            </div>
+                        </div>
+                        <div class="legend-note">
+                            Based on Bollinger Band Width expansion + %B positioning for momentum trades.
+                        </div>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>🏷️ LD Flow Zones</h3>
+                        <div class="legend-item">
+                            <span class="legend-badge support-badge">SUPPORT</span>
+                            <div>
+                                <strong>Support Zone</strong>
+                                <p>Price level where buying pressure dominates based on Liquidity Delta analysis.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-badge resistance-badge">RESIST</span>
+                            <div>
+                                <strong>Resistance Zone</strong>
+                                <p>Price level where selling pressure dominates.</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="legend-section">
-                    <h3>Data Sources</h3>
-                    <p>Levels are synthesized from order books across multiple exchanges (Kraken, Coinbase, Bitstamp). Orders at similar prices are clustered together to show significant support/resistance zones.</p>
+
+                <!-- Column 3 -->
+                <div class="legend-column">
+                    <div class="legend-section">
+                        <h3>📊 Order Flow Metrics</h3>
+                        <div class="legend-item">
+                            <span class="legend-metric">LD</span>
+                            <div>
+                                <strong>Liquidity Delta</strong>
+                                <p>Bid vs Ask volume imbalance. Positive = more bids (bullish), Negative = more asks (bearish).</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-metric">BPR</span>
+                            <div>
+                                <strong>Buy Pressure Ratio</strong>
+                                <p>Percentage of bid volume vs total. >50% = buy pressure dominant.</p>
+                            </div>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-metric">α</span>
+                            <div>
+                                <strong>Alpha Score (0-100)</strong>
+                                <p>Composite strength indicator. 🟢 70+ Bullish, 🟡 30-70 Neutral, 🔴 &lt;30 Bearish.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>🧠 Regime Engine</h3>
+                        <p class="legend-intro">Detects market state using ROC (Rate of Change) analysis:</p>
+                        <div class="legend-item compact">
+                            <span class="legend-regime bullish">▲ BULLISH</span>
+                            <span>Upward momentum detected</span>
+                        </div>
+                        <div class="legend-item compact">
+                            <span class="legend-regime bearish">▼ BEARISH</span>
+                            <span>Downward momentum detected</span>
+                        </div>
+                        <div class="legend-item compact">
+                            <span class="legend-regime neutral">◆ RANGING</span>
+                            <span>Sideways/consolidation</span>
+                        </div>
+                        <div class="legend-note">
+                            <strong>Modes:</strong> Market Maker (fast), Swing (medium), HTF/Investor (slow, smoothed).
+                        </div>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>🎯 Market Consensus (MCS)</h3>
+                        <p>Weighted combination of all regime modes:</p>
+                        <div class="legend-note">
+                            <strong>MM:</strong> 50% Market Maker weight<br>
+                            <strong>Swing:</strong> 33% Swing + 33% MM + 33% HTF<br>
+                            <strong>HTF:</strong> 50% HTF/Investor weight
+                        </div>
+                        <p style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">MCS provides the final directional bias shown in header.</p>
+                    </div>
+
+                    <div class="legend-section">
+                        <h3>📡 Data Sources</h3>
+                        <p>Real-time WebSocket feeds from <strong>Kraken</strong>, <strong>Coinbase</strong>, and <strong>Bitstamp</strong>. Order book depth aggregated and clustered into significant price zones.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1272,16 +1458,16 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251211s"></script>
-    <script src="js/websocket-orderbook.js?v=20251211s"></script>
-    <script src="js/orderbook-aggregator.js?v=20251211s"></script>
-    <script src="js/api.js?v=20251211s"></script>
-    <script src="js/websocket.js?v=20251211s"></script>
-    <script src="js/bb-pulse.js?v=20251211s"></script>
-    <script src="js/chart.js?v=20251211s"></script>
-    <script src="js/depth.js?v=20251211s"></script>
-    <script src="js/direction.js?v=20251211s"></script>
-    <script src="js/app.js?v=20251211s"></script>
+    <script src="js/db.js?v=20251212h"></script>
+    <script src="js/websocket-orderbook.js?v=20251212h"></script>
+    <script src="js/orderbook-aggregator.js?v=20251212h"></script>
+    <script src="js/api.js?v=20251212h"></script>
+    <script src="js/websocket.js?v=20251212h"></script>
+    <script src="js/bb-pulse.js?v=20251212h"></script>
+    <script src="js/chart.js?v=20251212h"></script>
+    <script src="js/depth.js?v=20251212h"></script>
+    <script src="js/direction.js?v=20251212h"></script>
+    <script src="js/app.js?v=20251212h"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>
@@ -1360,6 +1546,40 @@
             localStorage.setItem('tradeSetup_showOnChart', showTradeOnChart.checked);
             if (window.app && window.app.chart) {
                 window.app.chart.updateFairValueIndicators();
+            }
+        });
+    }
+    
+    // Position selector buttons
+    const positionLong = document.getElementById('positionLong');
+    const positionShort = document.getElementById('positionShort');
+    
+    // Load saved position
+    const savedPosition = localStorage.getItem('tradeSetup_position');
+    if (savedPosition) {
+        setTimeout(() => {
+            if (window.app && window.app.chart) {
+                window.app.chart.setUserPosition(savedPosition);
+            }
+        }, 1000);
+    }
+    
+    if (positionLong) {
+        positionLong.addEventListener('click', () => {
+            if (window.app && window.app.chart) {
+                const currentPos = window.app.chart.userSelectedPosition;
+                // Toggle off if already selected, otherwise set to LONG
+                window.app.chart.setUserPosition(currentPos === 'LONG' ? null : 'LONG');
+            }
+        });
+    }
+    
+    if (positionShort) {
+        positionShort.addEventListener('click', () => {
+            if (window.app && window.app.chart) {
+                const currentPos = window.app.chart.userSelectedPosition;
+                // Toggle off if already selected, otherwise set to SHORT
+                window.app.chart.setUserPosition(currentPos === 'SHORT' ? null : 'SHORT');
             }
         });
     }
