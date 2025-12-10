@@ -14,7 +14,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Synthetic Order Book</title>
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251210b">
+    <link rel="stylesheet" href="css/style.css?v=20251211m">
 </head>
 <body>
     <div class="app">
@@ -100,6 +100,7 @@
                     </div>
                 </div>
                 <div class="chart-container" id="chartContainer"></div>
+                <!-- BB Pulse container removed - drawn on main chart -->
             </div>
 
             <!-- Left Sidebar - Order Flow Metrics -->
@@ -851,9 +852,9 @@
             <div class="footer-left">
                 <span class="cache-status" id="cacheStatus">Cache: --</span>
                 <!-- WebSocket Data Source Indicator -->
-                <span class="data-source-indicator" id="dataSourceIndicator" title="Order book data source">
+                <span class="data-source-indicator disconnected" id="dataSourceIndicator" title="Order book data source">
                     <span class="source-dot"></span>
-                    <span class="source-label">PHP</span>
+                    <span class="source-label">...</span>
                 </span>
             </div>
             <div class="footer-center">
@@ -1002,8 +1003,40 @@
                             <input type="checkbox" id="showEmaGrid">
                             <span class="toggle-slider"></span>
                             <div class="toggle-info">
-                                <span class="toggle-label">EMA Grid (20)</span>
-                                <span class="toggle-hint">Show 20-period EMA with grid</span>
+                                <span class="toggle-label">EMA Grid</span>
+                                <span class="toggle-hint">Exponential Moving Average with grid</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showZemaGrid">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">ZEMA Grid</span>
+                                <span class="toggle-hint">Zero-lag EMA with grid</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showEmaSignals">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">EMA Grid Signals</span>
+                                <span class="toggle-hint">Arrows when price crosses EMA grid lines</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showZemaSignals">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">ZEMA Grid Signals</span>
+                                <span class="toggle-hint">Arrows when price crosses ZEMA grid lines</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showBBPulse">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">DB BB Pulse Lighting Signals</span>
+                                <span class="toggle-hint">Buy/sell signal arrows on chart</span>
                             </div>
                         </label>
                     </div>
@@ -1139,11 +1172,38 @@
                     </div>
                     <div class="settings-group">
                         <label>
+                            <span>EMA Period</span>
+                            <span class="setting-hint">Period for EMA calculation (default: 20)</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="number" id="settingEmaPeriod" min="1" max="200" step="1" value="20" class="number-input">
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
                             <span>EMA Grid Spacing</span>
                             <span class="setting-hint">Multiplier (0.1 = EMA×1.1, 1.2...)</span>
                         </label>
                         <div class="setting-input">
                             <input type="number" id="settingEmaGridSpacing" min="0.001" max="1" step="0.001" value="0.005" class="number-input">
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>ZEMA Period</span>
+                            <span class="setting-hint">Period for ZEMA calculation (default: 30)</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="number" id="settingZemaPeriod" min="1" max="200" step="1" value="30" class="number-input">
+                        </div>
+                    </div>
+                    <div class="settings-group">
+                        <label>
+                            <span>ZEMA Grid Spacing</span>
+                            <span class="setting-hint">Multiplier for ZEMA grid lines</span>
+                        </label>
+                        <div class="setting-input">
+                            <input type="number" id="settingZemaGridSpacing" min="0.001" max="1" step="0.001" value="0.005" class="number-input">
                         </div>
                     </div>
                 </div>
@@ -1184,6 +1244,22 @@
                             </div>
                         </div>
                     </div>
+                    <div class="settings-group color-group">
+                        <label>
+                            <span>Technical Indicators</span>
+                            <span class="setting-hint">EMA / ZEMA line colors</span>
+                        </label>
+                        <div class="color-inputs">
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorEmaLine" value="#9ca3af" title="EMA line color">
+                                <span>EMA</span>
+                            </div>
+                            <div class="color-input-wrapper">
+                                <input type="color" id="colorZemaLine" value="#8b5cf6" title="ZEMA line color">
+                                <span>ZEMA</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -1196,15 +1272,16 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251210b"></script>
-    <script src="js/websocket-orderbook.js?v=20251210b"></script>
-    <script src="js/orderbook-aggregator.js?v=20251210b"></script>
-    <script src="js/api.js?v=20251210b"></script>
-    <script src="js/websocket.js?v=20251210b"></script>
-    <script src="js/chart.js?v=20251210b"></script>
-    <script src="js/depth.js?v=20251210b"></script>
-    <script src="js/direction.js?v=20251210b"></script>
-    <script src="js/app.js?v=20251210b"></script>
+    <script src="js/db.js?v=20251211m"></script>
+    <script src="js/websocket-orderbook.js?v=20251211m"></script>
+    <script src="js/orderbook-aggregator.js?v=20251211m"></script>
+    <script src="js/api.js?v=20251211m"></script>
+    <script src="js/websocket.js?v=20251211m"></script>
+    <script src="js/bb-pulse.js?v=20251211m"></script>
+    <script src="js/chart.js?v=20251211m"></script>
+    <script src="js/depth.js?v=20251211m"></script>
+    <script src="js/direction.js?v=20251211m"></script>
+    <script src="js/app.js?v=20251211m"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>

@@ -600,10 +600,7 @@ IndexedDB │         Timestamp    Copyright      Auto-refresh
 
 ### GitHub Pages (Recommended)
 
-1. Fork this repository
-2. Go to Settings → Pages
-3. Select "main" branch, root folder
-4. Access at `https://deboorn.github.io/synthetic-order-book/`
+Access at `https://deboorn.github.io/synthetic-order-book/`
 
 ### Local Development
 

@@ -597,7 +597,7 @@ class OrderBookWebSocket {
     
     /**
      * Get aggregated order book from all connected exchanges
-     * Returns format compatible with PHP API
+     * Returns format compatible with aggregator API
      */
     getAggregatedBook() {
         const aggregatedBids = new Map();

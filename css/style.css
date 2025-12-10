@@ -582,9 +582,17 @@ body {
 }
 
 .chart-container {
-    flex: 1;
+    flex: 1 1 0;
+    min-height: 200px;
     background: var(--bg-primary);
     position: relative;
+}
+
+.indicator-container {
+    flex: 0 0 200px;
+    background: var(--bg-primary);
+    position: relative;
+    border-top: 1px solid var(--border-color);
 }
 
 /* Sidebar */
@@ -2114,7 +2122,7 @@ body {
     gap: var(--spacing-sm);
 }
 
-/* Data Source Indicator (WebSocket vs PHP) */
+/* Data Source Indicator (WebSocket) */
 .data-source-indicator {
     display: flex;
     align-items: center;
@@ -2139,9 +2147,6 @@ body {
     animation: none;
 }
 
-.data-source-indicator.php .source-dot {
-    background: var(--warning);
-}
 
 .data-source-indicator.disconnected .source-dot {
     background: var(--danger);
@@ -2319,9 +2324,6 @@ body {
     color: var(--success);
 }
 
-.data-source-indicator.php .source-label {
-    color: var(--warning);
-}
 
 .data-source-indicator.disconnected .source-label {
     color: var(--danger);

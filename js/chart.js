@@ -91,6 +91,15 @@ class OrderBookChart {
             obicCtx: null
         };
         
+        // BB Pulse Lighting MTF Indicator
+        this.bbPulse = {
+            enabled: localStorage.getItem('showBBPulse') === 'true',
+            container: null,
+            chart: null,
+            series: {},     // Store all plot series
+            markers: []     // Store signal markers
+        };
+        
         // Regime Engine - stores previous values for ROC calculations
         this.regimeEngine = {
             // Mode presets - affects sensitivity of regime detection
@@ -331,7 +340,8 @@ class OrderBookChart {
         this.candleSeries = this.chart.addBarSeries({
             upColor: this.colors.upColor,
             downColor: this.colors.downColor,
-            thinBars: true
+            thinBars: true,
+            priceScaleId: 'right'
         });
 
         // Create volume series
@@ -469,6 +479,15 @@ class OrderBookChart {
                         this.chart.applyOptions({ width, height });
                     }
                 }
+                
+                // Resize BB Pulse indicator pane
+                if (this.bbPulse.chart && this.bbPulse.container) {
+                    const width = this.bbPulse.container.clientWidth;
+                    const height = this.bbPulse.container.clientHeight;
+                    if (width > 0 && height > 0) {
+                        this.bbPulse.chart.applyOptions({ width, height });
+                    }
+                }
             }, 50);
         };
         
@@ -478,6 +497,12 @@ class OrderBookChart {
                 handleResize();
             });
             this.resizeObserver.observe(this.container);
+            
+            // Also observe BB Pulse container
+            const bbPulseContainer = document.getElementById('bbPulseContainer');
+            if (bbPulseContainer) {
+                this.resizeObserver.observe(bbPulseContainer);
+            }
         }
         
         // Also listen to window resize as fallback
@@ -1837,7 +1862,8 @@ class OrderBookChart {
                 emaValue: null,    // Current 20 EMA value
                 emaSeries: null,   // The EMA line series
                 gridLines: [],     // Grid price lines
-                period: 20         // EMA period
+                period: 20,        // EMA period
+                color: 'rgba(156, 163, 175, 0.8)'  // Default gray color
             };
         }
     }
@@ -1900,6 +1926,66 @@ class OrderBookChart {
     }
     
     /**
+     * Calculate ZEMA (Zero-lag EMA) for current price
+     * ZEMA = 2 * EMA(src, length) - EMA(EMA(src, length), length)
+     */
+    calculateZEMA(candles, period = 30) {
+        if (!candles || candles.length < period * 2) return null;
+        
+        // First EMA
+        const ema1 = this.calculateEMA(candles, period);
+        if (!ema1) return null;
+        
+        // Calculate full first EMA series for second EMA calculation
+        const ema1Series = this.calculateEMASeries(candles, period);
+        if (ema1Series.length < period) return null;
+        
+        // Create candles object from EMA series for second EMA
+        const emaCandles = ema1Series.map(point => ({ close: point.value }));
+        
+        // Second EMA (EMA of EMA)
+        const ema2 = this.calculateEMA(emaCandles, period);
+        if (!ema2) return null;
+        
+        // ZEMA = 2 * EMA1 - EMA2
+        return (2 * ema1) - ema2;
+    }
+    
+    /**
+     * Calculate ZEMA series for all candles
+     */
+    calculateZEMASeries(candles, period = 30) {
+        if (!candles || candles.length < period * 2) return [];
+        
+        const zemaData = [];
+        
+        // Calculate first EMA series
+        const ema1Series = this.calculateEMASeries(candles, period);
+        if (ema1Series.length < period) return [];
+        
+        // Create candles from EMA series
+        const emaCandles = ema1Series.map(point => ({ close: point.value }));
+        
+        // Calculate second EMA series (EMA of EMA)
+        const ema2Series = this.calculateEMASeries(emaCandles, period);
+        if (ema2Series.length === 0) return [];
+        
+        // Calculate ZEMA = 2 * EMA1 - EMA2
+        for (let i = 0; i < ema2Series.length; i++) {
+            const ema1Value = ema1Series[i + period - 1].value; // Offset by period
+            const ema2Value = ema2Series[i].value;
+            const zema = (2 * ema1Value) - ema2Value;
+            
+            zemaData.push({
+                time: ema1Series[i + period - 1].time,
+                value: zema
+            });
+        }
+        
+        return zemaData;
+    }
+    
+    /**
      * Toggle EMA grid display
      */
     toggleEmaGrid(show) {
@@ -1919,6 +2005,18 @@ class OrderBookChart {
     setEmaGridSpacing(spacing) {
         this.initEmaGrid();
         this.emaGrid.spacing = spacing;
+        
+        if (this.emaGrid.show) {
+            this.drawEmaGrid();
+        }
+    }
+    
+    /**
+     * Set EMA color
+     */
+    setEmaColor(color) {
+        this.initEmaGrid();
+        this.emaGrid.color = color;
         
         if (this.emaGrid.show) {
             this.drawEmaGrid();
@@ -1950,13 +2048,13 @@ class OrderBookChart {
         
         // Create EMA line series
         this.emaGrid.emaSeries = this.chart.addLineSeries({
-            color: 'rgba(156, 163, 175, 0.8)',  // Gray
+            color: this.emaGrid.color,
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Solid,
             crosshairMarkerVisible: false,
             lastValueVisible: true,
             priceLineVisible: false,
-            title: 'EMA20'
+            title: `EMA(${this.emaGrid.period})`
         });
         
         this.emaGrid.emaSeries.setData(emaSeries);
@@ -1976,7 +2074,9 @@ class OrderBookChart {
         if (!this.chart || !this.emaGrid.emaSeriesData || this.emaGrid.emaSeriesData.length === 0) return;
         
         const spacing = this.emaGrid.spacing; // Direct multiplier (0.1 = 10%)
-        const baseColor = [156, 163, 175]; // Gray RGB
+        
+        // Extract RGB from EMA color (works with hex or rgba)
+        const baseColor = this.extractRGB(this.emaGrid.color);
         
         // Draw curved grid lines above and below EMA (up to 10 lines each direction)
         const maxLines = 10;
@@ -2027,6 +2127,30 @@ class OrderBookChart {
     }
     
     /**
+     * Extract RGB values from color string (hex or rgba)
+     */
+    extractRGB(color) {
+        // If it's already rgba format
+        const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (rgbaMatch) {
+            return [parseInt(rgbaMatch[1]), parseInt(rgbaMatch[2]), parseInt(rgbaMatch[3])];
+        }
+        
+        // If it's hex format (#rrggbb)
+        const hexMatch = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+        if (hexMatch) {
+            return [
+                parseInt(hexMatch[1], 16),
+                parseInt(hexMatch[2], 16),
+                parseInt(hexMatch[3], 16)
+            ];
+        }
+        
+        // Fallback to gray
+        return [156, 163, 175];
+    }
+    
+    /**
      * Get candles array from local storage
      */
     getCandles() {
@@ -2063,13 +2187,491 @@ class OrderBookChart {
         this.emaGrid.emaSeriesData = null;
     }
     
+    // ========== ZEMA GRID FUNCTIONS ==========
+    
     /**
-     * Update EMA grid when new data arrives
+     * Initialize ZEMA grid state
+     */
+    initZemaGrid() {
+        if (!this.zemaGrid) {
+            this.zemaGrid = {
+                show: false,
+                spacing: 0.003,   // % spacing between grid lines (0.3%)
+                zemaValue: null,   // Current ZEMA value
+                zemaSeries: null,  // The ZEMA line series
+                gridLines: [],     // Grid price lines
+                period: 30,        // ZEMA period (default 30)
+                color: 'rgba(139, 92, 246, 0.8)'  // Default purple color
+            };
+        }
+    }
+    
+    /**
+     * Toggle ZEMA grid display
+     */
+    toggleZemaGrid(show) {
+        this.initZemaGrid();
+        this.zemaGrid.show = show;
+        
+        if (show) {
+            this.drawZemaGrid();
+        } else {
+            this.clearZemaGrid();
+        }
+    }
+    
+    /**
+     * Set ZEMA grid spacing
+     */
+    setZemaGridSpacing(spacing) {
+        this.initZemaGrid();
+        this.zemaGrid.spacing = spacing;
+        
+        if (this.zemaGrid.show) {
+            this.drawZemaGrid();
+        }
+    }
+    
+    /**
+     * Set ZEMA color
+     */
+    setZemaColor(color) {
+        this.initZemaGrid();
+        this.zemaGrid.color = color;
+        
+        if (this.zemaGrid.show) {
+            this.drawZemaGrid();
+        }
+    }
+    
+    /**
+     * Set ZEMA period
+     */
+    setZemaPeriod(period) {
+        this.initZemaGrid();
+        this.zemaGrid.period = period;
+        
+        if (this.zemaGrid.show) {
+            this.drawZemaGrid();
+        }
+    }
+    
+    /**
+     * Draw ZEMA line and grid
+     */
+    drawZemaGrid() {
+        this.initZemaGrid();
+        this.clearZemaGrid();
+        
+        if (!this.candleSeries || !this.chart) return;
+        
+        // Get candles from local storage or API data
+        const candles = this.getCandles();
+        if (!candles || candles.length < this.zemaGrid.period * 2) return;
+        
+        // Calculate ZEMA
+        const currentZema = this.calculateZEMA(candles, this.zemaGrid.period);
+        if (!currentZema) return;
+        
+        this.zemaGrid.zemaValue = currentZema;
+        
+        // Calculate full ZEMA series for the line
+        const zemaSeries = this.calculateZEMASeries(candles, this.zemaGrid.period);
+        this.zemaGrid.zemaSeriesData = zemaSeries; // Store for grid lines
+        
+        // Create ZEMA line series (different color from EMA)
+        this.zemaGrid.zemaSeries = this.chart.addLineSeries({
+            color: this.zemaGrid.color,
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            crosshairMarkerVisible: false,
+            lastValueVisible: true,
+            priceLineVisible: false,
+            title: `ZEMA(${this.zemaGrid.period})`
+        });
+        
+        // Add ZEMA line data
+        if (zemaSeries.length > 0) {
+            this.zemaGrid.zemaSeries.setData(zemaSeries);
+        }
+        
+        // Draw grid lines at intervals (similar to EMA)
+        const spacing = this.zemaGrid.spacing; // e.g. 0.1 = 10%
+        
+        // Extract RGB from ZEMA color
+        const baseColor = this.extractRGB(this.zemaGrid.color);
+        
+        // Draw curved grid lines above and below ZEMA (up to 10 lines each direction)
+        const maxLines = 10;
+        
+        for (let i = 1; i <= maxLines; i++) {
+            // Fade opacity as lines get further from ZEMA
+            const opacity = Math.max(0.15, 0.5 - (i * 0.04));
+            const gridColor = `rgba(${baseColor.join(',')}, ${opacity})`;
+            
+            // Above ZEMA
+            const aboveMultiplier = 1 + (spacing * i);
+            const aboveData = zemaSeries.map(point => ({
+                time: point.time,
+                value: point.value * aboveMultiplier
+            }));
+            
+            if (aboveData.length > 0) {
+                const aboveSeries = this.chart.addLineSeries({
+                    color: gridColor,
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    crosshairMarkerVisible: false,
+                    lastValueVisible: false,
+                    priceLineVisible: false
+                });
+                aboveSeries.setData(aboveData);
+                this.zemaGrid.gridLines.push(aboveSeries);
+            }
+            
+            // Below ZEMA
+            const belowMultiplier = 1 - (spacing * i);
+            if (belowMultiplier > 0) {
+                const belowData = zemaSeries.map(point => ({
+                    time: point.time,
+                    value: point.value * belowMultiplier
+                }));
+                
+                if (belowData.length > 0) {
+                    const belowSeries = this.chart.addLineSeries({
+                        color: gridColor,
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dotted,
+                        crosshairMarkerVisible: false,
+                        lastValueVisible: false,
+                        priceLineVisible: false
+                    });
+                    belowSeries.setData(belowData);
+                    this.zemaGrid.gridLines.push(belowSeries);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Clear ZEMA grid
+     */
+    clearZemaGrid() {
+        this.initZemaGrid();
+        
+        // Remove ZEMA line series
+        if (this.zemaGrid.zemaSeries && this.chart) {
+            this.chart.removeSeries(this.zemaGrid.zemaSeries);
+            this.zemaGrid.zemaSeries = null;
+        }
+        
+        // Remove curved grid line series
+        this.zemaGrid.gridLines.forEach(series => {
+            if (this.chart) {
+                try {
+                    this.chart.removeSeries(series);
+                } catch (e) {
+                    // Series may already be removed
+                }
+            }
+        });
+        this.zemaGrid.gridLines = [];
+        this.zemaGrid.zemaValue = null;
+        this.zemaGrid.zemaSeriesData = null;
+    }
+    
+    /**
+     * Update ZEMA grid when new data arrives
      */
     updateEmaGrid() {
         if (this.emaGrid && this.emaGrid.show) {
             this.drawEmaGrid();
         }
+    }
+    
+    /**
+     * Update ZEMA grid when new data arrives
+     */
+    updateZemaGrid() {
+        if (this.zemaGrid && this.zemaGrid.show) {
+            this.drawZemaGrid();
+        }
+    }
+    
+    // ==========================================
+    // EMA/ZEMA Grid Crossing Signals
+    // ==========================================
+    
+    /**
+     * Toggle EMA grid crossing signals
+     */
+    toggleEmaSignals(show) {
+        this.initEmaGrid();
+        this.emaGrid.showSignals = show;
+        this.updateAllSignalMarkers();
+        localStorage.setItem('showEmaSignals', show);
+    }
+    
+    /**
+     * Toggle ZEMA grid crossing signals
+     */
+    toggleZemaSignals(show) {
+        this.initZemaGrid();
+        this.zemaGrid.showSignals = show;
+        this.updateAllSignalMarkers();
+        localStorage.setItem('showZemaSignals', show);
+    }
+    
+    /**
+     * Calculate EMA grid crossing signals
+     * Returns markers for when price touches/crosses the OUTERMOST grid lines
+     * - Down arrow when bar HIGH >= highest grid line (10th line above EMA)
+     * - Up arrow when bar LOW <= lowest grid line (10th line below EMA)
+     */
+    calculateEmaGridSignals(candles) {
+        if (!candles || candles.length < this.emaGrid.period) return [];
+        if (!this.emaGrid.spacing || this.emaGrid.spacing <= 0) return [];
+        
+        const markers = [];
+        const emaValues = this.calculateEMASeries(candles, this.emaGrid.period);
+        if (!emaValues || emaValues.length === 0) return [];
+        
+        const spacing = this.emaGrid.spacing;
+        const maxLines = 10; // Same as grid drawing
+        const startIdx = this.emaGrid.period - 1;
+        
+        for (let i = 0; i < emaValues.length; i++) {
+            const candleIdx = startIdx + i;
+            if (candleIdx >= candles.length) break;
+            
+            const candle = candles[candleIdx];
+            const ema = emaValues[i].value;
+            // Highest grid line (10th above) and lowest grid line (10th below)
+            const highestGrid = ema * (1 + (maxLines * spacing));
+            const lowestGrid = ema * (1 - (maxLines * spacing));
+            
+            // Down arrow when bar HIGH touches or exceeds HIGHEST grid line
+            if (candle.high >= highestGrid) {
+                markers.push({
+                    time: candle.time,
+                    position: 'aboveBar',
+                    color: this.emaGrid.color || '#9ca3af',
+                    shape: 'arrowDown'
+                });
+            }
+            
+            // Up arrow when bar LOW touches or goes below LOWEST grid line
+            if (candle.low <= lowestGrid) {
+                markers.push({
+                    time: candle.time,
+                    position: 'belowBar',
+                    color: this.emaGrid.color || '#9ca3af',
+                    shape: 'arrowUp'
+                });
+            }
+        }
+        
+        return markers;
+    }
+    
+    /**
+     * Calculate ZEMA grid crossing signals
+     * Returns markers for when price touches/crosses the OUTERMOST grid lines
+     * - Down arrow when bar HIGH >= highest grid line (10th line above ZEMA)
+     * - Up arrow when bar LOW <= lowest grid line (10th line below ZEMA)
+     */
+    calculateZemaGridSignals(candles) {
+        if (!candles || candles.length < this.zemaGrid.period * 2) return [];
+        if (!this.zemaGrid.spacing || this.zemaGrid.spacing <= 0) return [];
+        
+        const markers = [];
+        const zemaValues = this.calculateZEMASeries(candles, this.zemaGrid.period);
+        if (!zemaValues || zemaValues.length === 0) return [];
+        
+        const spacing = this.zemaGrid.spacing;
+        const maxLines = 10; // Same as grid drawing
+        // ZEMA needs 2 * period - 1 bars to start
+        const startIdx = (this.zemaGrid.period * 2) - 2;
+        
+        for (let i = 0; i < zemaValues.length; i++) {
+            const candleIdx = startIdx + i;
+            if (candleIdx >= candles.length) break;
+            
+            const candle = candles[candleIdx];
+            const zema = zemaValues[i].value;
+            // Highest grid line (10th above) and lowest grid line (10th below)
+            const highestGrid = zema * (1 + (maxLines * spacing));
+            const lowestGrid = zema * (1 - (maxLines * spacing));
+            
+            // Down arrow when bar HIGH touches or exceeds HIGHEST grid line
+            if (candle.high >= highestGrid) {
+                markers.push({
+                    time: candle.time,
+                    position: 'aboveBar',
+                    color: this.zemaGrid.color || '#8b5cf6',
+                    shape: 'arrowDown'
+                });
+            }
+            
+            // Up arrow when bar LOW touches or goes below LOWEST grid line
+            if (candle.low <= lowestGrid) {
+                markers.push({
+                    time: candle.time,
+                    position: 'belowBar',
+                    color: this.zemaGrid.color || '#8b5cf6',
+                    shape: 'arrowUp'
+                });
+            }
+        }
+        
+        return markers;
+    }
+    
+    /**
+     * Update all signal markers on the candlestick series
+     * Combines BB Pulse signals with EMA/ZEMA grid signals
+     */
+    updateAllSignalMarkers() {
+        if (!this.candleSeries) return;
+        
+        const candles = this.getCandles();
+        if (!candles || candles.length < 50) return;
+        
+        let allMarkers = [];
+        
+        // Add BB Pulse signals if enabled
+        if (this.bbPulse && this.bbPulse.enabled && this.bbPulse.markers) {
+            allMarkers = allMarkers.concat(this.bbPulse.markers);
+        }
+        
+        // Add EMA grid signals if enabled
+        if (this.emaGrid && this.emaGrid.showSignals) {
+            const emaSignals = this.calculateEmaGridSignals(candles);
+            allMarkers = allMarkers.concat(emaSignals);
+        }
+        
+        // Add ZEMA grid signals if enabled
+        if (this.zemaGrid && this.zemaGrid.showSignals) {
+            const zemaSignals = this.calculateZemaGridSignals(candles);
+            allMarkers = allMarkers.concat(zemaSignals);
+        }
+        
+        // Sort markers by time
+        allMarkers.sort((a, b) => a.time - b.time);
+        
+        // Apply all markers
+        this.candleSeries.setMarkers(allMarkers);
+    }
+    
+    // ==========================================
+    // DB BB Pulse Lighting Signals
+    // ==========================================
+    
+    /**
+     * Toggle BB Pulse Lighting Signals (arrows on main chart)
+     */
+    toggleBBPulse(show) {
+        this.bbPulse.enabled = show;
+        console.log('[Chart] toggleBBPulse signals:', show);
+        
+        if (show) {
+            this.updateBBPulse();
+        } else {
+            this.clearBBPulseSignals();
+        }
+        
+        // Save state
+        localStorage.setItem('showBBPulse', show);
+    }
+    
+    /**
+     * Update BB Pulse Lighting Signals
+     */
+    updateBBPulse() {
+        if (!this.bbPulse.enabled || !this.chart || !this.candleSeries) {
+            return;
+        }
+        if (typeof bbPulseLighting === 'undefined') {
+            console.log('[Chart] updateBBPulse skipped - bbPulseLighting not loaded');
+            return;
+        }
+        
+        const candles = this.getCandles();
+        if (!candles || candles.length < 200) {
+            return;
+        }
+        
+        // Calculate indicator
+        const data = bbPulseLighting.calculate(candles);
+        if (!data || !data.signals) {
+            return;
+        }
+        
+        console.log('[Chart] Drawing BB Pulse signals');
+        this.drawBBPulseSignalsOnCandles(candles, data.signals, data.bbb);
+    }
+    
+    /**
+     * Draw BB Pulse Lighting signals as markers on the candlestick series
+     * Only shows core BB%B signals: period low (buy) and period high (sell)
+     * @param {Array} candles - Full candle data
+     * @param {Object} signals - Signal arrays from indicator
+     * @param {Object} bbb - BB%B data including bbr array
+     */
+    drawBBPulseSignalsOnCandles(candles, signals, bbb) {
+        if (!signals || !this.candleSeries) return;
+        
+        const markers = [];
+        // Signals start at candle index: (bbbLen-1) for bbr + (bbbLen-1) for period high/low
+        const startIdx = (bbPulseLighting.bbbLen - 1) * 2;
+        
+        // Signal arrays are indexed from 0, corresponding to candles[startIdx]
+        for (let i = 0; i < signals.lBuySignal1.length; i++) {
+            const candleIdx = startIdx + i;
+            if (candleIdx >= candles.length) break;
+            
+            const time = candles[candleIdx].time;
+            
+            // Buy Signal 1 - BB%B at period LOW (green arrow up)
+            if (signals.lBuySignal1[i]) {
+                markers.push({
+                    time: time,
+                    position: 'belowBar',
+                    color: '#10b981',
+                    shape: 'arrowUp'
+                });
+            }
+            
+            // Sell Signal 1 - BB%B at period HIGH (red arrow down)
+            if (signals.lSellSignal1[i]) {
+                markers.push({
+                    time: time,
+                    position: 'aboveBar',
+                    color: '#ef4444',
+                    shape: 'arrowDown'
+                });
+            }
+        }
+        
+        // Store markers and update combined markers
+        if (markers.length > 0) {
+            console.log('[Chart] Adding', markers.length, 'BB Pulse signal markers');
+            this.bbPulse.markers = markers;
+        } else {
+            this.bbPulse.markers = [];
+        }
+        
+        // Update all signal markers (combines with EMA/ZEMA signals)
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Clear BB Pulse signals from chart
+     */
+    clearBBPulseSignals() {
+        this.bbPulse.markers = [];
+        // Update combined markers (will still show EMA/ZEMA if enabled)
+        this.updateAllSignalMarkers();
     }
     
     // ==========================================

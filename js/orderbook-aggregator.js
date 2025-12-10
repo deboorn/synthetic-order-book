@@ -6,7 +6,7 @@
  *          For commercial licensing, contact daniel.boorn@gmail.com
  * 
  * Client-side clustering, filtering, and formatting of order book data
- * Mirrors the PHP backend logic for seamless fallback
+ * Client-side order book processing
  */
 class OrderBookAggregator {
     constructor() {
@@ -27,7 +27,7 @@ class OrderBookAggregator {
     
     /**
      * Process raw order book data from WebSocket
-     * Returns format identical to PHP API response
+     * Returns standard API response format
      */
     process(rawBook, currentPrice = null) {
         if (!rawBook || (!rawBook.bids.length && !rawBook.asks.length)) {
@@ -144,7 +144,7 @@ class OrderBookAggregator {
     
     /**
      * Format levels for chart display
-     * Matches PHP API output format exactly
+     * Standard API output format
      * Chart expects type: 'support' or 'resistance'
      */
     formatLevels(bids, asks, bidVolume, askVolume, totalVolume) {

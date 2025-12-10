@@ -5,12 +5,10 @@
  * @license Personal use only. Not for commercial reproduction.
  *          For commercial licensing, contact daniel.boorn@gmail.com
  * 
- * API Layer for Order Book Backend
- * Hybrid: WebSocket (real-time) with PHP fallback
+ * API Layer for Order Book - WebSocket-only data source
  */
 class OrderBookAPI {
-    constructor(baseUrl = '/api/orderbook.php') {
-        this.baseUrl = baseUrl;
+    constructor() {
         this.symbol = 'BTC';
         
         // WebSocket integration
@@ -28,7 +26,7 @@ class OrderBookAPI {
         };
         
         // Track data source for UI
-        this.dataSource = 'php';
+        this.dataSource = 'disconnected';
         
         // Setup WebSocket event listeners
         this.setupWebSocketListeners();
@@ -58,8 +56,8 @@ class OrderBookAPI {
             const status = e.detail.status;
             this.wsConnected = status.anyConnected;
             if (!this.wsConnected) {
-                this.dataSource = 'php';
-                console.warn('[API] Falling back to PHP data source');
+                this.dataSource = 'disconnected';
+                console.warn('[API] WebSocket disconnected');
             }
         });
     }
@@ -77,7 +75,7 @@ class OrderBookAPI {
         } else if (!enabled && typeof orderBookWS !== 'undefined') {
             orderBookWS.disconnect();
             this.wsConnected = false;
-            this.dataSource = 'php';
+            this.dataSource = 'disconnected';
         }
     }
     
@@ -118,32 +116,8 @@ class OrderBookAPI {
         }
     }
 
-    // Fetch from PHP backend
-    async fetchPHP(action, params = {}) {
-        const url = new URL(this.baseUrl, window.location.origin);
-        url.searchParams.set('action', action);
-        url.searchParams.set('symbol', this.symbol);
-        
-        for (const [key, value] of Object.entries(params)) {
-            url.searchParams.set(key, value);
-        }
-
-        const response = await fetch(url.toString());
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error(data.error || 'Unknown API error');
-        }
-        
-        return data;
-    }
-
     // Get calculated support/resistance levels - WebSocket only
     async getLevels(exchanges = null, settings = null) {
-        // WebSocket only - no PHP fallback
         if (!this.isWebSocketReady() || typeof orderBookAggregator === 'undefined') {
             // Return empty while waiting for WebSocket
             return {
@@ -202,7 +176,6 @@ class OrderBookAPI {
     
     // Get ALL levels without filters (for analytics) - WebSocket only
     async getAllLevels(exchanges = null, settings = null) {
-        // WebSocket only - no PHP fallback
         if (!this.isWebSocketReady() || typeof orderBookAggregator === 'undefined') {
             return {
                 success: true,
@@ -308,7 +281,6 @@ class OrderBookAPI {
 
     // Get depth chart data - WebSocket only
     async getDepth(exchanges = null) {
-        // WebSocket only - no PHP fallback
         if (!this.isWebSocketReady()) {
             return {
                 success: true,

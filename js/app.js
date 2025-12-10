@@ -153,7 +153,7 @@ class OrderBookApp {
      * Throttled to prevent UI overload
      */
     handleWebSocketOrderBookUpdate(rawBook) {
-        // Skip if we're using PHP polling and WS is just backup
+        // Skip if WebSocket is backup only
         if (!api.isWebSocketReady()) return;
         
         // Additional throttle for heavy operations (analytics, UI updates)
@@ -248,7 +248,7 @@ class OrderBookApp {
         
         const label = indicator.querySelector('.source-label');
         
-        indicator.classList.remove('websocket', 'php', 'disconnected');
+        indicator.classList.remove('websocket', 'disconnected');
         
         if (status && status.anyConnected) {
             indicator.classList.add('websocket');
@@ -258,10 +258,6 @@ class OrderBookApp {
                 [status.kraken && 'Kraken', status.coinbase && 'Coinbase', status.bitstamp && 'Bitstamp']
                     .filter(Boolean).join(', ')
             }`;
-        } else if (api && api.dataSource === 'php') {
-            indicator.classList.add('php');
-            label.textContent = 'PHP';
-            indicator.title = 'Using PHP backend (WebSocket unavailable)';
         } else {
             indicator.classList.add('disconnected');
             label.textContent = 'Offline';
@@ -341,6 +337,8 @@ class OrderBookApp {
             showRays: document.getElementById('showRays'),
             showConfidence: document.getElementById('showConfidence'),
             showEmaGrid: document.getElementById('showEmaGrid'),
+            showZemaGrid: document.getElementById('showZemaGrid'),
+            showBBPulse: document.getElementById('showBBPulse'),
             showMid: document.getElementById('showMid'),
             showIFV: document.getElementById('showIFV'),
             showVWMP: document.getElementById('showVWMP'),
@@ -475,6 +473,41 @@ class OrderBookApp {
             localStorage.setItem('showEmaGrid', e.target.checked);
         });
         
+        // ZEMA Grid toggle
+        const showZemaGridEl = document.getElementById('showZemaGrid');
+        if (showZemaGridEl) {
+            showZemaGridEl.addEventListener('change', (e) => {
+                this.chart.toggleZemaGrid(e.target.checked);
+                localStorage.setItem('showZemaGrid', e.target.checked);
+            });
+        }
+        
+        // EMA Signals toggle
+        const showEmaSignalsEl = document.getElementById('showEmaSignals');
+        if (showEmaSignalsEl) {
+            showEmaSignalsEl.addEventListener('change', (e) => {
+                this.chart.toggleEmaSignals(e.target.checked);
+                localStorage.setItem('showEmaSignals', e.target.checked);
+            });
+        }
+        
+        // ZEMA Signals toggle
+        const showZemaSignalsEl = document.getElementById('showZemaSignals');
+        if (showZemaSignalsEl) {
+            showZemaSignalsEl.addEventListener('change', (e) => {
+                this.chart.toggleZemaSignals(e.target.checked);
+                localStorage.setItem('showZemaSignals', e.target.checked);
+            });
+        }
+        
+        // BB Pulse toggle
+        const showBBPulseEl = document.getElementById('showBBPulse');
+        if (showBBPulseEl) {
+            showBBPulseEl.addEventListener('change', (e) => {
+                this.chart.toggleBBPulse(e.target.checked);
+            });
+        }
+        
         // Mid (Simple Mid Price) toggle
         this.elements.showMid.addEventListener('change', (e) => {
             this.chart.toggleMid(e.target.checked);
@@ -506,6 +539,8 @@ class OrderBookApp {
         const savedShowRays = localStorage.getItem('showRays') === 'true';
         const savedShowConfidence = localStorage.getItem('showConfidence') === 'true';
         const savedShowEmaGrid = localStorage.getItem('showEmaGrid') === 'true';
+        const savedShowZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
+        const savedShowBBPulse = localStorage.getItem('showBBPulse') === 'true';
         const savedShowMid = localStorage.getItem('showMid') === 'true';
         const savedShowIFV = localStorage.getItem('showIFV') === 'true';
         const savedShowVWMP = localStorage.getItem('showVWMP') === 'true';
@@ -521,6 +556,12 @@ class OrderBookApp {
             this.chart.setLDFlowZonesEnabled(savedShowLDFlowZones);
         }
         this.elements.showEmaGrid.checked = savedShowEmaGrid;
+        if (this.elements.showZemaGrid) {
+            this.elements.showZemaGrid.checked = savedShowZemaGrid;
+        }
+        if (this.elements.showBBPulse) {
+            this.elements.showBBPulse.checked = savedShowBBPulse;
+        }
         this.elements.showMid.checked = savedShowMid;
         this.elements.showIFV.checked = savedShowIFV;
         this.elements.showVWMP.checked = savedShowVWMP;
@@ -711,6 +752,13 @@ class OrderBookApp {
         document.getElementById('colorLevelSupport').value = this.levelSettings.levelSupportColor;
         document.getElementById('colorLevelResistance').value = this.levelSettings.levelResistanceColor;
         
+        // EMA/ZEMA colors
+        const emaColor = localStorage.getItem('emaColor') || '#9ca3af';
+        document.getElementById('colorEmaLine').value = emaColor;
+        
+        const zemaColor = localStorage.getItem('zemaColor') || '#8b5cf6';
+        document.getElementById('colorZemaLine').value = zemaColor;
+        
         // Level appearance settings
         document.getElementById('settingBrightness').value = this.levelSettings.brightness;
         document.getElementById('brightnessValue').textContent = this.levelSettings.brightness + '%';
@@ -719,8 +767,18 @@ class OrderBookApp {
         document.getElementById('thicknessValue').textContent = this.levelSettings.thickness;
         
         // EMA Grid settings
+        const emaPeriod = parseInt(localStorage.getItem('emaPeriod')) || 20;
+        document.getElementById('settingEmaPeriod').value = emaPeriod;
+        
         const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.005;
         document.getElementById('settingEmaGridSpacing').value = emaGridSpacing;
+        
+        // ZEMA Grid settings
+        const zemaPeriod = parseInt(localStorage.getItem('zemaPeriod')) || 30;
+        document.getElementById('settingZemaPeriod').value = zemaPeriod;
+        
+        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.005;
+        document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
     }
@@ -800,10 +858,45 @@ class OrderBookApp {
             thickness: parseFloat(document.getElementById('settingThickness').value)
         };
         
-        // Save EMA grid spacing separately
+        // Save EMA settings separately
+        const emaPeriod = parseInt(document.getElementById('settingEmaPeriod').value);
+        localStorage.setItem('emaPeriod', emaPeriod);
+        if (this.chart.emaGrid) {
+            this.chart.emaGrid.period = emaPeriod;
+            if (this.chart.emaGrid.show) {
+                this.chart.drawEmaGrid();
+            }
+        }
+        
         const emaGridSpacing = parseFloat(document.getElementById('settingEmaGridSpacing').value);
         localStorage.setItem('emaGridSpacing', emaGridSpacing);
         this.chart.setEmaGridSpacing(emaGridSpacing);
+        
+        // Save ZEMA settings separately
+        const zemaPeriod = parseInt(document.getElementById('settingZemaPeriod').value);
+        localStorage.setItem('zemaPeriod', zemaPeriod);
+        if (this.chart.setZemaPeriod) {
+            this.chart.setZemaPeriod(zemaPeriod);
+        }
+        
+        const zemaGridSpacing = parseFloat(document.getElementById('settingZemaGridSpacing').value);
+        localStorage.setItem('zemaGridSpacing', zemaGridSpacing);
+        if (this.chart.setZemaGridSpacing) {
+            this.chart.setZemaGridSpacing(zemaGridSpacing);
+        }
+        
+        // Save EMA/ZEMA colors
+        const emaColor = document.getElementById('colorEmaLine').value;
+        localStorage.setItem('emaColor', emaColor);
+        if (this.chart.setEmaColor) {
+            this.chart.setEmaColor(emaColor);
+        }
+        
+        const zemaColor = document.getElementById('colorZemaLine').value;
+        localStorage.setItem('zemaColor', zemaColor);
+        if (this.chart.setZemaColor) {
+            this.chart.setZemaColor(zemaColor);
+        }
         
         // Save Fair Value Range separately (used by chart.js for VWMP/IFV calculation)
         const fairValueRange = parseInt(document.getElementById('settingFairValueRange').value);
@@ -812,6 +905,14 @@ class OrderBookApp {
         this.saveSettings(); // Persist to localStorage
         this.applyChartColors(); // Apply new colors
         this.applyLevelAppearance(); // Apply appearance settings
+        
+        // Apply BB Pulse indicator toggle
+        const showBBPulse = document.getElementById('showBBPulse').checked;
+        localStorage.setItem('showBBPulse', showBBPulse);
+        if (this.chart.toggleBBPulse) {
+            this.chart.toggleBBPulse(showBBPulse);
+        }
+        
         document.getElementById('settingsModal').classList.remove('open');
         this.loadData(); // Refresh with new settings
     }
@@ -925,6 +1026,11 @@ class OrderBookApp {
                 this.chart.setData(klinesResponse.data);
                 await db.saveKlines(timeframe, klinesResponse.data);
                 console.log(`[App] Loaded ${klinesResponse.data.length} klines from Binance`);
+                
+                // Update BB Pulse indicator if enabled
+                if (this.chart.bbPulse && this.chart.bbPulse.enabled) {
+                    this.chart.updateBBPulse();
+                }
             }
 
             // Order book data comes from WebSocket only
@@ -1334,10 +1440,56 @@ class OrderBookApp {
         }
         
         // Apply EMA grid settings
+        const emaPeriod = parseInt(localStorage.getItem('emaPeriod')) || 20;
+        const emaColor = localStorage.getItem('emaColor') || 'rgba(156, 163, 175, 0.8)';
+        if (this.chart.emaGrid) {
+            this.chart.emaGrid.period = emaPeriod;
+            this.chart.emaGrid.color = emaColor;
+        }
         this.chart.setEmaGridSpacing(emaGridSpacing);
         if (showEmaGrid) {
             this.chart.toggleEmaGrid(true);
         }
+        
+        // Apply ZEMA grid settings
+        const showZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
+        const zemaPeriod = parseInt(localStorage.getItem('zemaPeriod')) || 30;
+        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.005;
+        const zemaColor = localStorage.getItem('zemaColor') || 'rgba(139, 92, 246, 0.8)';
+        
+        if (this.chart.initZemaGrid) {
+            this.chart.initZemaGrid();
+            this.chart.zemaGrid.period = zemaPeriod;
+            this.chart.zemaGrid.color = zemaColor;
+            this.chart.setZemaGridSpacing(zemaGridSpacing);
+        }
+        if (showZemaGrid && this.chart.toggleZemaGrid) {
+            this.chart.toggleZemaGrid(true);
+        }
+        
+        // Apply BB Pulse indicator settings  
+        const showBBPulse = localStorage.getItem('showBBPulse') === 'true';
+        if (this.chart.toggleBBPulse) {
+            if (showBBPulse) {
+                this.chart.toggleBBPulse(true);
+            }
+        }
+        
+        // Apply EMA/ZEMA signal settings
+        const showEmaSignals = localStorage.getItem('showEmaSignals') === 'true';
+        const showZemaSignals = localStorage.getItem('showZemaSignals') === 'true';
+        if (showEmaSignals && this.chart.toggleEmaSignals) {
+            this.chart.toggleEmaSignals(true);
+        }
+        if (showZemaSignals && this.chart.toggleZemaSignals) {
+            this.chart.toggleZemaSignals(true);
+        }
+        
+        // Set checkbox states
+        const showEmaSignalsEl = document.getElementById('showEmaSignals');
+        const showZemaSignalsEl = document.getElementById('showZemaSignals');
+        if (showEmaSignalsEl) showEmaSignalsEl.checked = showEmaSignals;
+        if (showZemaSignalsEl) showZemaSignalsEl.checked = showZemaSignals;
         
         // Apply fair value indicator settings
         if (showMid) {
