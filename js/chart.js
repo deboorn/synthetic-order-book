@@ -6068,6 +6068,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const alpha = this.alphaScore || 50;
         this.updateRegimeEngine(levels, currentPrice, alpha);
         
+        // Update header metrics with latest LD and Alpha
+        const regimeClass = alpha >= 70 ? 'bullish' : alpha <= 30 ? 'bearish' : 'neutral';
+        this.updateHeaderMetrics(ld.delta, alpha, regimeClass);
+        
         // Restore sidebar scroll position after DOM updates
         if (sidebar && scrollTop > 0) {
             sidebar.scrollTop = scrollTop;
