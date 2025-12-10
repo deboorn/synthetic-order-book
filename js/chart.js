@@ -237,6 +237,15 @@ class OrderBookChart {
         };
         
         const seconds = intervals[interval] || intervals['4h'];
+        
+        // Weekly candles align to Monday 00:00 UTC (not Thursday/epoch)
+        if (interval === '1w') {
+            const REFERENCE_MONDAY = 345600; // Jan 5, 1970 00:00 UTC
+            const sinceRef = timestamp - REFERENCE_MONDAY;
+            const weeks = Math.floor(sinceRef / seconds);
+            return REFERENCE_MONDAY + (weeks * seconds);
+        }
+        
         return Math.floor(timestamp / seconds) * seconds;
     }
 

@@ -1014,7 +1014,18 @@ class OrderBookApp {
         
         const intervalSeconds = intervals[this.currentTimeframe] || intervals['4h'];
         const now = Math.floor(Date.now() / 1000);
-        const currentBarStart = Math.floor(now / intervalSeconds) * intervalSeconds;
+        
+        // Weekly candles align to Monday 00:00 UTC (not Thursday/epoch)
+        let currentBarStart;
+        if (this.currentTimeframe === '1w') {
+            const REFERENCE_MONDAY = 345600; // Jan 5, 1970 00:00 UTC
+            const sinceRef = now - REFERENCE_MONDAY;
+            const weeks = Math.floor(sinceRef / intervalSeconds);
+            currentBarStart = REFERENCE_MONDAY + (weeks * intervalSeconds);
+        } else {
+            currentBarStart = Math.floor(now / intervalSeconds) * intervalSeconds;
+        }
+        
         const nextBarStart = currentBarStart + intervalSeconds;
         const remaining = nextBarStart - now;
         
