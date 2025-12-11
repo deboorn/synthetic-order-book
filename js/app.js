@@ -1477,12 +1477,12 @@ class OrderBookApp {
         const showVWMP = localStorage.getItem('showVWMP') === 'true';
         const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
         
-        // Load showLevels setting (default false if never set)
-        const showLevels = localStorage.getItem('showLevels') === 'true';
+        // Load showLevels setting (default TRUE if never set, but honor if disabled)
+        const showLevels = localStorage.getItem('showLevels') !== 'false';
         if (this.elements.showLevels) {
             this.elements.showLevels.checked = showLevels;
         }
-        // Apply to chart - toggle off if setting is false
+        // Apply to chart
         this.chart.toggleLevels(showLevels);
         
         // Apply confidence state first (affects how targets/rays are drawn)
