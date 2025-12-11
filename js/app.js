@@ -1944,3 +1944,133 @@ document.addEventListener('DOMContentLoaded', () => {
     window.app.init().catch(console.error);
 });
 
+// ============================================
+// PWA Install Prompt
+// ============================================
+(function() {
+    let deferredPrompt = null;
+    let installBanner = null;
+    
+    // Check if already installed
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches 
+        || window.navigator.standalone === true;
+    
+    if (isStandalone) return; // Already installed, skip
+    
+    // Check if user dismissed the banner recently (24 hours)
+    const dismissedAt = localStorage.getItem('pwa_install_dismissed');
+    if (dismissedAt && Date.now() - parseInt(dismissedAt) < 24 * 60 * 60 * 1000) {
+        return;
+    }
+    
+    // Create install banner
+    function createInstallBanner() {
+        const banner = document.createElement('div');
+        banner.id = 'pwaInstallBanner';
+        banner.className = 'pwa-install-banner';
+        banner.innerHTML = `
+            <div class="pwa-install-content">
+                <div class="pwa-install-icon">
+                    <svg viewBox="0 0 48 48" width="40" height="40">
+                        <defs>
+                            <linearGradient id="pwa-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#111827"/>
+                                <stop offset="100%" stop-color="#0a0e17"/>
+                            </linearGradient>
+                            <linearGradient id="pwa-green" x1="0%" y1="100%" x2="0%" y2="0%">
+                                <stop offset="0%" stop-color="#059669"/>
+                                <stop offset="100%" stop-color="#10b981"/>
+                            </linearGradient>
+                        </defs>
+                        <rect fill="url(#pwa-bg)" width="48" height="48" rx="10"/>
+                        <rect x="8" y="24" width="5" height="14" rx="1" fill="url(#pwa-green)"/>
+                        <rect x="16" y="18" width="5" height="16" rx="1" fill="#ef4444"/>
+                        <rect x="24" y="14" width="5" height="18" rx="1" fill="url(#pwa-green)"/>
+                        <rect x="32" y="10" width="5" height="20" rx="1" fill="url(#pwa-green)"/>
+                        <path d="M6 38 Q18 30 30 24 T44 16" stroke="#3b82f6" stroke-width="2" fill="none" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="pwa-install-text">
+                    <strong>Install Order Book</strong>
+                    <span>Quick access from your desktop</span>
+                </div>
+                <div class="pwa-install-actions">
+                    <button class="pwa-install-btn" id="pwaInstallBtn">Install</button>
+                    <button class="pwa-dismiss-btn" id="pwaDismissBtn">×</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(banner);
+        
+        // Bind events
+        document.getElementById('pwaInstallBtn').addEventListener('click', installApp);
+        document.getElementById('pwaDismissBtn').addEventListener('click', dismissBanner);
+        
+        return banner;
+    }
+    
+    // Show the banner with animation
+    function showBanner() {
+        if (!installBanner) {
+            installBanner = createInstallBanner();
+        }
+        // Small delay for animation
+        setTimeout(() => {
+            installBanner.classList.add('show');
+        }, 2000); // Show after 2 seconds
+    }
+    
+    // Install the app
+    async function installApp() {
+        if (!deferredPrompt) return;
+        
+        // Show the install prompt
+        deferredPrompt.prompt();
+        
+        // Wait for user response
+        const { outcome } = await deferredPrompt.userChoice;
+        
+        if (outcome === 'accepted') {
+            console.log('PWA installed');
+        }
+        
+        // Clear the prompt
+        deferredPrompt = null;
+        hideBanner();
+    }
+    
+    // Dismiss the banner
+    function dismissBanner() {
+        localStorage.setItem('pwa_install_dismissed', Date.now().toString());
+        hideBanner();
+    }
+    
+    // Hide the banner
+    function hideBanner() {
+        if (installBanner) {
+            installBanner.classList.remove('show');
+            setTimeout(() => {
+                installBanner.remove();
+                installBanner = null;
+            }, 300);
+        }
+    }
+    
+    // Listen for the beforeinstallprompt event
+    window.addEventListener('beforeinstallprompt', (e) => {
+        // Prevent Chrome 67+ from automatically showing the prompt
+        e.preventDefault();
+        // Save the event for later
+        deferredPrompt = e;
+        // Show our custom banner
+        showBanner();
+    });
+    
+    // Hide banner if app is installed
+    window.addEventListener('appinstalled', () => {
+        console.log('PWA was installed');
+        hideBanner();
+        deferredPrompt = null;
+    });
+})();
+
