@@ -4,7 +4,15 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 
 ![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-1.0.0-green)
 
-![Synthetic Order Book Screenshot](./screenshot.png)
+## 📸 Screenshots
+
+### Desktop View
+![Synthetic Order Book - Desktop](./screenshot-desktop.jpg)
+
+### Mobile View
+<p align="center">
+  <img src="./screenshot-mobile.png" alt="Synthetic Order Book - Mobile" width="350">
+</p>
 
 ## 🔗 Quick Links
 
@@ -714,6 +722,9 @@ Always conduct your own research and consult qualified financial advisors before
 
 ## 🙏 Acknowledgments
 
-- [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/)
-- [Binance Vision API](https://data.binance.vision/)
-- Exchange WebSocket APIs: Kraken, Coinbase, Bitstamp
+Special thanks to:
+
+- **[TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts)** - Performant financial charts built with HTML5 canvas. The charting library powering this application.
+- **[GitHub](https://github.com)** - For hosting this project and providing GitHub Pages for the live demo.
+- **[Binance Vision API](https://data.binance.vision/)** - Historical kline/candlestick data.
+- **Exchange WebSocket APIs** - Real-time order book data from Kraken, Coinbase, and Bitstamp.

@@ -2492,6 +2492,64 @@ body {
     letter-spacing: 0.02em;
 }
 
+/* Footer Links - Shared Styles */
+.github-link,
+.tradingview-attribution {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    transition: all 0.2s ease;
+}
+
+.github-link:hover,
+.tradingview-attribution:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: var(--text-secondary);
+}
+
+.github-icon {
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.github-link:hover .github-icon {
+    opacity: 0.9;
+}
+
+/* TradingView Attribution */
+.tv-powered {
+    color: var(--text-muted);
+}
+
+.tv-logo {
+    display: block;
+    width: 22px;
+    height: 22px;
+    opacity: 0.95;
+    transition: all 0.2s ease;
+}
+
+.tradingview-attribution:hover .tv-logo {
+    opacity: 1;
+}
+
+.footer-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 /* Disclaimer Modal */
 .disclaimer-modal {
     position: fixed;
@@ -3980,6 +4038,35 @@ body {
     .footer-right {
         order: 2;
         margin-left: auto;
+        gap: 6px;
+    }
+    
+    .github-link {
+        padding: 4px 6px;
+        font-size: 0.6rem;
+    }
+    
+    .github-link span {
+        display: none;
+    }
+    
+    .github-icon {
+        width: 14px;
+        height: 14px;
+    }
+    
+    .tradingview-attribution {
+        padding: 4px 8px;
+        gap: 4px;
+    }
+    
+    .tv-powered {
+        font-size: 0.55rem;
+    }
+    
+    .tv-logo {
+        width: 18px;
+        height: 18px;
     }
     
     .footer-separator {
