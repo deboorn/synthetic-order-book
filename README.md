@@ -11,7 +11,7 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 
 ### Mobile View
 <p align="center">
-  <img src="./screenshot-mobile.png" alt="Synthetic Order Book - Mobile" width="350">
+  <img src="./screenshot_mobile.png" alt="Synthetic Order Book - Mobile" width="350">
 </p>
 
 ## 🔗 Quick Links
