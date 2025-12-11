@@ -352,7 +352,6 @@ class OrderBookApp {
             levelsList: document.getElementById('levelsList'),
             cacheStatus: document.getElementById('cacheStatus'),
             lastUpdate: document.getElementById('lastUpdate'),
-            refreshInterval: document.getElementById('refreshInterval'),
             barCountdown: document.getElementById('barCountdown')
         };
     }
@@ -607,10 +606,7 @@ class OrderBookApp {
         // Setup MCS mode selector
         this.setupMCSModeSelector();
 
-        // Auto-refresh selector
-        this.elements.refreshInterval.addEventListener('change', (e) => {
-            this.setupAutoRefresh(parseInt(e.target.value));
-        });
+        // Auto-refresh removed - WebSocket streams data in real-time
 
         // Level highlight from chart
         window.addEventListener('levelHighlight', (e) => {
@@ -986,22 +982,11 @@ class OrderBookApp {
     }
 
     setupAutoRefresh(interval = null) {
-        // Clear existing interval
+        // Auto-refresh polling removed - WebSocket streams data in real-time
+        // Clear any existing interval
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
-        }
-
-        // Get interval from select if not provided
-        if (interval === null) {
-            interval = parseInt(this.elements.refreshInterval.value);
-        }
-
-        // Setup new interval
-        if (interval > 0) {
-            this.refreshInterval = setInterval(() => {
-                this.loadData();
-            }, interval);
         }
     }
 
