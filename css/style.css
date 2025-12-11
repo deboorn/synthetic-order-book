@@ -1066,6 +1066,7 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+.regime-panel .regime-mode-selector,
 .regime-panel .regime-current,
 .regime-panel .regime-description,
 .regime-panel .regime-section,
@@ -1488,19 +1489,129 @@ body {
     letter-spacing: 0.5px;
 }
 
-.regime-mode-btn[data-mode="marketMaker"].active {
+.regime-mode-btn[data-mode="marketMaker"].active,
+.regime-mode-btn[data-alpha-mode="marketMaker"].active {
     background: linear-gradient(135deg, rgba(236, 72, 153, 0.3), rgba(244, 114, 182, 0.2));
     border-color: rgba(236, 72, 153, 0.5);
+    box-shadow: 0 2px 8px rgba(236, 72, 153, 0.2);
 }
 
-.regime-mode-btn[data-mode="swingTrader"].active {
+.regime-mode-btn[data-mode="swingTrader"].active,
+.regime-mode-btn[data-alpha-mode="swingTrader"].active {
     background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(139, 92, 246, 0.2));
     border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
 }
 
-.regime-mode-btn[data-mode="investor"].active {
+.regime-mode-btn[data-mode="investor"].active,
+.regime-mode-btn[data-alpha-mode="investor"].active {
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(52, 211, 153, 0.2));
     border-color: rgba(16, 185, 129, 0.5);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+}
+
+/* Alpha Sensitivity Slider */
+.alpha-sensitivity-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 12px 0;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+}
+
+.alpha-sensitivity-slider .slider-label {
+    font-size: 0.85rem;
+    white-space: nowrap;
+    cursor: help;
+}
+
+.alpha-sensitivity-slider .slider-container {
+    flex: 1;
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.alpha-sensitivity-slider .slider-notch {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 1px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.alpha-sensitivity-slider input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: linear-gradient(to right, 
+        rgba(56, 189, 248, 0.5) 0%, 
+        rgba(255, 255, 255, 0.2) 50%, 
+        rgba(251, 191, 36, 0.5) 100%);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.alpha-sensitivity-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: linear-gradient(135deg, #fff, #e0e0e0);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease;
+}
+
+.alpha-sensitivity-slider input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+.alpha-sensitivity-slider input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: linear-gradient(135deg, #fff, #e0e0e0);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.alpha-sensitivity-slider .slider-value {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-width: 32px;
+    text-align: right;
+    font-family: var(--font-mono);
+}
+
+.alpha-sensitivity-slider .slider-warning {
+    font-size: 0.75rem;
+    display: none;
+    margin-left: 4px;
+    cursor: help;
+    animation: pulse-warning 1.5s ease-in-out infinite;
+}
+
+.alpha-sensitivity-slider .slider-warning.visible {
+    display: inline;
+}
+
+@keyframes pulse-warning {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
 }
 
 /* Regime Transition Probability Section */
@@ -5275,6 +5386,15 @@ body {
 .alpha-value.bearish { color: #ef4444; }
 .alpha-value.neutral { color: #fbbf24; }
 .alpha-value.bullish { color: #10b981; }
+
+.alpha-value.warming-up {
+    animation: pulse-warmup 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-warmup {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
 
 .alpha-label {
     font-size: 0.6rem;

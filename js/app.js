@@ -675,6 +675,10 @@ class OrderBookApp {
         // Setup LD Trading Guide toggle
         this.chart.initLDTradingGuideToggle();
         
+        // Setup Alpha mode selector and sensitivity slider
+        this.setupAlphaModeSelector();
+        this.setupAlphaSensitivitySlider();
+        
         // Setup regime mode selector
         this.setupRegimeModeSelector();
         
@@ -1363,7 +1367,10 @@ class OrderBookApp {
      * Setup regime mode selector buttons
      */
     setupRegimeModeSelector() {
-        const modeButtons = document.querySelectorAll('.regime-mode-btn');
+        // Scope to regime panel only (exclude alpha mode buttons)
+        const container = document.querySelector('.regime-panel .regime-mode-selector');
+        if (!container) return;
+        const modeButtons = container.querySelectorAll('.regime-mode-btn');
         
         // Load saved mode
         const savedMode = localStorage.getItem('regimeMode') || 'investor';
@@ -1380,7 +1387,7 @@ class OrderBookApp {
             
             // Add click handler
             btn.addEventListener('click', () => {
-                // Update button states
+                // Update button states within this container only
                 modeButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 
@@ -1401,6 +1408,142 @@ class OrderBookApp {
                 // Refresh analytics with new mode
                 this.updateAnalyticsData();
             });
+        });
+    }
+    
+    /**
+     * Setup Alpha mode selector buttons
+     */
+    setupAlphaModeSelector() {
+        // Scope to alpha panel only
+        const container = document.querySelector('.alpha-score-panel .alpha-mode-selector');
+        if (!container) return;
+        const modeButtons = container.querySelectorAll('.alpha-mode-btn');
+        const savedMode = localStorage.getItem('alphaMode') || 'investor';
+        
+        const applyMode = (mode) => {
+            localStorage.setItem('alphaMode', mode);
+            if (this.chart) {
+                this.chart.alphaMode = mode;
+                // Reset alpha-related smoothing to avoid cross-mode artifacts
+                const re = this.chart.regimeEngine || {};
+                if (re) {
+                    re.ifvNormEma = null;
+                    re.ldNormEma = null;
+                    re.bprNormEma = null;
+                    re.alphaEma = null;
+                    re.lastAlphaDisplay = null;
+                    re.lastAlphaRenderTs = 0;
+                }
+            }
+        };
+        
+        modeButtons.forEach(btn => {
+            const mode = btn.dataset.alphaMode;
+            // Set initial state
+            if (mode === savedMode) btn.classList.add('active');
+            else btn.classList.remove('active');
+            
+            btn.addEventListener('click', () => {
+                // Update button states within this container only
+                modeButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                applyMode(mode);
+            });
+        });
+        
+        applyMode(savedMode);
+    }
+    
+    /**
+     * Setup Alpha sensitivity slider
+     * Range: 0-100, where 50 = 1.0x (center/default)
+     * Left (0): 0.001x, Right (100): 2.0x
+     */
+    setupAlphaSensitivitySlider() {
+        const slider = document.getElementById('alphaSensitivity');
+        const valueDisplay = document.getElementById('alphaSensitivityValue');
+        const warningDisplay = document.getElementById('alphaSensitivityWarning');
+        if (!slider || !valueDisplay) return;
+        
+        // Convert slider position (0-100) to multiplier (0.001-2.0, with 50=1.0)
+        const sliderToMultiplier = (val) => {
+            if (val <= 50) {
+                // 0→0.001, 50→1.0 (exponential curve)
+                const t = val / 50; // 0 to 1
+                return 0.001 + (1.0 - 0.001) * (t * t * t); // cubic ease
+            } else {
+                // 50→1.0, 100→2.0 (linear)
+                return 1.0 + (val - 50) / 50;
+            }
+        };
+        
+        // Load saved sensitivity (0-100, where 50 = 1.0x)
+        const savedValue = parseInt(localStorage.getItem('alphaSensitivity') || '50', 10);
+        slider.value = savedValue;
+        
+        const updateDisplay = (value) => {
+            const multiplier = sliderToMultiplier(value);
+            valueDisplay.textContent = multiplier < 0.1 ? multiplier.toFixed(3) + 'x' : multiplier.toFixed(2) + 'x';
+            
+            // Color the value based on direction (neutral colors, no good/bad implication)
+            if (value < 50) {
+                valueDisplay.style.color = 'rgba(56, 189, 248, 0.95)'; // Cyan for SLOW (calm)
+            } else if (value > 50) {
+                valueDisplay.style.color = 'rgba(251, 191, 36, 0.95)'; // Amber for FAST (energetic)
+            } else {
+                valueDisplay.style.color = 'var(--text-secondary)'; // Default
+            }
+            
+            // Show warning for ultra-slow settings (< 0.1x)
+            if (warningDisplay) {
+                if (multiplier < 0.1) {
+                    warningDisplay.classList.add('visible');
+                    warningDisplay.title = 'Ultra-slow: May not respond to rapid market changes';
+                } else {
+                    warningDisplay.classList.remove('visible');
+                }
+            }
+        };
+        
+        const applyMultiplier = (value) => {
+            const multiplier = sliderToMultiplier(value);
+            localStorage.setItem('alphaSensitivity', value);
+            if (this.chart) {
+                this.chart.alphaSensitivityMultiplier = multiplier;
+            }
+        };
+        
+        // Initialize
+        updateDisplay(savedValue);
+        applyMultiplier(savedValue);
+        
+        // Live update on input
+        slider.addEventListener('input', (e) => {
+            const value = parseInt(e.target.value, 10);
+            updateDisplay(value);
+        });
+        
+        // Apply on change (mouseup/touchend)
+        slider.addEventListener('change', (e) => {
+            const value = parseInt(e.target.value, 10);
+            applyMultiplier(value);
+        });
+        
+        // Double-click slider to reset to default
+        slider.addEventListener('dblclick', () => {
+            slider.value = 50;
+            updateDisplay(50);
+            applyMultiplier(50);
+        });
+        
+        // Click on value display to reset to default
+        valueDisplay.style.cursor = 'pointer';
+        valueDisplay.title = 'Click to reset to default';
+        valueDisplay.addEventListener('click', () => {
+            slider.value = 50;
+            updateDisplay(50);
+            applyMultiplier(50);
         });
     }
     

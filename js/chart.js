@@ -178,9 +178,35 @@ class OrderBookChart {
             ldBuffer: [],
             bprBuffer: [],
             alphaBuffer: [],
+            // Adaptive LD scaling & alpha display gating
+            ldSamples: [],
+            bprSamples: [],
+            lastAlphaDisplay: null,
+            lastAlphaRenderTs: 0,
+            // EMA smoothing for IFV component (async data arrival noise filter)
+            // α = 0.3 gives ~5 sample half-life - responsive but dampens oscillation
+            ifvNormEma: null,
+            ifvEmaAlpha: 0.3,
+            // Alpha smoothing for regime engine ROC stability
+            alphaEma: null,
+            alphaEmaAlpha: 0.3,
+            // Smoothing for LD/BPR norms (post-percentile)
+            ldNormEma: null,
+            bprNormEma: null,
+            normEmaAlpha: 0.25,
+            // Z-score normalization for ldRoc (self-calibrating across assets)
+            // EMA decay factor: α = 0.1 (~20 sample half-life)
+            ldRocZScore: {
+                alpha: 0.1,
+                emaMean: 0,
+                emaVar: 1,       // Start with 1 to avoid div/0
+                warmupCount: 0,
+                warmupMin: 15    // Need 15 samples for reliable variance
+            },
             // Current signals
             signals: {
                 ld_roc: 0,
+                ld_roc_z: 0,     // Z-score normalized ldRoc
                 bpr_roc: 0,
                 alpha_roc: 0,
                 vwmp_ext: 0,
@@ -198,6 +224,46 @@ class OrderBookChart {
     setSymbol(symbol) {
         this.symbol = symbol;
         this._viewRestored = false; // Reset so new symbol gets its own saved view
+        
+        // Reset regime engine to prevent cross-symbol contamination
+        // Different coins have vastly different LD scales (BTC ~100 vs DOGE ~100,000)
+        this.regimeEngine.prevLD = null;
+        this.regimeEngine.prevBPR = null;
+        this.regimeEngine.prevAlpha = null;
+        this.regimeEngine.prevVWMP = null;
+        this.regimeEngine.prevIFV = null;
+        this.regimeEngine.ldBuffer = [];
+        this.regimeEngine.bprBuffer = [];
+        this.regimeEngine.alphaBuffer = [];
+        this.regimeEngine.ifvNormEma = null;
+        this.regimeEngine.ldSamples = [];
+        this.regimeEngine.bprSamples = [];
+        this.regimeEngine.lastAlphaDisplay = null;
+        this.regimeEngine.lastAlphaRenderTs = 0;
+        this.regimeEngine.alphaEma = null;
+        this.regimeEngine.ldNormEma = null;
+        this.regimeEngine.bprNormEma = null;
+        this.regimeEngine.currentRegime = null;
+        this.regimeEngine.regimeTickCount = 0;
+        this.regimeEngine.lastRegime = null;
+        
+        // Reset z-score normalization (must recalibrate for new asset's LD scale)
+        this.regimeEngine.ldRocZScore.emaMean = 0;
+        this.regimeEngine.ldRocZScore.emaVar = 1;
+        this.regimeEngine.ldRocZScore.warmupCount = 0;
+        
+        // Reset LD history for divergence/absorption detection
+        if (this.ldHistory) {
+            this.ldHistory.prevPrice = null;
+            this.ldHistory.prevLD = null;
+            this.ldHistory.absorption = null;
+        }
+        
+        // Update LD unit label in sidebar
+        const ldUnit = document.getElementById('ldUnit');
+        if (ldUnit) {
+            ldUnit.textContent = symbol;
+        }
     }
 
     setLevelAppearance(settings) {
@@ -738,13 +804,21 @@ class OrderBookChart {
      * Update header metrics (LD Delta and Alpha Score)
      * Called from updateAlphaScore to show key metrics in the header
      */
-    updateHeaderMetrics(ldDelta, alpha, regimeClass) {
+    updateHeaderMetrics(ldDelta, alpha, regimeClass, isWarmingUp) {
+        console.log('[Alpha Debug] updateHeaderMetrics called:', 'ld=' + ldDelta?.toFixed?.(2), 'alpha=' + alpha, 'class=' + regimeClass, 'from:', new Error().stack.split('\n')[2]?.trim());
         const headerLd = document.getElementById('headerLdDelta');
         const headerAlpha = document.getElementById('headerAlpha');
         
-        // Update LD Delta
+        // Update LD Delta (with K formatting for large values)
         if (headerLd) {
-            const ldFormatted = ldDelta >= 0 ? `+${ldDelta.toFixed(0)}` : ldDelta.toFixed(0);
+            const absLd = Math.abs(ldDelta);
+            let ldFormatted;
+            if (absLd >= 1000) {
+                ldFormatted = (ldDelta / 1000).toFixed(1) + 'K';
+                if (ldDelta > 0) ldFormatted = '+' + ldFormatted;
+            } else {
+                ldFormatted = ldDelta >= 0 ? `+${ldDelta.toFixed(0)}` : ldDelta.toFixed(0);
+            }
             headerLd.textContent = ldFormatted;
             headerLd.classList.remove('bullish', 'bearish', 'neutral');
             if (ldDelta > 20) {
@@ -758,9 +832,17 @@ class OrderBookChart {
         
         // Update Alpha Score
         if (headerAlpha) {
-            headerAlpha.textContent = alpha;
-            headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
-            headerAlpha.classList.add(regimeClass);
+            if (isWarmingUp) {
+                headerAlpha.textContent = '⏳';
+                headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
+                headerAlpha.classList.add('neutral');
+                headerAlpha.title = 'Alpha Score warming up...';
+            } else {
+                headerAlpha.textContent = alpha;
+                headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
+                headerAlpha.classList.add(regimeClass);
+                headerAlpha.title = 'Alpha Score: ' + alpha;
+            }
         }
     }
 
@@ -3491,6 +3573,46 @@ class OrderBookChart {
      * Combines BPR + LD + IFV + VWMP into single institutional-grade signal
      */
     updateAlphaScore(currentPrice, mid, vwmp, ifv) {
+        console.log('[Alpha Debug] updateAlphaScore START:', 'price=' + currentPrice?.toFixed?.(2), 'prevAlpha=' + this.alphaScore);
+        
+        // Alpha mode presets (MM / Swing / HTF) - base defaults
+        const alphaPresetsBase = {
+            marketMaker: {
+                normEmaAlpha: 0.40,
+                normStepMax: 0.12,
+                minNorm: 0.15,
+                ifvAlphaFactor: 1.2,
+                renderMs: 300
+            },
+            swingTrader: {
+                normEmaAlpha: 0.28,
+                normStepMax: 0.08,
+                minNorm: 0.25,
+                ifvAlphaFactor: 0.9,
+                renderMs: 600
+            },
+            investor: {
+                normEmaAlpha: 0.18,
+                normStepMax: 0.05,
+                minNorm: 0.35,
+                ifvAlphaFactor: 0.6,
+                renderMs: 900
+            }
+        };
+        const alphaMode = this.alphaMode || 'investor';
+        const basePreset = alphaPresetsBase[alphaMode] || alphaPresetsBase.investor;
+        
+        // Apply sensitivity multiplier on top of defaults
+        // multiplier > 1 = more responsive, < 1 = more stable
+        const sens = this.alphaSensitivityMultiplier || 1.0;
+        const alphaPreset = {
+            normEmaAlpha: Math.min(0.95, Math.max(0.001, basePreset.normEmaAlpha * sens)),
+            normStepMax: Math.min(0.25, Math.max(0.001, basePreset.normStepMax * sens)),
+            minNorm: Math.max(0.01, Math.min(0.5, basePreset.minNorm / sens)), // inverse: higher sens = lower floor
+            ifvAlphaFactor: Math.min(2.0, Math.max(0.05, basePreset.ifvAlphaFactor * sens)),
+            renderMs: Math.max(100, Math.min(5000, basePreset.renderMs / sens)) // inverse: higher sens = faster render
+        };
+        this.regimeEngine.normEmaAlpha = alphaPreset.normEmaAlpha;
         // Get DOM elements
         const alphaValue = document.getElementById('alphaValue');
         const alphaGaugeFill = document.getElementById('alphaGaugeFill');
@@ -3507,6 +3629,8 @@ class OrderBookChart {
         // Get BPR and LD from order flow
         const bpr = this.orderFlowPressure?.levels ? this.calculateBPR(this.orderFlowPressure.levels) : null;
         const ld = this.orderFlowPressure?.levels ? this.calculateLiquidityDelta(this.orderFlowPressure.levels, currentPrice) : null;
+        const ldDelta = ld?.delta || 0;
+        const bprRatio = bpr?.ratio || 1;
         
         if (!bpr || !ld || !vwmp || !ifv) {
             alphaValue.textContent = '--';
@@ -3518,19 +3642,101 @@ class OrderBookChart {
         // STEP 1: Normalize each indicator (0-1)
         // ========================================
         
+        const percentile = (arr, p) => {
+            if (!arr.length) return 0;
+            const idx = (arr.length - 1) * p;
+            const lo = Math.floor(idx);
+            const hi = Math.ceil(idx);
+            if (lo === hi) return arr[lo];
+            return arr[lo] + (arr[hi] - arr[lo]) * (idx - lo);
+        };
+
         // BPR Normalization: 0.8-1.2 range maps to 0-1
+        const bprSamples = this.regimeEngine.bprSamples;
+        bprSamples.push(bprRatio);
+        if (bprSamples.length > 500) bprSamples.shift();
+
         let bprNorm;
-        if (bpr.ratio <= 0.8) {
-            bprNorm = 0;
-        } else if (bpr.ratio >= 1.2) {
-            bprNorm = 1;
+        if (bprSamples.length >= 20) {
+            const sortedBpr = [...bprSamples].sort((a, b) => a - b);
+            const lowBpr = percentile(sortedBpr, 0.05);
+            const highBpr = percentile(sortedBpr, 0.95);
+            // Clamp low/high to IQR fence to avoid collapse on outliers
+            const midIdx = Math.floor(sortedBpr.length / 2);
+            const medianBpr = sortedBpr[midIdx];
+            const q1 = sortedBpr[Math.floor(sortedBpr.length * 0.25)];
+            const q3 = sortedBpr[Math.floor(sortedBpr.length * 0.75)];
+            const iqr = q3 - q1 || 1e-6;
+            const lowClamped = Math.max(lowBpr, medianBpr - 4 * iqr);
+            const highClamped = Math.min(highBpr, medianBpr + 4 * iqr);
+            const spanBpr = Math.max(highClamped - lowClamped, 1e-6);
+            const nBpr = Math.max(0, Math.min(1, (bprRatio - lowClamped) / spanBpr));
+            bprNorm = nBpr * nBpr * (3 - 2 * nBpr); // smoothstep
         } else {
-            bprNorm = (bpr.ratio - 0.8) / (1.2 - 0.8);
+            if (bpr.ratio <= 0.8) bprNorm = 0;
+            else if (bpr.ratio >= 1.2) bprNorm = 1;
+            else bprNorm = (bpr.ratio - 0.8) / (1.2 - 0.8);
         }
+
+        // Smooth BPR norm to avoid jumps and rate-limit step size
+        const prevBprEma = this.regimeEngine.bprNormEma;
+        if (prevBprEma === null || prevBprEma === undefined) {
+            this.regimeEngine.bprNormEma = bprNorm;
+        } else {
+            const a = alphaPreset.normEmaAlpha;
+            let next = a * bprNorm + (1 - a) * prevBprEma;
+            const step = alphaPreset.normStepMax;
+            next = Math.min(Math.max(next, prevBprEma - step), prevBprEma + step);
+            if (bprSamples.length >= 20) {
+                next = Math.max(next, alphaPreset.minNorm);
+            }
+            this.regimeEngine.bprNormEma = next;
+        }
+        bprNorm = this.regimeEngine.bprNormEma !== null ? this.regimeEngine.bprNormEma : bprNorm;
         
-        // LD Normalization: -100 to +100 BTC maps to 0-1
-        const ldMax = 100; // BTC scale
-        let ldNorm = Math.max(0, Math.min(1, (ld.delta + ldMax) / (2 * ldMax)));
+        // LD Normalization: adaptive per-symbol using rolling percentiles
+        const ldSamples = this.regimeEngine.ldSamples;
+        ldSamples.push(ldDelta);
+        if (ldSamples.length > 500) ldSamples.shift();
+
+        let ldNorm;
+        if (ldSamples.length >= 20) {
+            const sorted = [...ldSamples].sort((a, b) => a - b);
+            const low = percentile(sorted, 0.05);
+            const high = percentile(sorted, 0.95);
+            // Clamp low/high using IQR fence to reduce outlier collapse
+            const midIdx = Math.floor(sorted.length / 2);
+            const median = sorted[midIdx];
+            const q1 = sorted[Math.floor(sorted.length * 0.25)];
+            const q3 = sorted[Math.floor(sorted.length * 0.75)];
+            const iqr = q3 - q1 || 1e-6;
+            const lowClamped = Math.max(low, median - 4 * iqr);
+            const highClamped = Math.min(high, median + 4 * iqr);
+            const span = Math.max(highClamped - lowClamped, 1e-6);
+            const n = Math.max(0, Math.min(1, (ldDelta - lowClamped) / span));
+            // Smoothstep to reduce edge sensitivity
+            ldNorm = n * n * (3 - 2 * n);
+        } else {
+            // Fallback during warmup (legacy scale)
+            const ldMax = 100;
+            ldNorm = Math.max(0, Math.min(1, (ldDelta + ldMax) / (2 * ldMax)));
+        }
+
+        // Smooth LD norm to avoid jumps and rate-limit step size
+        const prevLdEma = this.regimeEngine.ldNormEma;
+        if (prevLdEma === null || prevLdEma === undefined) {
+            this.regimeEngine.ldNormEma = ldNorm;
+        } else {
+            const a = alphaPreset.normEmaAlpha;
+            let next = a * ldNorm + (1 - a) * prevLdEma;
+            const step = alphaPreset.normStepMax;
+            next = Math.min(Math.max(next, prevLdEma - step), prevLdEma + step);
+            if (ldSamples.length >= 20) {
+                next = Math.max(next, alphaPreset.minNorm);
+            }
+            this.regimeEngine.ldNormEma = next;
+        }
+        ldNorm = this.regimeEngine.ldNormEma !== null ? this.regimeEngine.ldNormEma : ldNorm;
         
         // VWMP Normalization: Price vs VWMP, ±5% band
         // If VWMP > price → bullish (norm higher)
@@ -3540,17 +3746,52 @@ class OrderBookChart {
         // IFV Normalization: Price vs IFV, ±10% band (wider because IFV drifts slower)
         // If IFV > price → bullish (norm higher)
         const ifvDist = (ifv - currentPrice) / currentPrice;
-        let ifvNorm = Math.max(0, Math.min(1, (ifvDist + 0.10) / 0.20));
+        let ifvNormRaw = Math.max(0, Math.min(1, (ifvDist + 0.10) / 0.20));
+        
+        // Apply EMA smoothing to IFV component (dampens async data arrival noise)
+        if (this.regimeEngine.ifvNormEma === null) {
+            this.regimeEngine.ifvNormEma = ifvNormRaw; // Initialize on first value
+        } else {
+            // Adjust smoothing by price scale (proxy for liquidity) and mode
+            let a = this.regimeEngine.ifvEmaAlpha;
+            if (currentPrice > 10000) a = 0.15;
+            else if (currentPrice > 1000) a = 0.20;
+            else if (currentPrice > 100) a = 0.25;
+            else a = 0.30;
+            a = Math.min(0.45, Math.max(0.08, a * alphaPreset.ifvAlphaFactor));
+            this.regimeEngine.ifvEmaAlpha = a;
+            this.regimeEngine.ifvNormEma = a * ifvNormRaw + (1 - a) * this.regimeEngine.ifvNormEma;
+        }
+        let ifvNorm = this.regimeEngine.ifvNormEma;
         
         // ========================================
         // STEP 2: Apply institutional weights
         // ========================================
-        const weights = {
+        const weightsBase = {
             ld: 0.40,    // Most predictive
             bpr: 0.25,   // Strong static pressure
             ifv: 0.25,   // Long-term drift anchor
             vwmp: 0.10   // Premium/discount filter
         };
+
+        // Reduce influence of saturated or uncalibrated components, then renormalize
+        const weights = { ...weightsBase };
+        if (ldSamples.length < 20 || ldNorm < 0.05 || ldNorm > 0.95) {
+            weights.ld *= 0.5;
+        }
+        if (bprSamples.length < 20 || bprNorm < 0.05 || bprNorm > 0.95) {
+            weights.bpr *= 0.6;
+        }
+        // Ensure no component can dominate when others are weak
+        const minComponent = 0.15;
+        const components = ['ld','bpr','ifv','vwmp'];
+        const totalBefore = components.reduce((s,k)=>s+weights[k],0);
+        components.forEach(k => weights[k] = Math.max(weights[k], minComponent * totalBefore));
+        const wSum = weights.ld + weights.bpr + weights.ifv + weights.vwmp;
+        weights.ld /= wSum;
+        weights.bpr /= wSum;
+        weights.ifv /= wSum;
+        weights.vwmp /= wSum;
         
         // ========================================
         // STEP 3: Compute Alpha Score (0-100)
@@ -3563,6 +3804,8 @@ class OrderBookChart {
         );
         
         const alpha = Math.round(Math.max(0, Math.min(100, alphaRaw * 100)));
+        
+        console.log('[Alpha Debug] Calculated alpha:', 'raw=' + alphaRaw.toFixed(4), 'final=' + alpha, '| ld=' + ldNorm.toFixed(2), 'bpr=' + bprNorm.toFixed(2), 'ifv=' + ifvNorm.toFixed(2) + '(raw:' + ifvNormRaw.toFixed(2) + ')', 'vwmp=' + vwmpNorm.toFixed(2));
         
         // Store for other components
         this.alphaScore = alpha;
@@ -3583,15 +3826,38 @@ class OrderBookChart {
         }
         
         // ========================================
+        // STEP 4.5: Gated UI update to reduce flicker
+        // ========================================
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const lastAlphaDisplay = this.regimeEngine.lastAlphaDisplay;
+        const lastAlphaRenderTs = this.regimeEngine.lastAlphaRenderTs || 0;
+        const deltaAlphaDisplay = lastAlphaDisplay === null ? Infinity : Math.abs(alpha - lastAlphaDisplay);
+        const canRender = deltaAlphaDisplay >= 1 || (now - lastAlphaRenderTs) >= alphaPreset.renderMs;
+        if (!canRender) {
+            return;
+        }
+
+        // ========================================
         // STEP 5: Update UI
         // ========================================
         
+        // Check if still warming up (need 20 samples for reliable percentile normalization)
+        const isWarmingUp = ldSamples.length < 20 || bprSamples.length < 20;
+        
         // Main value display
-        alphaValue.textContent = alpha;
-        alphaValue.className = 'alpha-value ' + regimeClass;
+        if (isWarmingUp) {
+            const warmupPct = Math.round(Math.min(ldSamples.length, bprSamples.length) / 20 * 100);
+            alphaValue.textContent = '⏳';
+            alphaValue.className = 'alpha-value neutral warming-up';
+            alphaValue.title = 'Warming up: ' + warmupPct + '%';
+        } else {
+            alphaValue.textContent = alpha;
+            alphaValue.className = 'alpha-value ' + regimeClass;
+            alphaValue.title = '';
+        }
         
         // Update header metrics (LD Delta and Alpha Score)
-        this.updateHeaderMetrics(ld.delta, alpha, regimeClass);
+        this.updateHeaderMetrics(ld.delta, alpha, regimeClass, isWarmingUp);
         
         // Gauge fill and marker
         if (alphaGaugeFill) {
@@ -3636,6 +3902,15 @@ class OrderBookChart {
             let interpretation = '';
             const formatPrice = (p) => formatSmartPriceChart(p);
             
+            // Show warmup notice if still calibrating
+            if (isWarmingUp) {
+                const warmupPct = Math.round(Math.min(ldSamples.length, bprSamples.length) / 20 * 100);
+                interpretation = `<strong>⏳ Calibrating... (${warmupPct}%)</strong><br>`;
+                interpretation += `Alpha Score is warming up. Collecting orderbook data to calibrate normalization ranges.<br>`;
+                interpretation += `<span style="color:#fbbf24">Please wait ~${Math.ceil((20 - Math.min(ldSamples.length, bprSamples.length)) / 2)}s for accurate readings.</span>`;
+                alphaInterpretation.innerHTML = interpretation;
+            } else {
+            
             // Calculate average fair value for reference
             const avgFairValue = (vwmp + ifv) / 2;
             const priceDiff = currentPrice - avgFairValue;
@@ -3678,12 +3953,13 @@ class OrderBookChart {
             
             // Only update if content changed (prevents flicker)
             if (alphaInterpretation.innerHTML !== interpretation) {
-            alphaInterpretation.innerHTML = interpretation;
+                alphaInterpretation.innerHTML = interpretation;
             }
             const newClass = 'alpha-interpretation ' + regimeClass;
             if (alphaInterpretation.className !== newClass) {
                 alphaInterpretation.className = newClass;
             }
+            } // end else (not warming up)
         }
         
         // Update Alpha Newbie Summary (collapsible, default hidden)
@@ -3714,6 +3990,10 @@ class OrderBookChart {
                 });
             }
         }
+
+        // Track last rendered alpha to gate future updates
+        this.regimeEngine.lastAlphaDisplay = alpha;
+        this.regimeEngine.lastAlphaRenderTs = now;
     }
     
     /**
@@ -5033,9 +5313,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         // MM-specific reasons
         if (mm.color !== majority && mm.color !== 'neutral') {
             if (mm.color === 'bullish') {
-                reasons.push(`MM sees strong order flow (LD ${mc.ld >= 0 ? '+' : ''}${(mc.ld || 0).toFixed(0)} BTC)`);
+                reasons.push(`MM sees strong order flow (LD ${mc.ld >= 0 ? '+' : ''}${(mc.ld || 0).toFixed(0)} ${this.symbol})`);
             } else {
-                reasons.push(`MM sees sell pressure (LD ${(mc.ld || 0).toFixed(0)} BTC)`);
+                reasons.push(`MM sees sell pressure (LD ${(mc.ld || 0).toFixed(0)} ${this.symbol})`);
             }
         }
         
@@ -5389,7 +5669,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
                 <div class="mcs-row-details">
                     <div class="mcs-detail">
                         <span class="mcs-detail-label">Order Flow:</span>
-                        <span class="mcs-detail-value">LD <strong class="${mc.ld >= 0 ? 'bullish' : 'bearish'}">${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} BTC</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong> (${mc.pressBelow.toFixed(0)}% bids)</span>
+                        <span class="mcs-detail-value">LD <strong class="${mc.ld >= 0 ? 'bullish' : 'bearish'}">${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} ${this.symbol}</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong> (${mc.pressBelow.toFixed(0)}% bids)</span>
                     </div>
                     <div class="mcs-detail">
                         <span class="mcs-detail-label">Near Levels:</span>
@@ -5515,7 +5795,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         if (mc.mcs >= 40) {
             action = '🟢 LONG BIAS';
             actionClass = 'bullish';
-            why = `MM flow is bullish (LD <strong>${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} BTC</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
+            why = `MM flow is bullish (LD <strong>${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} ${this.symbol}</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
                   `Swing supports (Alpha <strong>${mc.alpha}</strong>), ` +
                   `HTF is ${mc.htfBias >= 0 ? 'supportive' : 'stretched but not critical'}.`;
             longPlan = `
@@ -5528,7 +5808,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         } else if (mc.mcs <= -40) {
             action = '🔴 SHORT BIAS';
             actionClass = 'bearish';
-            why = `MM flow is bearish (LD <strong>${mc.ld.toFixed(1)} BTC</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
+            why = `MM flow is bearish (LD <strong>${mc.ld.toFixed(1)} ${this.symbol}</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
                   `Swing is negative (Alpha <strong>${mc.alpha}</strong>), ` +
                   `HTF shows ${mc.htfBias < 0 ? 'distribution/downtrend' : 'weakness'}.`;
             shortPlan = `
@@ -5541,7 +5821,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         } else {
             action = '🟡 WAIT / SCALP ONLY';
             actionClass = 'neutral';
-            why = `MM flow is ${mc.mmBias > 0 ? 'mildly bullish' : mc.mmBias < 0 ? 'mildly bearish' : 'balanced'} (LD <strong>${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} BTC</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
+            why = `MM flow is ${mc.mmBias > 0 ? 'mildly bullish' : mc.mmBias < 0 ? 'mildly bearish' : 'balanced'} (LD <strong>${mc.ld >= 0 ? '+' : ''}${mc.ld.toFixed(1)} ${this.symbol}</strong>, BPR <strong>${mc.bpr.toFixed(2)}</strong>), ` +
                   `Swing is neutral (Alpha <strong>${mc.alpha}</strong>), ` +
                   `HTF says price is <strong>${Math.abs(mc.ifvExt).toFixed(1)}% ${mc.ifvExt > 0 ? 'above' : 'below'} IFV</strong>.`;
             longPlan = `
@@ -6146,14 +6426,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         this.updateLDDisplay(ld, currentPrice);
         this.drawOBICChart(obic, currentPrice);
         
-        // Also update Regime Engine (important for mode changes)
-        // Get alpha score if available
-        const alpha = this.alphaScore || 50;
-        this.updateRegimeEngine(levels, currentPrice, alpha);
-        
-        // Update header metrics with latest LD and Alpha
-        const regimeClass = alpha >= 70 ? 'bullish' : alpha <= 30 ? 'bearish' : 'neutral';
-        this.updateHeaderMetrics(ld.delta, alpha, regimeClass);
+        // Update Regime Engine only if we have a real alpha (no arbitrary fallback)
+        if (this.alphaScore !== undefined) {
+            this.updateRegimeEngine(levels, currentPrice, this.alphaScore);
+        }
         
         // Restore sidebar scroll position after DOM updates
         if (sidebar && scrollTop > 0) {
@@ -6790,7 +7066,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         if (isSpoofRisk) {
             guide.bias = 'warning';
             
-            guide.happening = `⚠️ Showing ${ldValue > 0 ? 'bullish' : 'bearish'} pressure (${ldValue > 0 ? '+' : ''}${ldValue.toFixed(1)} BTC LD), ` +
+            guide.happening = `⚠️ Showing ${ldValue > 0 ? 'bullish' : 'bearish'} pressure (${ldValue > 0 ? '+' : ''}${ldValue.toFixed(1)} ${this.symbol} LD), ` +
                 `but velocity and cluster signals conflict. ` +
                 `${ldVel > 0 ? 'Near-price orders bullish' : 'Near-price orders bearish'}, ` +
                 `yet ${ldClu > 0 ? 'clusters support bids' : 'clusters support asks'}. ` +
@@ -6811,7 +7087,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             guide.bias = 'bullish';
             
             let happeningParts = [];
-            happeningParts.push(`Buyers show active pressure (+${ldValue.toFixed(1)} BTC LD)`);
+            happeningParts.push(`Buyers show active pressure (+${ldValue.toFixed(1)} ${this.symbol} LD)`);
             
             if (ldVel > 10) {
                 happeningParts.push(`with strong near-price buying (VEL: +${ldVel.toFixed(1)})`);
@@ -6862,7 +7138,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             guide.bias = 'bearish';
             
             let happeningParts = [];
-            happeningParts.push(`Sellers show active pressure (${ldValue.toFixed(1)} BTC LD)`);
+            happeningParts.push(`Sellers show active pressure (${ldValue.toFixed(1)} ${this.symbol} LD)`);
             
             if (ldVel < -10) {
                 happeningParts.push(`with strong near-price selling (VEL: ${ldVel.toFixed(1)})`);
@@ -6913,7 +7189,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             guide.bias = 'neutral';
             
             let happeningParts = [];
-            happeningParts.push(`Order flow is balanced (LD: ${ldValue > 0 ? '+' : ''}${ldValue.toFixed(1)} BTC)`);
+            happeningParts.push(`Order flow is balanced (LD: ${ldValue > 0 ? '+' : ''}${ldValue.toFixed(1)} ${this.symbol})`);
             
             if (projMixed) {
                 happeningParts.push(`Projections are mixed — no clear directional conviction`);
@@ -7237,6 +7513,90 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const ld = this.calculateLiquidityDelta(levels, currentPrice);
         const vwmp = this.calculateVWMP(levels, currentPrice);
         const ifv = this.calculateIFV(levels, currentPrice);
+        const ldDelta = ld?.delta || 0;
+        const bprRatio = bpr?.ratio || 1;
+        // Use same alpha mode presets for regime stability (with sensitivity multiplier)
+        const alphaPresetsBase = {
+            marketMaker: {
+                normEmaAlpha: 0.40,
+                normStepMax: 0.12,
+                minNorm: 0.15,
+                ifvAlphaFactor: 1.2,
+                renderMs: 300
+            },
+            swingTrader: {
+                normEmaAlpha: 0.28,
+                normStepMax: 0.08,
+                minNorm: 0.25,
+                ifvAlphaFactor: 0.9,
+                renderMs: 600
+            },
+            investor: {
+                normEmaAlpha: 0.18,
+                normStepMax: 0.05,
+                minNorm: 0.35,
+                ifvAlphaFactor: 0.6,
+                renderMs: 900
+            }
+        };
+        const alphaMode = this.alphaMode || 'investor';
+        const basePreset = alphaPresetsBase[alphaMode] || alphaPresetsBase.investor;
+        
+        // Apply sensitivity multiplier on top of defaults
+        const sens = this.alphaSensitivityMultiplier || 1.0;
+        const alphaPreset = {
+            normEmaAlpha: Math.min(0.95, Math.max(0.001, basePreset.normEmaAlpha * sens)),
+            normStepMax: Math.min(0.25, Math.max(0.001, basePreset.normStepMax * sens)),
+            minNorm: Math.max(0.01, Math.min(0.5, basePreset.minNorm / sens)),
+            ifvAlphaFactor: Math.min(2.0, Math.max(0.05, basePreset.ifvAlphaFactor * sens)),
+            renderMs: Math.max(100, Math.min(5000, basePreset.renderMs / sens))
+        };
+        
+        // Adaptive LD normalization (shared logic with alpha flow)
+        const ldSamples = this.regimeEngine.ldSamples;
+        ldSamples.push(ldDelta);
+        if (ldSamples.length > 500) ldSamples.shift();
+
+        const percentile = (arr, p) => {
+            if (!arr.length) return 0;
+            const idx = (arr.length - 1) * p;
+            const lo = Math.floor(idx);
+            const hi = Math.ceil(idx);
+            if (lo === hi) return arr[lo];
+            return arr[lo] + (arr[hi] - arr[lo]) * (idx - lo);
+        };
+
+        let ldNorm = 0.5;
+        if (ldSamples.length >= 20) {
+            const sorted = [...ldSamples].sort((a, b) => a - b);
+            const low = percentile(sorted, 0.05);
+            const high = percentile(sorted, 0.95);
+            const span = Math.max(high - low, 1e-6);
+            const n = Math.max(0, Math.min(1, (ldDelta - low) / span));
+            ldNorm = n * n * (3 - 2 * n); // smoothstep
+        } else {
+            const ldMax = 100;
+            ldNorm = Math.max(0, Math.min(1, (ldDelta + ldMax) / (2 * ldMax)));
+        }
+        
+        // Adaptive BPR normalization for regime use
+        const bprSamples = this.regimeEngine.bprSamples;
+        bprSamples.push(bprRatio);
+        if (bprSamples.length > 500) bprSamples.shift();
+
+        let bprNorm = 0.5;
+        if (bprSamples.length >= 20) {
+            const sortedBpr = [...bprSamples].sort((a, b) => a - b);
+            const lowBpr = percentile(sortedBpr, 0.05);
+            const highBpr = percentile(sortedBpr, 0.95);
+            const spanBpr = Math.max(highBpr - lowBpr, 1e-6);
+            const nBpr = Math.max(0, Math.min(1, (bprRatio - lowBpr) / spanBpr));
+            bprNorm = nBpr * nBpr * (3 - 2 * nBpr);
+        } else {
+            if (bpr.ratio <= 0.8) bprNorm = 0;
+            else if (bpr.ratio >= 1.2) bprNorm = 1;
+            else bprNorm = (bpr.ratio - 0.8) / (1.2 - 0.8);
+        }
         
         // Calculate ROC (Rate of Change) signals with smoothing based on mode
         const signals = this.regimeEngine.signals;
@@ -7273,6 +7633,29 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         );
         this.regimeEngine.prevLD = ld.delta;
         
+        // Z-Score normalize ldRoc for cross-asset consistency
+        // This makes ldRoc comparable between BTC (±50) and SUI (±5000)
+        const zs = this.regimeEngine.ldRocZScore;
+        const rawLdRoc = signals.ld_roc;
+        
+        if (rawLdRoc !== 0) {
+            // Update EMA of mean and variance
+            const delta = rawLdRoc - zs.emaMean;
+            zs.emaMean = zs.emaMean + zs.alpha * delta;
+            zs.emaVar = (1 - zs.alpha) * zs.emaVar + zs.alpha * delta * delta;
+            zs.warmupCount++;
+            
+            // Calculate z-score (only if warmed up and variance is meaningful)
+            const stdDev = Math.sqrt(Math.max(zs.emaVar, 0.0001));
+            if (zs.warmupCount >= zs.warmupMin && stdDev > 0) {
+                signals.ld_roc_z = rawLdRoc / stdDev;  // Simplified: just scale by stdev
+            } else {
+                signals.ld_roc_z = 0;  // Not calibrated yet
+            }
+        } else {
+            signals.ld_roc_z = 0;
+        }
+        
         // BPR_ROC - Book Pressure Rate of Change (smoothed)
         signals.bpr_roc = calculateSmoothedRoc(
             this.regimeEngine.bprBuffer, 
@@ -7283,15 +7666,26 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         this.regimeEngine.prevBPR = bpr.ratio;
         
         // Alpha_ROC - Alpha Score Rate of Change (smoothed)
-        if (alpha !== null) {
+        if (alpha !== null && alpha !== undefined) {
+            // Smooth alpha before ROC to reduce jitter-driven flips
+            if (this.regimeEngine.alphaEma === null) {
+                this.regimeEngine.alphaEma = alpha;
+            } else {
+                const a = this.regimeEngine.alphaEmaAlpha;
+                this.regimeEngine.alphaEma = a * alpha + (1 - a) * this.regimeEngine.alphaEma;
+            }
+            const alphaSmoothed = this.regimeEngine.alphaEma;
             signals.alpha_roc = calculateSmoothedRoc(
                 this.regimeEngine.alphaBuffer, 
-                alpha, 
+                alphaSmoothed, 
                 this.regimeEngine.prevAlpha, 
                 rocWindow
             );
+            this.regimeEngine.prevAlpha = alphaSmoothed;
+            signals.alpha_smoothed = alphaSmoothed;
+        } else {
+            signals.alpha_roc = 0;
         }
-        this.regimeEngine.prevAlpha = alpha;
         
         // VWMP_ext - Extension from VWMP (premium/discount)
         if (vwmp && vwmp > 0) {
@@ -7311,6 +7705,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         signals.resist_share = liquidityStructure.resist_share;
         signals.nearest_support = liquidityStructure.nearest_support;
         signals.nearest_resist = liquidityStructure.nearest_resist;
+        signals.support_levels = liquidityStructure.support_levels;
+        signals.resist_levels = liquidityStructure.resist_levels;
+        signals.ld_norm = ldNorm;
+        signals.bpr_norm = bprNorm;
         
         // Classify regime (potential new regime)
         const newRegime = this.classifyRegime(signals, bpr, ld, alpha, vwmp, ifv, currentPrice);
@@ -7379,8 +7777,13 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const supportGap = (currentPrice - nearestSupport) / currentPrice;
         const resistGap = (nearestResist - currentPrice) / currentPrice;
         
-        // Calculate volume shares within 20% range
-        const rangePercent = 0.20; // 20% band
+        // Calculate volume shares within a dynamic range (tighter for large caps)
+        let rangePercent = 0.20;
+        if (currentPrice > 10000) rangePercent = 0.08;
+        else if (currentPrice > 1000) rangePercent = 0.10;
+        else if (currentPrice > 100) rangePercent = 0.12;
+        else if (currentPrice > 10) rangePercent = 0.15;
+        // microcaps keep wider band
         const lowerBound = currentPrice * (1 - rangePercent);
         const upperBound = currentPrice * (1 + rangePercent);
         
@@ -7402,7 +7805,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             support_share: supportShare,
             resist_share: resistShare,
             nearest_support: nearestSupport,
-            nearest_resist: nearestResist
+            nearest_resist: nearestResist,
+            support_levels: supports.length,
+            resist_levels: resistances.length
         };
     }
     
@@ -7428,10 +7833,13 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const tm = modeSettings.thresholdMult; // Threshold multiplier
         
         // Extract values for easier use
-        const alphaValue = alpha || 50;
+        const alphaValue = signals.alpha_smoothed !== undefined ? signals.alpha_smoothed : (alpha || 50);
         const ldValue = ld?.delta || 0;
+        const ldNorm = signals.ld_norm !== undefined ? signals.ld_norm : 0.5;
         const bprValue = bpr?.ratio || 1;
+        const bprNorm = signals.bpr_norm !== undefined ? signals.bpr_norm : 0.5;
         const ldRoc = signals.ld_roc || 0;
+        const ldRocZ = signals.ld_roc_z || 0;  // Z-score normalized ldRoc
         const bprRoc = signals.bpr_roc || 0;
         const alphaRoc = signals.alpha_roc || 0;
         const vwmpExt = signals.vwmp_ext || 0;
@@ -7440,6 +7848,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const resistShare = (signals.resist_share || 0.5) * 100;
         const supportGap = signals.support_gap || 0;
         const resistGap = signals.resist_gap || 0;
+        const supportLevels = signals.support_levels || 0;
+        const resistLevels = signals.resist_levels || 0;
+        
+        // Check if z-score is calibrated (warmup complete)
+        const isCalibrated = this.regimeEngine.ldRocZScore.warmupCount >= this.regimeEngine.ldRocZScore.warmupMin;
         
         // Calculate key price levels for suggestions
         const nearestSupport = signals.nearest_support || (currentPrice * 0.97);
@@ -7456,7 +7869,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // ⚠️ 1. VACUUM_DOWN - HIGHEST PRIORITY (Danger Zone)
         // Rule: SupportGap > 0.06 AND VolumeShare_support < 40
-        if (supportGap > 0.06 && supportShare < 40) {
+        if (supportLevels >= 3 && supportGap > 0.06 && supportShare < 40) {
             regime.type = 'vacuum_down';
             regime.icon = '🚨';
             regime.name = 'VACUUM DOWN';
@@ -7482,7 +7895,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // ⚠️ 2. VACUUM_UP - HIGHEST PRIORITY (Danger Zone)
         // Rule: ResistGap > 0.06 AND VolumeShare_resist < 40
-        if (resistGap > 0.06 && resistShare < 40) {
+        if (resistLevels >= 3 && resistGap > 0.06 && resistShare < 40) {
             regime.type = 'vacuum_up';
             regime.icon = '🚨';
             regime.name = 'VACUUM UP';
@@ -7507,11 +7920,15 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         }
         
         // 🚀 3. EXPANSION - Major move in progress
-        // Rule: |LD_ROC| > 8*tm OR |BPR_ROC| > 0.10*tm OR |Alpha_ROC| > 3*tm
-        const isExpansion = Math.abs(ldRoc) > (8 * tm) || Math.abs(bprRoc) > (0.10 * tm) || Math.abs(alphaRoc) > (3 * tm);
+        // Rule: |LD_ROC_Z| > 2.0 (z-score normalized) OR |BPR_ROC| > 0.10*tm OR |Alpha_ROC| > 3*tm
+        // Z-score threshold: 2.0 = 2 standard deviations (statistically significant)
+        // Only use z-score if calibrated, otherwise skip expansion detection
+        const ldRocExpansion = isCalibrated ? Math.abs(ldRocZ) > 2.0 : false;
+        const isExpansion = ldRocExpansion || Math.abs(bprRoc) > (0.10 * tm) || Math.abs(alphaRoc) > (3 * tm);
         
         if (isExpansion) {
-            const isBullish = ldRoc > 0 || bprRoc > 0 || alphaRoc > 0;
+            // Use z-score sign for direction if calibrated, otherwise fall back to raw
+            const isBullish = isCalibrated ? (ldRocZ > 0 || bprRoc > 0 || alphaRoc > 0) : (ldRoc > 0 || bprRoc > 0 || alphaRoc > 0);
             
             if (isBullish) {
                 regime.type = 'expansion_up';
@@ -7519,7 +7936,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
                 regime.name = 'EXPANSION UP';
                 regime.cssClass = 'expansion';
                 regime.description = 'Bullish breakout in progress — momentum surging';
-                regime.interpretation = `🚀 BREAKOUT! Massive buying pressure detected. LD_ROC: +${ldRoc.toFixed(1)}, BPR_ROC: +${bprRoc.toFixed(2)}, Alpha_ROC: +${alphaRoc.toFixed(1)}. This is a momentum move.`;
+                regime.interpretation = `🚀 BREAKOUT! Massive buying pressure detected. LD_z: +${ldRocZ.toFixed(2)}σ, BPR_ROC: +${bprRoc.toFixed(2)}, Alpha_ROC: +${alphaRoc.toFixed(1)}. This is a momentum move.`;
                 regime.newbieSummary = `
 🎯 WHAT'S HAPPENING: Big buyers are flooding in! The market is breaking out to the upside with strong momentum.
 
@@ -7541,7 +7958,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
                 regime.name = 'EXPANSION DOWN';
                 regime.cssClass = 'expansion';
                 regime.description = 'Bearish breakdown in progress — panic selling';
-                regime.interpretation = `💥 BREAKDOWN! Massive selling pressure detected. LD_ROC: ${ldRoc.toFixed(1)}, BPR_ROC: ${bprRoc.toFixed(2)}, Alpha_ROC: ${alphaRoc.toFixed(1)}. This is a panic move.`;
+                regime.interpretation = `💥 BREAKDOWN! Massive selling pressure detected. LD_z: ${ldRocZ.toFixed(2)}σ, BPR_ROC: ${bprRoc.toFixed(2)}, Alpha_ROC: ${alphaRoc.toFixed(1)}. This is a panic move.`;
                 regime.newbieSummary = `
 🎯 WHAT'S HAPPENING: Big sellers are dumping! The market is breaking down with strong selling momentum.
 
@@ -7562,11 +7979,14 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         }
         
         // 🔷 4. COMPRESSION - Squeeze building
-        // Rule: |VWMP_ext| < 0.02*tm AND SupportGap < 0.02*tm AND ResistGap < 0.02*tm AND |LD_ROC| < 5*tm AND |BPR_ROC| < 0.05*tm
+        // Rule: |VWMP_ext| < 0.02*tm AND SupportGap < 0.02*tm AND ResistGap < 0.02*tm AND |LD_ROC_Z| < 1.5 AND |BPR_ROC| < 0.05*tm
+        // Also defaults to compression during warmup period
+        // Z-score threshold 1.5 = within 1.5 standard deviations (covers 87% of normal distribution)
+        const ldRocQuiet = isCalibrated ? Math.abs(ldRocZ) < 1.5 : true;
         const isCompression = Math.abs(vwmpExt) < (0.02 * tm) && 
                               supportGap < (0.02 * tm) && 
                               resistGap < (0.02 * tm) && 
-                              Math.abs(ldRoc) < (5 * tm) && 
+                              ldRocQuiet && 
                               Math.abs(bprRoc) < (0.05 * tm);
         
         if (isCompression) {
