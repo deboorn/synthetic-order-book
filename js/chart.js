@@ -8,6 +8,40 @@
  * TradingView Lightweight Charts Integration
  * Candlestick chart with order book levels overlay
  */
+
+/**
+ * Smart price formatter that adapts decimal places based on price magnitude
+ * (Also defined in app.js but needed here for standalone use)
+ */
+function formatSmartPriceChart(price, options = {}) {
+    if (!price || isNaN(price)) return '$--';
+    
+    const { prefix = '$', compact = false } = options;
+    const absPrice = Math.abs(price);
+    
+    let decimals;
+    if (absPrice >= 1000) {
+        decimals = compact ? 0 : 2;
+    } else if (absPrice >= 100) {
+        decimals = 2;
+    } else if (absPrice >= 10) {
+        decimals = 3;
+    } else if (absPrice >= 1) {
+        decimals = 4;
+    } else if (absPrice >= 0.01) {
+        decimals = 5;
+    } else if (absPrice >= 0.0001) {
+        decimals = 6;
+    } else {
+        decimals = 8;
+    }
+    
+    return prefix + absPrice.toLocaleString('en-US', {
+        minimumFractionDigits: Math.min(decimals, 2),
+        maximumFractionDigits: decimals
+    });
+}
+
 class OrderBookChart {
     constructor(containerId) {
         this.container = document.getElementById(containerId);
@@ -132,7 +166,7 @@ class OrderBookChart {
                     description: 'Low sensitivity — only major structural shifts'
                 }
             },
-            currentMode: localStorage.getItem('regimeMode') || 'marketMaker',
+            currentMode: localStorage.getItem('regimeMode') || 'investor',
             regimeTickCount: 0,
             lastRegime: null,
             // Previous values for rate of change (with smoothing buffers)
@@ -2805,7 +2839,7 @@ class OrderBookChart {
         // Filter out invalid levels (price must be > 0 and reasonable)
         const validLevels = levels.filter(l => {
             const price = parseFloat(l.price);
-            if (price <= 1000) return false; // Filter out $0 or unreasonable prices
+            if (price <= 0) return false; // Filter out invalid prices
             
             // If currentPrice provided, filter to within ±fairValueRange%
             if (currentPrice && fairValueRange < 1) {
@@ -2854,7 +2888,7 @@ class OrderBookChart {
         // Filter out invalid levels (price must be > 0 and reasonable)
         const validLevels = levels.filter(l => {
             const price = parseFloat(l.price);
-            if (price <= 1000) return false; // Filter out $0 or unreasonable prices
+            if (price <= 0) return false; // Filter out invalid prices
             
             // If currentPrice provided, filter to within ±fairValueRange%
             if (currentPrice && fairValueRange < 1) {
@@ -2906,10 +2940,10 @@ class OrderBookChart {
     calculateMid(levels) {
         if (!levels || levels.length === 0) return null;
         
-        // Filter out invalid levels (price must be > 0 and reasonable)
+        // Filter out invalid levels (price must be > 0)
         const validLevels = levels.filter(l => {
             const price = parseFloat(l.price);
-            return price > 1000; // Filter out $0 or unreasonable prices
+            return price > 0; // Filter out invalid prices
         });
         
         // Separate support (bids) and resistance (asks)
@@ -2964,44 +2998,44 @@ class OrderBookChart {
             
             // Clear existing lines
             this.clearFairValueLines();
-            
-            // Track historical fair values
-            this.trackHistoricalFairValue(vwmp, ifv);
-            
-            // Draw Simple Mid line
-            if (this.fairValueIndicators.showMid && mid !== null) {
-                this.fairValueIndicators.midLine = this.candleSeries.createPriceLine({
-                    price: mid,
-                    color: 'rgba(229, 231, 235, 0.9)', // Light gray
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Dotted,
-                    axisLabelVisible: true,
-                    title: 'Mid'
-                });
-            }
-            
-            // Draw IFV line
-            if (this.fairValueIndicators.showIFV && ifv !== null) {
-                this.fairValueIndicators.ifvLine = this.candleSeries.createPriceLine({
-                    price: ifv,
-                    color: 'rgba(167, 139, 250, 0.9)', // Purple
-                    lineWidth: 3,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: 'IFV'
-                });
-            }
-            
-            // Draw VWMP line
-            if (this.fairValueIndicators.showVWMP && vwmp !== null) {
-                this.fairValueIndicators.vwmpLine = this.candleSeries.createPriceLine({
-                    price: vwmp,
-                    color: 'rgba(52, 211, 153, 0.9)', // Green
-                    lineWidth: 3,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: 'VWMP'
-                });
+        
+        // Track historical fair values
+        this.trackHistoricalFairValue(vwmp, ifv);
+        
+        // Draw Simple Mid line
+        if (this.fairValueIndicators.showMid && mid !== null) {
+            this.fairValueIndicators.midLine = this.candleSeries.createPriceLine({
+                price: mid,
+                color: 'rgba(229, 231, 235, 0.9)', // Light gray
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                axisLabelVisible: true,
+                title: 'Mid'
+            });
+        }
+        
+        // Draw IFV line
+        if (this.fairValueIndicators.showIFV && ifv !== null) {
+            this.fairValueIndicators.ifvLine = this.candleSeries.createPriceLine({
+                price: ifv,
+                color: 'rgba(167, 139, 250, 0.9)', // Purple
+                lineWidth: 3,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'IFV'
+            });
+        }
+        
+        // Draw VWMP line
+        if (this.fairValueIndicators.showVWMP && vwmp !== null) {
+            this.fairValueIndicators.vwmpLine = this.candleSeries.createPriceLine({
+                price: vwmp,
+                color: 'rgba(52, 211, 153, 0.9)', // Green
+                lineWidth: 3,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: 'VWMP'
+            });
             }
         }
         
@@ -3032,8 +3066,8 @@ class OrderBookChart {
         
         if (!fvCurrentPrice || !fvAnalysisText) return;
         
-        // Format price helper
-        const formatPrice = (p) => p ? '$' + p.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '$--';
+        // Format price helper - use smart formatter for any price magnitude
+        const formatPrice = (p) => formatSmartPriceChart(p);
         const formatDiff = (current, target) => {
             if (!current || !target) return { text: '--', class: 'neutral' };
             const diff = ((current - target) / target) * 100;
@@ -3149,7 +3183,7 @@ class OrderBookChart {
         
         // Only update if content changed (prevents flicker)
         if (fvAnalysisText.innerHTML !== html) {
-            fvAnalysisText.innerHTML = html;
+        fvAnalysisText.innerHTML = html;
         }
         
         // Update Alpha Score
@@ -3600,7 +3634,7 @@ class OrderBookChart {
         // Interpretation text - super friendly with price levels
         if (alphaInterpretation) {
             let interpretation = '';
-            const formatPrice = (p) => '$' + Math.round(p).toLocaleString();
+            const formatPrice = (p) => formatSmartPriceChart(p);
             
             // Calculate average fair value for reference
             const avgFairValue = (vwmp + ifv) / 2;
@@ -3644,7 +3678,7 @@ class OrderBookChart {
             
             // Only update if content changed (prevents flicker)
             if (alphaInterpretation.innerHTML !== interpretation) {
-                alphaInterpretation.innerHTML = interpretation;
+            alphaInterpretation.innerHTML = interpretation;
             }
             const newClass = 'alpha-interpretation ' + regimeClass;
             if (alphaInterpretation.className !== newClass) {
@@ -3830,7 +3864,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // Get key levels from stored data
         const levels = this.fairValueIndicators?.currentLevels || [];
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         // Categorize levels by timeframe (distance from current price)
         const categorizeByTimeframe = (levelsList, isSupport) => {
@@ -4053,7 +4087,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // Calculate risk/reward
         let riskReward = '--';
-        const formatPrice = (p) => '$' + Math.round(p).toLocaleString();
+        const formatPrice = (p) => formatSmartPriceChart(p);
         
         if (direction === 'LONG') {
             const risk = entry - stop;
@@ -4077,18 +4111,18 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             tradeTarget2.textContent = '$--';
             tradeRR.textContent = '--';
         } else {
-            tradeDirection.textContent = direction;
-            tradeDirection.className = 'trade-direction ' + directionClass;
-            
-            tradeConfidence.textContent = confidence;
-            tradeConfidence.className = 'trade-confidence ' + confidence.toLowerCase();
-            
-            tradeEntry.textContent = formatPrice(entry);
-            tradeStop.textContent = formatPrice(stop);
-            tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
-            tradeTarget2.textContent = formatPrice(target2);
-            
-            tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
+        tradeDirection.textContent = direction;
+        tradeDirection.className = 'trade-direction ' + directionClass;
+        
+        tradeConfidence.textContent = confidence;
+        tradeConfidence.className = 'trade-confidence ' + confidence.toLowerCase();
+        
+        tradeEntry.textContent = formatPrice(entry);
+        tradeStop.textContent = formatPrice(stop);
+        tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
+        tradeTarget2.textContent = formatPrice(target2);
+        
+        tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
         }
         const rrEl = document.getElementById('tradeRR');
         if (rrEl) {
@@ -4107,8 +4141,8 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             // No position selected - prompt user
             reasoning = '👆 <strong>Select LONG or SHORT above</strong> to see trade plan. ';
             reasoning += `Suggested: <strong>${recommendedDir}</strong>. `;
-            reasoning += `${tfSummary} `;
-            reasoning += reasons.length > 0 ? reasons.slice(0, 2).join(', ') + '.' : '';
+                reasoning += `${tfSummary} `;
+                reasoning += reasons.length > 0 ? reasons.slice(0, 2).join(', ') + '.' : '';
         } else if (direction === 'WAIT') {
             // Position selected but doesn't meet min gain
             reasoning = `⏸️ <strong>${prelimDirection} selected</strong> but gain (${potentialGainPercent?.toFixed(1)}%) below ${minGainPercent}% min. `;
@@ -4127,10 +4161,10 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
                 reasoning += `${tfSummary} `;
                 reasoning += `Entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
             } else {
-                reasoning = `🟢 <strong>LONG setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
-                reasoning += reasons.slice(0, 3).join(' • ') + '. ';
-                reasoning += `${tfSummary} `;
-                reasoning += `Buy near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+            reasoning = `🟢 <strong>LONG setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
+            reasoning += reasons.slice(0, 3).join(' • ') + '. ';
+            reasoning += `${tfSummary} `;
+            reasoning += `Buy near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
             }
         } else {
             if (userAgainstRec) {
@@ -4144,17 +4178,17 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
                 reasoning += reasons.slice(0, 2).join(' • ') + '. ';
                 reasoning += `${tfSummary} `;
                 reasoning += `Entry ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
-            } else {
-                reasoning = `🔴 <strong>SHORT setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
-                reasoning += reasons.slice(0, 3).join(' • ') + '. ';
-                reasoning += `${tfSummary} `;
-                reasoning += `Sell near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
+        } else {
+            reasoning = `🔴 <strong>SHORT setup (${potentialGainPercent?.toFixed(1)}% potential).</strong> `;
+            reasoning += reasons.slice(0, 3).join(' • ') + '. ';
+            reasoning += `${tfSummary} `;
+            reasoning += `Sell near ${formatPrice(entry)}, stop ${formatPrice(stop)}.`;
             }
         }
         
         // Only update if content changed (prevents flicker)
         if (tradeReasoning.innerHTML !== reasoning) {
-            tradeReasoning.innerHTML = reasoning;
+        tradeReasoning.innerHTML = reasoning;
         }
         
         // Draw trade setup on chart if enabled
@@ -4319,6 +4353,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         this.orderFlowPressure.levels = levels;
         this.orderFlowPressure.currentPrice = currentPrice;
         this.updateOrderFlowPressure();
+        
+        // Also update fair value indicators (which triggers Alpha Score and Market Consensus)
+        this.fairValueIndicators.currentLevels = levels;
+        this.currentPrice = currentPrice;
+        this.updateFairValueIndicators();
     }
     
     /**
@@ -4329,7 +4368,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         if (!levels || levels.length === 0) return { ratio: 1, bidVolume: 0, askVolume: 0 };
         
         // Filter valid levels
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         const supports = validLevels.filter(l => l.type === 'support');
         const resistances = validLevels.filter(l => l.type === 'resistance');
@@ -4364,7 +4403,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             };
         }
         
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         let weightedBidVolume = 0;
         let weightedAskVolume = 0;
@@ -4844,7 +4883,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      */
     initMCSMode() {
         if (!this.mcsMode) {
-            this.mcsMode = localStorage.getItem('mcsMode') || 'balanced';
+            this.mcsMode = localStorage.getItem('mcsMode') || 'conservative';
         }
     }
     
@@ -5202,7 +5241,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             mcsInfo,
             confidence,
             dots,
-            mode: this.mcsMode || 'balanced',
+            mode: this.mcsMode || 'conservative',
             ld: ld.delta,
             bpr: bpr.ratio,
             alpha,
@@ -5419,6 +5458,50 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             const newbie = this.generateMCSNewbie(mc);
             newbieEl.innerHTML = newbie;
         }
+        
+        // Update header MCS (mobile snapshot)
+        this.updateHeaderMCS(mc);
+    }
+    
+    /**
+     * Update header Market Consensus Signal (mobile snapshot view)
+     */
+    updateHeaderMCS(mc) {
+        const headerMcsSignal = document.getElementById('headerMcsSignal');
+        const headerMcsScore = document.getElementById('headerMcsScore');
+        const headerMcsConfidence = document.getElementById('headerMcsConfidence');
+        const headerMcsDot = document.querySelector('.header-mcs .mcs-dot');
+        
+        if (!headerMcsSignal) return;
+        
+        // Get signal class (bullish/bearish/neutral)
+        const signalClass = mc.mcsInfo.color;
+        
+        // Update signal text and class
+        const newSignal = mc.mcsInfo.label;
+        if (headerMcsSignal.textContent !== newSignal) {
+            headerMcsSignal.textContent = newSignal;
+            headerMcsSignal.className = 'mcs-signal ' + signalClass;
+        }
+        
+        // Update score
+        const newScore = `(${mc.mcs}/100)`;
+        if (headerMcsScore && headerMcsScore.textContent !== newScore) {
+            headerMcsScore.textContent = newScore;
+        }
+        
+        // Update confidence
+        if (headerMcsConfidence && mc.confidence) {
+            const newConf = `${mc.confidence.confidence}% ${mc.confidence.level}`;
+            if (headerMcsConfidence.textContent !== newConf) {
+                headerMcsConfidence.textContent = newConf;
+            }
+        }
+        
+        // Update dot color
+        if (headerMcsDot) {
+            headerMcsDot.className = 'mcs-dot ' + signalClass;
+        }
     }
     
     /**
@@ -5522,7 +5605,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             return { ldCluster: 0, clusterBacked: false, clusterStrength: 0 };
         }
         
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         // Define cluster detection parameters
         const CLUSTER_RANGE = 0.5; // 0.5% price range for cluster detection
@@ -5741,7 +5824,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             return { bands: [], strongestBid: 0, strongestAsk: 0 };
         }
         
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         // Create 10 bands: 5 below price, 5 above
         const bands = [];
@@ -7157,7 +7240,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // Calculate ROC (Rate of Change) signals with smoothing based on mode
         const signals = this.regimeEngine.signals;
-        const mode = this.regimeEngine.currentMode || 'marketMaker';
+        const mode = this.regimeEngine.currentMode || 'investor';
         const modeSettings = this.regimeEngine.modePresets[mode] || this.regimeEngine.modePresets.marketMaker;
         const rocWindow = modeSettings.rocWindow || 2;
         
@@ -7275,7 +7358,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      * Calculate Liquidity Structure - gaps and volume shares
      */
     calculateLiquidityStructure(levels, currentPrice) {
-        const validLevels = levels.filter(l => parseFloat(l.price) > 1000);
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
         // Get supports and resistances
         const supports = validLevels
@@ -7340,7 +7423,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         };
         
         // Get mode settings for threshold adjustment
-        const mode = this.regimeEngine.currentMode || 'marketMaker';
+        const mode = this.regimeEngine.currentMode || 'investor';
         const modeSettings = this.regimeEngine.modePresets[mode] || this.regimeEngine.modePresets.marketMaker;
         const tm = modeSettings.thresholdMult; // Threshold multiplier
         
@@ -7876,7 +7959,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      */
     computeRegimeProbabilities(signals, currentRegime) {
         // Get mode settings
-        const mode = this.regimeEngine.currentMode || 'marketMaker';
+        const mode = this.regimeEngine.currentMode || 'investor';
         const modeSettings = this.regimeEngine.modePresets[mode] || this.regimeEngine.modePresets.marketMaker;
         const tm = modeSettings.thresholdMult;
         const probMinDelta = modeSettings.probMinDelta;

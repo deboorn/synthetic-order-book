@@ -7,6 +7,65 @@
  * 
  * Main controller for the synthetic order book visualization
  */
+
+/**
+ * Smart price formatter that adapts decimal places based on price magnitude
+ * Works for any crypto from BTC (~$90k) to SHIB (~$0.00002)
+ */
+function formatSmartPrice(price, options = {}) {
+    if (!price || isNaN(price)) return '$--';
+    
+    const { prefix = '$', compact = false, showSign = false } = options;
+    const absPrice = Math.abs(price);
+    
+    // Determine appropriate decimal places based on magnitude
+    let decimals;
+    if (absPrice >= 1000) {
+        decimals = compact ? 0 : 2;
+    } else if (absPrice >= 100) {
+        decimals = 2;
+    } else if (absPrice >= 10) {
+        decimals = 3;
+    } else if (absPrice >= 1) {
+        decimals = 4;
+    } else if (absPrice >= 0.01) {
+        decimals = 5;
+    } else if (absPrice >= 0.0001) {
+        decimals = 6;
+    } else {
+        decimals = 8; // For very small prices like SHIB
+    }
+    
+    const sign = showSign && price > 0 ? '+' : '';
+    const formatted = absPrice.toLocaleString('en-US', {
+        minimumFractionDigits: Math.min(decimals, 2),
+        maximumFractionDigits: decimals
+    });
+    
+    return sign + prefix + (price < 0 ? '-' : '') + formatted;
+}
+
+/**
+ * Format volume with appropriate units (K, M, B) and precision based on coin
+ */
+function formatSmartVolume(volume, symbol = 'BTC') {
+    if (!volume || isNaN(volume)) return '--';
+    
+    // For very large volumes, use K/M/B notation
+    if (volume >= 1000000000) {
+        return (volume / 1000000000).toFixed(2) + 'B ' + symbol;
+    } else if (volume >= 1000000) {
+        return (volume / 1000000).toFixed(2) + 'M ' + symbol;
+    } else if (volume >= 1000) {
+        return (volume / 1000).toFixed(2) + 'K ' + symbol;
+    } else if (volume >= 1) {
+        return volume.toFixed(2) + ' ' + symbol;
+    } else {
+        // For fractional volumes, show more decimals
+        return volume.toFixed(4) + ' ' + symbol;
+    }
+}
+
 class OrderBookApp {
     constructor() {
         this.chart = null;
@@ -78,6 +137,10 @@ class OrderBookApp {
 
         // Set API symbol BEFORE loading data (critical for correct symbol data)
         api.setSymbol(this.currentSymbol);
+        
+        // Initialize projection toggles from saved state BEFORE loading data
+        // This ensures showLevels and other toggles are applied before data renders
+        this.initProjectionToggles();
 
         // Load initial data
         await this.loadData();
@@ -105,9 +168,6 @@ class OrderBookApp {
 
         // Update cache status
         this.updateCacheStatus();
-        
-        // Initialize projection toggles from saved state
-        this.initProjectionToggles();
         
         // Initialize WebSocket Order Book
         this.initWebSocketOrderBook();
@@ -390,6 +450,7 @@ class OrderBookApp {
         // Toggle switches
         this.elements.showLevels.addEventListener('change', (e) => {
             this.chart.toggleLevels(e.target.checked);
+            localStorage.setItem('showLevels', e.target.checked);
             if (e.target.checked && this.levels.length) {
                 this.chart.setLevels(this.levels);
             }
@@ -582,6 +643,20 @@ class OrderBookApp {
             this.changeSymbol(e.target.value);
         });
 
+        // Currency quick-switch buttons (mobile)
+        document.querySelectorAll('.currency-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const symbol = e.target.dataset.symbol;
+                if (symbol && symbol !== this.currentSymbol) {
+                    // Update active state
+                    document.querySelectorAll('.currency-btn').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    // Change symbol
+                    this.changeSymbol(symbol);
+                }
+            });
+        });
+
         // Level filter buttons
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -663,6 +738,14 @@ class OrderBookApp {
         document.querySelector('#legendModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
         });
+
+        // Fullscreen chart toggle (mobile/tablet)
+        const btnFullscreen = document.getElementById('btnFullscreen');
+        if (btnFullscreen) {
+            btnFullscreen.addEventListener('click', () => {
+                this.toggleChartFullscreen();
+            });
+        }
 
         // Settings modal
         document.getElementById('btnLevelSettings').addEventListener('click', () => {
@@ -764,14 +847,14 @@ class OrderBookApp {
         const emaPeriod = parseInt(localStorage.getItem('emaPeriod')) || 20;
         document.getElementById('settingEmaPeriod').value = emaPeriod;
         
-        const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.005;
+        const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
         document.getElementById('settingEmaGridSpacing').value = emaGridSpacing;
         
         // ZEMA Grid settings
         const zemaPeriod = parseInt(localStorage.getItem('zemaPeriod')) || 30;
         document.getElementById('settingZemaPeriod').value = zemaPeriod;
         
-        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.005;
+        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.003;
         document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
@@ -1197,10 +1280,8 @@ class OrderBookApp {
     }
 
     updatePriceDisplay(price, priceData = null) {
-        this.elements.currentPrice.textContent = '$' + price.toLocaleString('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
+        // Use smart price formatter for any crypto price magnitude
+        this.elements.currentPrice.textContent = formatSmartPrice(price);
 
         // Only update chart from price if OHLC stream is NOT connected
         // (OHLC stream provides much more accurate candle data)
@@ -1250,13 +1331,16 @@ class OrderBookApp {
             
             if (!panelId || !header) return;
             
-            // Load saved state (default to expanded)
+            // Load saved state - default to HTML initial state (has 'expanded' class or not)
             const savedState = localStorage.getItem(`panel_${panelId}_expanded`);
+            const htmlDefault = panel.classList.contains('expanded');
+            
             if (savedState === 'false') {
                 panel.classList.remove('expanded');
-            } else {
+            } else if (savedState === 'true') {
                 panel.classList.add('expanded');
             }
+            // If no saved state, keep the HTML default (don't change class)
             
             // Add click handler
             header.addEventListener('click', (e) => {
@@ -1282,7 +1366,7 @@ class OrderBookApp {
         const modeButtons = document.querySelectorAll('.regime-mode-btn');
         
         // Load saved mode
-        const savedMode = localStorage.getItem('regimeMode') || 'marketMaker';
+        const savedMode = localStorage.getItem('regimeMode') || 'investor';
         
         modeButtons.forEach(btn => {
             const mode = btn.dataset.mode;
@@ -1327,7 +1411,7 @@ class OrderBookApp {
         const modeButtons = document.querySelectorAll('.mcs-mode-btn');
         
         // Load saved mode
-        const savedMode = localStorage.getItem('mcsMode') || 'balanced';
+        const savedMode = localStorage.getItem('mcsMode') || 'conservative';
         
         modeButtons.forEach(btn => {
             const mode = btn.dataset.mode;
@@ -1391,7 +1475,15 @@ class OrderBookApp {
         const showMid = localStorage.getItem('showMid') === 'true';
         const showIFV = localStorage.getItem('showIFV') === 'true';
         const showVWMP = localStorage.getItem('showVWMP') === 'true';
-        const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.005;
+        const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
+        
+        // Load showLevels setting (default false if never set)
+        const showLevels = localStorage.getItem('showLevels') === 'true';
+        if (this.elements.showLevels) {
+            this.elements.showLevels.checked = showLevels;
+        }
+        // Apply to chart - toggle off if setting is false
+        this.chart.toggleLevels(showLevels);
         
         // Apply confidence state first (affects how targets/rays are drawn)
         if (showConfidence) {
@@ -1426,7 +1518,7 @@ class OrderBookApp {
         // Apply ZEMA grid settings
         const showZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
         const zemaPeriod = parseInt(localStorage.getItem('zemaPeriod')) || 30;
-        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.005;
+        const zemaGridSpacing = parseFloat(localStorage.getItem('zemaGridSpacing')) || 0.003;
         const zemaColor = localStorage.getItem('zemaColor') || 'rgba(139, 92, 246, 0.8)';
         
         if (this.chart.initZemaGrid) {
@@ -1511,6 +1603,52 @@ class OrderBookApp {
     }
     
     /**
+     * Toggle chart fullscreen mode (mobile/tablet)
+     */
+    toggleChartFullscreen() {
+        const chartSection = document.querySelector('.chart-section');
+        const btnFullscreen = document.getElementById('btnFullscreen');
+        
+        if (!chartSection) return;
+        
+        const isFullscreen = chartSection.classList.toggle('fullscreen');
+        
+        // Toggle icon visibility
+        if (btnFullscreen) {
+            btnFullscreen.querySelector('.fullscreen-expand').style.display = isFullscreen ? 'none' : 'block';
+            btnFullscreen.querySelector('.fullscreen-collapse').style.display = isFullscreen ? 'block' : 'none';
+        }
+        
+        // Prevent body scroll when fullscreen
+        document.body.style.overflow = isFullscreen ? 'hidden' : '';
+        
+        // Resize chart to fit new dimensions
+        if (this.chart && this.chart.chart) {
+            setTimeout(() => {
+                this.chart.chart.resize(
+                    chartSection.querySelector('.chart-container').clientWidth,
+                    chartSection.querySelector('.chart-container').clientHeight
+                );
+            }, 100);
+        }
+        
+        // Handle escape key to exit fullscreen
+        if (isFullscreen) {
+            this._fullscreenEscHandler = (e) => {
+                if (e.key === 'Escape') {
+                    this.toggleChartFullscreen();
+                }
+            };
+            document.addEventListener('keydown', this._fullscreenEscHandler);
+        } else {
+            if (this._fullscreenEscHandler) {
+                document.removeEventListener('keydown', this._fullscreenEscHandler);
+                this._fullscreenEscHandler = null;
+            }
+        }
+    }
+    
+    /**
      * Setup sidebar collapse functionality
      */
     setupSidebarCollapse() {
@@ -1578,6 +1716,15 @@ class OrderBookApp {
         
         // Header
         document.getElementById('headerSymbol').textContent = symbol;
+        
+        // Update currency quick-switch buttons active state
+        document.querySelectorAll('.currency-btn').forEach(btn => {
+            if (btn.dataset.symbol === symbol) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
         
         // Min volume label in settings
         const minVolSymbol = document.getElementById('minVolSymbol');
@@ -1649,8 +1796,8 @@ class OrderBookApp {
         const totalBid = bids.length ? bids[bids.length - 1].cumulative : 0;
         const totalAsk = asks.length ? asks[asks.length - 1].cumulative : 0;
         
-        this.elements.totalBidVol.textContent = totalBid.toFixed(2) + ' ' + this.currentSymbol;
-        this.elements.totalAskVol.textContent = totalAsk.toFixed(2) + ' ' + this.currentSymbol;
+        this.elements.totalBidVol.textContent = formatSmartVolume(totalBid, this.currentSymbol);
+        this.elements.totalAskVol.textContent = formatSmartVolume(totalAsk, this.currentSymbol);
         
         // Calculate imbalance
         const total = totalBid + totalAsk;
@@ -1689,7 +1836,7 @@ class OrderBookApp {
             return `
                 <div class="level-item ${level.type}" data-price="${level.price}" data-index="${index}">
                     <div class="level-info">
-                        <div class="level-price">$${level.price.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                        <div class="level-price">${formatSmartPrice(level.price)}</div>
                         <div class="level-meta">
                             ${isSupport ? '▲ Support' : '▼ Resistance'} • 
                             ${distancePercent > 0 ? '+' : ''}${distancePercent}% • 

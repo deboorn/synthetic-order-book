@@ -1,5 +1,23 @@
 <!DOCTYPE html>
 <!--
+  ╔══════════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                                  ║
+  ║     ████████╗ ██████╗      ██████╗  ██████╗ ██████╗     ██████╗ ███████╗         ║
+  ║        ██╔══╝██╔═══██╗    ██╔════╝ ██╔═══██╗██╔══██╗    ██╔══██╗██╔════╝         ║
+  ║        ██║   ██║   ██║    ██║  ███╗██║   ██║██║  ██║    ██████╔╝█████╗           ║
+  ║        ██║   ██║   ██║    ██║   ██║██║   ██║██║  ██║    ██╔══██╗██╔══╝           ║
+  ║        ██║   ╚██████╔╝    ╚██████╔╝╚██████╔╝██████╔╝    ██████╔╝███████╗         ║
+  ║        ╚═╝    ╚═════╝      ╚═════╝  ╚═════╝ ╚═════╝     ╚═════╝ ╚══════╝         ║
+  ║                                                                                  ║
+  ║     ████████╗██╗  ██╗███████╗     ██████╗ ██╗      ██████╗ ██████╗ ██╗   ██╗     ║
+  ║        ██╔══╝██║  ██║██╔════╝    ██╔════╝ ██║     ██╔═══██╗██╔══██╗╚██╗ ██╔╝     ║
+  ║        ██║   ███████║█████╗      ██║  ███╗██║     ██║   ██║██████╔╝ ╚████╔╝      ║
+  ║        ██║   ██╔══██║██╔══╝      ██║   ██║██║     ██║   ██║██╔══██╗  ╚██╔╝       ║
+  ║        ██║   ██║  ██║███████╗    ╚██████╔╝███████╗╚██████╔╝██║  ██║   ██║        ║
+  ║        ╚═╝   ╚═╝  ╚═╝╚══════╝     ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝        ║
+  ║                                                                                  ║
+  ╚══════════════════════════════════════════════════════════════════════════════════╝
+  
   Synthetic Order Book
   
   Copyright (c) 2025 Daniel Boorn <daniel.boorn@gmail.com>
@@ -11,10 +29,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Synthetic Order Book</title>
+    
+    <!-- PWA / Add to Home Screen -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0e17">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OrderBook">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%230a0e17' width='180' height='180' rx='20'/><text x='90' y='115' font-size='80' text-anchor='middle' fill='%233b82f6'>📊</text></svg>">
+    
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251212k">
+    <link rel="stylesheet" href="css/style.css?v=20251211">
 </head>
 <body>
     <div class="app">
@@ -25,24 +52,27 @@
                 <span class="subtitle">Synthetic Multi-Exchange</span>
             </div>
             <div class="header-center">
-                <div class="symbol-selector">
-                    <input type="text" id="symbolInput" value="BTC" placeholder="BTC" maxlength="10" title="Enter cryptocurrency symbol (e.g. BTC, ETH, SOL)">
-                    <span class="symbol-slash">/USD</span>
-                </div>
-                <div class="price-display" id="priceDisplay">
-                    <span class="price-value" id="currentPrice">--</span>
-                </div>
-                <div class="header-metrics">
-                    <div class="header-metric" title="Liquidity Delta - Bid pressure minus Ask pressure">
-                        <span class="metric-label">LD</span>
-                        <span class="metric-value" id="headerLdDelta">--</span>
-                    </div>
-                    <div class="header-metric" title="Alpha Score - Overall market sentiment (0-100)">
-                        <span class="metric-label">α</span>
-                        <span class="metric-value" id="headerAlpha">--</span>
+                <!-- Row: Quick Currency Switcher (mobile only) -->
+                <div class="header-row header-row-currencies">
+                    <div class="currency-quick-switch">
+                        <button class="currency-btn active" data-symbol="BTC">BTC</button>
+                        <button class="currency-btn" data-symbol="ETH">ETH</button>
+                        <button class="currency-btn" data-symbol="SOL">SOL</button>
+                        <button class="currency-btn" data-symbol="XRP">XRP</button>
+                        <button class="currency-btn" data-symbol="DOGE">DOGE</button>
+                        <button class="currency-btn" data-symbol="SUI">SUI</button>
                     </div>
                 </div>
-                <button class="price-toggle" id="priceToggle" title="Toggle Price Visibility">
+                <!-- Row: Symbol + Price -->
+                <div class="header-row header-row-price">
+                    <div class="symbol-selector">
+                        <input type="text" id="symbolInput" value="BTC" placeholder="BTC" maxlength="10" title="Enter cryptocurrency symbol (e.g. BTC, ETH, SOL)">
+                        <span class="symbol-slash">/USD</span>
+                    </div>
+                    <div class="price-display" id="priceDisplay">
+                        <span class="price-value" id="currentPrice">--</span>
+                    </div>
+                    <button class="price-toggle" id="priceToggle" title="Toggle Price Visibility">
                     <svg class="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                         <circle cx="12" cy="12" r="3"/>
@@ -52,6 +82,30 @@
                         <line x1="1" y1="1" x2="23" y2="23"/>
                     </svg>
                 </button>
+                </div>
+                <!-- Row: LD + Alpha (metrics) -->
+                <div class="header-row header-row-metrics">
+                    <div class="header-metrics">
+                        <div class="header-metric" title="Liquidity Delta - Bid pressure minus Ask pressure">
+                            <span class="metric-label">LD</span>
+                            <span class="metric-value" id="headerLdDelta">--</span>
+                        </div>
+                        <div class="header-metric" title="Alpha Score - Overall market sentiment (0-100)">
+                            <span class="metric-label">α</span>
+                            <span class="metric-value" id="headerAlpha">--</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Row: Market Consensus (mobile snapshot) -->
+                <div class="header-row header-row-mcs">
+                    <div class="header-mcs" id="headerMcs">
+                        <span class="mcs-dot neutral"></span>
+                        <span class="mcs-label">MCS</span>
+                        <span class="mcs-signal" id="headerMcsSignal">WAIT</span>
+                        <span class="mcs-score" id="headerMcsScore">(--/100)</span>
+                        <span class="mcs-confidence" id="headerMcsConfidence">--</span>
+                    </div>
+                </div>
             </div>
             <div class="header-right">
                 <div class="exchange-status" id="exchangeStatus">
@@ -85,6 +139,14 @@
                         <span class="bar-countdown" id="barCountdown" title="Time until next bar">--:--</span>
                     </div>
                     <div class="chart-controls">
+                        <button class="icon-btn mobile-only" id="btnFullscreen" title="Toggle Fullscreen Chart">
+                            <svg class="fullscreen-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                            </svg>
+                            <svg class="fullscreen-collapse" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+                                <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+                            </svg>
+                        </button>
                         <button class="icon-btn" id="btnLegend" title="Chart Legend">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="12" cy="12" r="10"/>
@@ -519,13 +581,13 @@
                             <span class="rec-value" id="recommendedDirection">--</span>
                         </div>
                         <div class="trade-filters-row">
-                            <div class="trade-filter">
-                                <label>Min Gain %</label>
-                                <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
-                            </div>
-                            <div class="trade-filter">
+                        <div class="trade-filter">
+                            <label>Min Gain %</label>
+                            <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
+                        </div>
+                        <div class="trade-filter">
                                 <label>On Chart</label>
-                                <input type="checkbox" id="showTradeOnChart">
+                            <input type="checkbox" id="showTradeOnChart">
                             </div>
                         </div>
                         <div class="trade-header">
@@ -581,8 +643,8 @@
                         <!-- Mode Selector (Enhancement #4) -->
                         <div class="mcs-mode-selector" id="mcsModeSelector">
                             <button class="mcs-mode-btn" data-mode="aggressive" title="Aggressive: Heavy weight on MM for scalping">⚡</button>
-                            <button class="mcs-mode-btn active" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
-                            <button class="mcs-mode-btn" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
+                            <button class="mcs-mode-btn" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
+                            <button class="mcs-mode-btn active" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
                         </div>
                         <span class="live-badge">Live</span>
                     </div>
@@ -710,7 +772,7 @@
                     
                     <!-- Regime Mode Selector -->
                     <div class="regime-mode-selector">
-                        <button class="regime-mode-btn active" data-mode="marketMaker" title="Very sensitive - rapid regime changes for scalping">
+                        <button class="regime-mode-btn" data-mode="marketMaker" title="Very sensitive - rapid regime changes for scalping">
                             <span class="mode-icon">⚡</span>
                             <span class="mode-label">MM</span>
                         </button>
@@ -718,7 +780,7 @@
                             <span class="mode-icon">📊</span>
                             <span class="mode-label">Swing</span>
                         </button>
-                        <button class="regime-mode-btn" data-mode="investor" title="Low sensitivity - only major structural shifts for position trading">
+                        <button class="regime-mode-btn active" data-mode="investor" title="Low sensitivity - only major structural shifts for position trading">
                             <span class="mode-icon">🏦</span>
                             <span class="mode-label">HTF</span>
                         </button>
@@ -879,7 +941,7 @@
                 <span class="footer-separator">·</span>
                 <span class="footer-disclaimer">Use at own risk · Not financial advice</span>
                 <span class="footer-separator">·</span>
-                <span class="footer-version">v20251212.11</span>
+                <span class="footer-version">v20251210.3</span>
             </div>
             <div class="footer-right">
                 <!-- WebSocket streams data in real-time -->
@@ -898,35 +960,35 @@
             <div class="modal-body legend-grid">
                 <!-- Column 1 -->
                 <div class="legend-column">
-                    <div class="legend-section">
+                <div class="legend-section">
                         <h3>🎯 Order Book Levels</h3>
-                        <div class="legend-item">
-                            <span class="legend-line support"></span>
-                            <div>
-                                <strong>Support (Green)</strong>
+                    <div class="legend-item">
+                        <span class="legend-line support"></span>
+                        <div>
+                            <strong>Support (Green)</strong>
                                 <p>Aggregated buy orders from multi-exchange order books. Line thickness = relative volume strength.</p>
-                            </div>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-line resistance"></span>
-                            <div>
-                                <strong>Resistance (Red)</strong>
-                                <p>Aggregated sell orders. Shows where sellers are stacking asks.</p>
-                            </div>
-                        </div>
-                        <div class="legend-note">
-                            Labels: <code>▲/▼ [Vol] BTC @ [Price]</code>
                         </div>
                     </div>
+                    <div class="legend-item">
+                        <span class="legend-line resistance"></span>
+                        <div>
+                            <strong>Resistance (Red)</strong>
+                                <p>Aggregated sell orders. Shows where sellers are stacking asks.</p>
+                        </div>
+                    </div>
+                        <div class="legend-note">
+                            Labels: <code>▲/▼ [Vol] BTC @ [Price]</code>
+                </div>
+                    </div>
 
-                    <div class="legend-section">
+                <div class="legend-section">
                         <h3>📈 Fair Value Lines</h3>
                         <div class="legend-item">
                             <span class="legend-swatch" style="background: #f59e0b;"></span>
                             <div>
                                 <strong>Mid Price</strong>
                                 <p>Midpoint between best bid/ask. True market equilibrium.</p>
-                            </div>
+                </div>
                         </div>
                         <div class="legend-item">
                             <span class="legend-swatch" style="background: #06b6d4;"></span>
@@ -944,7 +1006,7 @@
                         </div>
                     </div>
 
-                    <div class="legend-section">
+                <div class="legend-section">
                         <h3>🎯 Trade Setup</h3>
                         <div class="legend-item">
                             <span class="legend-swatch" style="background: #eab308;"></span>
@@ -1362,7 +1424,7 @@
                             <span class="setting-hint">Multiplier (0.1 = EMA×1.1, 1.2...)</span>
                         </label>
                         <div class="setting-input">
-                            <input type="number" id="settingEmaGridSpacing" min="0.001" max="1" step="0.001" value="0.005" class="number-input">
+                            <input type="number" id="settingEmaGridSpacing" min="0.001" max="1" step="0.001" value="0.003" class="number-input">
                         </div>
                     </div>
                     <div class="settings-group">
@@ -1380,7 +1442,7 @@
                             <span class="setting-hint">Multiplier for ZEMA grid lines</span>
                         </label>
                         <div class="setting-input">
-                            <input type="number" id="settingZemaGridSpacing" min="0.001" max="1" step="0.001" value="0.005" class="number-input">
+                            <input type="number" id="settingZemaGridSpacing" min="0.001" max="1" step="0.001" value="0.003" class="number-input">
                         </div>
                     </div>
                 </div>
@@ -1449,16 +1511,16 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251212k"></script>
-    <script src="js/websocket-orderbook.js?v=20251212k"></script>
-    <script src="js/orderbook-aggregator.js?v=20251212k"></script>
-    <script src="js/api.js?v=20251212k"></script>
-    <script src="js/websocket.js?v=20251212k"></script>
-    <script src="js/bb-pulse.js?v=20251212k"></script>
-    <script src="js/chart.js?v=20251212k"></script>
-    <script src="js/depth.js?v=20251212k"></script>
-    <script src="js/direction.js?v=20251212k"></script>
-    <script src="js/app.js?v=20251212k"></script>
+    <script src="js/db.js?v=20251210"></script>
+    <script src="js/websocket-orderbook.js?v=20251210"></script>
+    <script src="js/orderbook-aggregator.js?v=20251210"></script>
+    <script src="js/api.js?v=20251210"></script>
+    <script src="js/websocket.js?v=20251210"></script>
+    <script src="js/bb-pulse.js?v=20251210"></script>
+    <script src="js/chart.js?v=20251210"></script>
+    <script src="js/depth.js?v=20251210"></script>
+    <script src="js/direction.js?v=20251210"></script>
+    <script src="js/app.js?v=20251211"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>
