@@ -805,7 +805,7 @@ class OrderBookChart {
      * Called from updateAlphaScore to show key metrics in the header
      */
     updateHeaderMetrics(ldDelta, alpha, regimeClass, isWarmingUp) {
-        console.log('[Alpha Debug] updateHeaderMetrics called:', 'ld=' + ldDelta?.toFixed?.(2), 'alpha=' + alpha, 'class=' + regimeClass, 'from:', new Error().stack.split('\n')[2]?.trim());
+        // console.log('[Alpha Debug] updateHeaderMetrics called:', 'ld=' + ldDelta?.toFixed?.(2), 'alpha=' + alpha, 'class=' + regimeClass, 'from:', new Error().stack.split('\n')[2]?.trim());
         const headerLd = document.getElementById('headerLdDelta');
         const headerAlpha = document.getElementById('headerAlpha');
         
@@ -838,9 +838,9 @@ class OrderBookChart {
                 headerAlpha.classList.add('neutral');
                 headerAlpha.title = 'Alpha Score warming up...';
             } else {
-                headerAlpha.textContent = alpha;
-                headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
-                headerAlpha.classList.add(regimeClass);
+            headerAlpha.textContent = alpha;
+            headerAlpha.classList.remove('bullish', 'bearish', 'neutral');
+            headerAlpha.classList.add(regimeClass);
                 headerAlpha.title = 'Alpha Score: ' + alpha;
             }
         }
@@ -3573,7 +3573,7 @@ class OrderBookChart {
      * Combines BPR + LD + IFV + VWMP into single institutional-grade signal
      */
     updateAlphaScore(currentPrice, mid, vwmp, ifv) {
-        console.log('[Alpha Debug] updateAlphaScore START:', 'price=' + currentPrice?.toFixed?.(2), 'prevAlpha=' + this.alphaScore);
+        // console.log('[Alpha Debug] updateAlphaScore START:', 'price=' + currentPrice?.toFixed?.(2), 'prevAlpha=' + this.alphaScore);
         
         // Alpha mode presets (MM / Swing / HTF) - base defaults
         const alphaPresetsBase = {
@@ -3650,7 +3650,7 @@ class OrderBookChart {
             if (lo === hi) return arr[lo];
             return arr[lo] + (arr[hi] - arr[lo]) * (idx - lo);
         };
-
+        
         // BPR Normalization: 0.8-1.2 range maps to 0-1
         const bprSamples = this.regimeEngine.bprSamples;
         bprSamples.push(bprRatio);
@@ -3677,7 +3677,7 @@ class OrderBookChart {
             else if (bpr.ratio >= 1.2) bprNorm = 1;
             else bprNorm = (bpr.ratio - 0.8) / (1.2 - 0.8);
         }
-
+        
         // Smooth BPR norm to avoid jumps and rate-limit step size
         const prevBprEma = this.regimeEngine.bprNormEma;
         if (prevBprEma === null || prevBprEma === undefined) {
@@ -3805,7 +3805,7 @@ class OrderBookChart {
         
         const alpha = Math.round(Math.max(0, Math.min(100, alphaRaw * 100)));
         
-        console.log('[Alpha Debug] Calculated alpha:', 'raw=' + alphaRaw.toFixed(4), 'final=' + alpha, '| ld=' + ldNorm.toFixed(2), 'bpr=' + bprNorm.toFixed(2), 'ifv=' + ifvNorm.toFixed(2) + '(raw:' + ifvNormRaw.toFixed(2) + ')', 'vwmp=' + vwmpNorm.toFixed(2));
+        // console.log('[Alpha Debug] Calculated alpha:', 'raw=' + alphaRaw.toFixed(4), 'final=' + alpha, '| ld=' + ldNorm.toFixed(2), 'bpr=' + bprNorm.toFixed(2), 'ifv=' + ifvNorm.toFixed(2) + '(raw:' + ifvNormRaw.toFixed(2) + ')', 'vwmp=' + vwmpNorm.toFixed(2));
         
         // Store for other components
         this.alphaScore = alpha;
@@ -3836,7 +3836,7 @@ class OrderBookChart {
         if (!canRender) {
             return;
         }
-
+        
         // ========================================
         // STEP 5: Update UI
         // ========================================
@@ -3851,8 +3851,8 @@ class OrderBookChart {
             alphaValue.className = 'alpha-value neutral warming-up';
             alphaValue.title = 'Warming up: ' + warmupPct + '%';
         } else {
-            alphaValue.textContent = alpha;
-            alphaValue.className = 'alpha-value ' + regimeClass;
+        alphaValue.textContent = alpha;
+        alphaValue.className = 'alpha-value ' + regimeClass;
             alphaValue.title = '';
         }
         
@@ -3953,7 +3953,7 @@ class OrderBookChart {
             
             // Only update if content changed (prevents flicker)
             if (alphaInterpretation.innerHTML !== interpretation) {
-                alphaInterpretation.innerHTML = interpretation;
+            alphaInterpretation.innerHTML = interpretation;
             }
             const newClass = 'alpha-interpretation ' + regimeClass;
             if (alphaInterpretation.className !== newClass) {
@@ -5562,7 +5562,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const fmtPct = (pct) => (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
         const fmtBias = (score) => (score >= 0 ? '+' : '') + score;
         
-        // Color stripe (Enhancement #5)
+        // Stripe: shows MM / Swing / HTF bias colors (must match header stripe)
         const stripeEl = document.getElementById('mcsStripe');
         if (stripeEl) {
             const getStripeColor = (bias) => bias >= 10 ? 'bullish' : bias <= -10 ? 'bearish' : 'neutral';
@@ -5747,6 +5747,8 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      * Update header Market Consensus Signal (mobile snapshot view)
      */
     updateHeaderMCS(mc) {
+        const headerMcs = document.getElementById('headerMcs');
+        const headerMcsStripe = document.getElementById('headerMcsStripe');
         const headerMcsSignal = document.getElementById('headerMcsSignal');
         const headerMcsScore = document.getElementById('headerMcsScore');
         const headerMcsConfidence = document.getElementById('headerMcsConfidence');
@@ -5756,6 +5758,21 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         
         // Get signal class (bullish/bearish/neutral)
         const signalClass = mc.mcsInfo.color;
+        
+        // Update parent container class for 3-color bar indicator
+        if (headerMcs) {
+            headerMcs.className = 'header-mcs ' + signalClass;
+        }
+
+        // Header stripe: MM / Swing / HTF bias colors (matches panel stripe)
+        if (headerMcsStripe) {
+            const getStripeColor = (bias) => bias >= 10 ? 'bullish' : bias <= -10 ? 'bearish' : 'neutral';
+            headerMcsStripe.innerHTML = `
+                <div class="stripe-segment ${getStripeColor(mc.mmBias)}" title="MM: ${mc.mmBias >= 0 ? '+' : ''}${mc.mmBias}"></div>
+                <div class="stripe-segment ${getStripeColor(mc.swingBias)}" title="Swing: ${mc.swingBias >= 0 ? '+' : ''}${mc.swingBias}"></div>
+                <div class="stripe-segment ${getStripeColor(mc.htfBias)}" title="HTF: ${mc.htfBias >= 0 ? '+' : ''}${mc.htfBias}"></div>
+            `;
+        }
         
         // Update signal text and class
         const newSignal = mc.mcsInfo.label;
@@ -5770,11 +5787,13 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             headerMcsScore.textContent = newScore;
         }
         
-        // Update confidence
+        // Update confidence badge
         if (headerMcsConfidence && mc.confidence) {
+            const confLevel = mc.confidence.level.toLowerCase();
             const newConf = `${mc.confidence.confidence}% ${mc.confidence.level}`;
             if (headerMcsConfidence.textContent !== newConf) {
                 headerMcsConfidence.textContent = newConf;
+                headerMcsConfidence.className = 'mcs-confidence ' + confLevel;
             }
         }
         

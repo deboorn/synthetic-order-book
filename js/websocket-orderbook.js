@@ -47,6 +47,7 @@ class OrderBookWebSocket {
                 'ETH': 'ETH/USD',
                 'SOL': 'SOL/USD',
                 'SUI': 'SUI/USD',
+                'XRP': 'XRP/USD',
                 'DOGE': 'XDG/USD'
             },
             coinbase: {
@@ -54,6 +55,7 @@ class OrderBookWebSocket {
                 'ETH': 'ETH-USD',
                 'SOL': 'SOL-USD',
                 'SUI': 'SUI-USD',
+                'XRP': 'XRP-USD',
                 'DOGE': 'DOGE-USD'
             },
             bitstamp: {
@@ -61,6 +63,7 @@ class OrderBookWebSocket {
                 'ETH': 'ethusd',
                 'SOL': 'solusd',
                 'SUI': 'suiusd',
+                'XRP': 'xrpusd',
                 'DOGE': 'dogeusd'
             }
         };
