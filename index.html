@@ -41,7 +41,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%230a0e17'/%3E%3C/linearGradient%3E%3ClinearGradient id='glow' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3ClinearGradient id='green' x1='0%25' y1='100%25' x2='0%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%23059669'/%3E%3Cstop offset='100%25' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3ClinearGradient id='red' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dc2626'/%3E%3Cstop offset='100%25' stop-color='%23ef4444'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23bg)' width='180' height='180' rx='36'/%3E%3Crect x='6' y='6' width='168' height='168' rx='32' fill='none' stroke='url(%23glow)' stroke-width='1.5' opacity='0.4'/%3E%3Crect x='28' y='90' width='15' height='48' rx='3' fill='url(%23green)'/%3E%3Crect x='31' y='76' width='9' height='14' fill='%2310b981'/%3E%3Crect x='31' y='138' width='9' height='11' fill='%2310b981'/%3E%3Crect x='50' y='52' width='15' height='66' rx='3' fill='url(%23red)'/%3E%3Crect x='53' y='42' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='53' y='118' width='9' height='14' fill='%23ef4444'/%3E%3Crect x='72' y='66' width='15' height='52' rx='3' fill='url(%23green)'/%3E%3Crect x='75' y='52' width='9' height='14' fill='%2310b981'/%3E%3Crect x='75' y='118' width='9' height='10' fill='%2310b981'/%3E%3Crect x='94' y='48' width='15' height='62' rx='3' fill='url(%23green)'/%3E%3Crect x='97' y='34' width='9' height='14' fill='%2310b981'/%3E%3Crect x='97' y='110' width='9' height='11' fill='%2310b981'/%3E%3Crect x='116' y='58' width='15' height='48' rx='3' fill='url(%23red)'/%3E%3Crect x='119' y='48' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='119' y='106' width='9' height='16' fill='%23ef4444'/%3E%3Crect x='138' y='44' width='15' height='56' rx='3' fill='url(%23green)'/%3E%3Crect x='141' y='30' width='9' height='14' fill='%2310b981'/%3E%3Crect x='141' y='100' width='9' height='10' fill='%2310b981'/%3E%3Cpath d='M24 142 Q54 124 82 118 T138 90 T160 76' stroke='url(%23glow)' stroke-width='2.5' fill='none' stroke-linecap='round' opacity='0.8'/%3E%3Ccircle cx='160' cy='76' r='4' fill='%233b82f6'/%3E%3C/svg%3E">
     
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251211.13">
+    <link rel="stylesheet" href="css/style.css?v=20251211.14">
 </head>
 <body>
     <div class="app">
@@ -154,6 +154,20 @@
                                 <path d="M12 16v-4M12 8h.01"/>
                             </svg>
                         </button>
+                        <button class="icon-btn" id="btnChartAlert" title="Create chart alert">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                <path d="M12 9v6M9 12h6"/>
+                            </svg>
+                        </button>
+                        <button class="icon-btn" id="btnAlerts" title="Alerts">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                            </svg>
+                            <span class="alerts-dot" id="alertsGlobalDot" aria-hidden="true"></span>
+                        </button>
                         <button class="icon-btn" id="btnLevelSettings" title="Settings">
                             <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
@@ -174,22 +188,31 @@
                 <div class="panel depth-panel collapsible expanded" data-panel="depth">
                     <div class="panel-header">
                         <h3>Market Depth</h3>
-                        <div class="exchange-selector">
-                            <span class="panel-badge clickable" id="depthSources">-</span>
-                            <div class="exchange-dropdown" id="exchangeDropdown">
-                                <label class="exchange-option">
-                                    <input type="checkbox" id="exKraken" checked>
-                                    <span>Kraken</span>
-                                </label>
-                                <label class="exchange-option">
-                                    <input type="checkbox" id="exCoinbase" checked>
-                                    <span>Coinbase</span>
-                                </label>
-                                <label class="exchange-option">
-                                    <input type="checkbox" id="exBitstamp" checked>
-                                    <span>Bitstamp</span>
-                                </label>
+                        <div class="panel-header-actions">
+                            <div class="exchange-selector">
+                                <span class="panel-badge clickable" id="depthSources">-</span>
+                                <div class="exchange-dropdown" id="exchangeDropdown">
+                                    <label class="exchange-option">
+                                        <input type="checkbox" id="exKraken" checked>
+                                        <span>Kraken</span>
+                                    </label>
+                                    <label class="exchange-option">
+                                        <input type="checkbox" id="exCoinbase" checked>
+                                        <span>Coinbase</span>
+                                    </label>
+                                    <label class="exchange-option">
+                                        <input type="checkbox" id="exBitstamp" checked>
+                                        <span>Bitstamp</span>
+                                    </label>
+                                </div>
                             </div>
+                            <button class="panel-alert-btn" data-alert-section="depth" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -215,7 +238,16 @@
                 <div class="panel pressure-panel collapsible expanded" data-panel="orderflow">
                     <div class="panel-header">
                         <h3>Order Flow</h3>
-                        <span class="panel-badge" id="pressureStatus">Live</span>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="pressureStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="orderflow" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                     <!-- BPR - Book Pressure Ratio -->
@@ -434,7 +466,16 @@
                 <div class="panel direction-panel collapsible expanded" data-panel="forecast">
                     <div class="panel-header">
                         <h3>Price Forecast</h3>
-                        <span class="panel-badge" id="forecastStatus">Live</span>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="forecastStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="forecast" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                     <!-- 3 Timeframe Forecasts -->
@@ -542,7 +583,16 @@
                 <div class="panel fair-value-panel collapsible expanded" data-panel="fairvalue">
                     <div class="panel-header">
                         <h3>Fair Value</h3>
-                        <span class="panel-badge" id="fvStatus">Live</span>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="fvStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="fairvalue" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                     <div class="fv-metrics">
@@ -642,12 +692,21 @@
                     <div class="panel-header">
                         <h3>MARKET CONSENSUS</h3>
                         <!-- Mode Selector (Enhancement #4) -->
-                        <div class="mcs-mode-selector" id="mcsModeSelector">
-                            <button class="mcs-mode-btn" data-mode="aggressive" title="Aggressive: Heavy weight on MM for scalping">⚡</button>
-                            <button class="mcs-mode-btn" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
-                            <button class="mcs-mode-btn active" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
+                        <div class="panel-header-actions">
+                            <div class="mcs-mode-selector" id="mcsModeSelector">
+                                <button class="mcs-mode-btn" data-mode="aggressive" title="Aggressive: Heavy weight on MM for scalping">⚡</button>
+                                <button class="mcs-mode-btn" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
+                                <button class="mcs-mode-btn active" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
+                            </div>
+                            <span class="live-badge">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="mcs" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
                         </div>
-                        <span class="live-badge">Live</span>
                     </div>
                     <div class="panel-content">
                         <!-- MCS Header with main signal + confidence + dots -->
@@ -710,7 +769,16 @@
                 <div class="panel alpha-score-panel collapsible expanded" data-panel="alpha">
                     <div class="panel-header">
                         <h3>Alpha Score</h3>
-                        <span class="alpha-badge" id="alphaRegime">--</span>
+                        <div class="panel-header-actions">
+                            <span class="alpha-badge" id="alphaRegime">--</span>
+                            <button class="panel-alert-btn" data-alert-section="alpha" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                         <div class="regime-mode-selector alpha-mode-selector">
@@ -791,7 +859,16 @@
                 <div class="panel regime-panel collapsible expanded" data-panel="regime">
                     <div class="panel-header">
                         <h3>Regime Engine</h3>
-                        <span class="panel-badge live" id="regimeStatus">Live</span>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge live" id="regimeStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="regime" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
                     </div>
                     <div class="panel-content">
                     
@@ -934,10 +1011,19 @@
                 <div class="panel levels-panel collapsible" data-panel="levels">
                     <div class="panel-header">
                         <h3>Key Levels</h3>
-                        <div class="level-filter">
-                            <button class="filter-btn active" data-filter="all">All</button>
-                            <button class="filter-btn" data-filter="support">Bids</button>
-                            <button class="filter-btn" data-filter="resistance">Asks</button>
+                        <div class="panel-header-actions">
+                            <div class="level-filter">
+                                <button class="filter-btn active" data-filter="all">All</button>
+                                <button class="filter-btn" data-filter="support">Bids</button>
+                                <button class="filter-btn" data-filter="resistance">Asks</button>
+                            </div>
+                            <button class="panel-alert-btn" data-alert-section="levels" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -966,7 +1052,7 @@
                 <span class="footer-separator">·</span>
                 <span class="footer-disclaimer">Use at own risk · Not financial advice</span>
                 <span class="footer-separator">·</span>
-                <span class="footer-version">v20251211.13</span>
+                <span class="footer-version">v20251211.14</span>
             </div>
             <div class="footer-right">
                 <a href="https://github.com/deboorn/synthetic-order-book/" target="_blank" rel="noopener" class="github-link" title="View on GitHub">
@@ -1349,7 +1435,7 @@
                             <span class="toggle-slider"></span>
                             <div class="toggle-info">
                                 <span class="toggle-label">Use Full Order Book</span>
-                                <span class="toggle-hint">Analytics use all data (not just visible)</span>
+                                <span class="toggle-hint">Affects analytics only (VWMP/IFV always use full book)</span>
                             </div>
                         </label>
                     </div>
@@ -1545,16 +1631,155 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251211.13"></script>
-    <script src="js/websocket-orderbook.js?v=20251211.13"></script>
-    <script src="js/orderbook-aggregator.js?v=20251211.13"></script>
-    <script src="js/api.js?v=20251211.13"></script>
-    <script src="js/websocket.js?v=20251211.13"></script>
-    <script src="js/bb-pulse.js?v=20251211.13"></script>
-    <script src="js/chart.js?v=20251211.13"></script>
-    <script src="js/depth.js?v=20251211.13"></script>
-    <script src="js/direction.js?v=20251211.13"></script>
-    <script src="js/app.js?v=20251211.13"></script>
+    <!-- Alerts Modal -->
+    <div class="modal" id="alertsModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content alerts-modal-wide">
+            <div class="modal-header">
+                <h2>Alerts</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-secondary btn-small" id="btnCreateAlertFromModal">New Alert</button>
+                    <button class="modal-close" id="closeAlerts">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body alerts-modal-body">
+                <div class="alerts-tabs">
+                    <button class="alerts-tab active" data-tab="active">Active Alerts</button>
+                    <button class="alerts-tab" data-tab="log">Alert Log</button>
+                </div>
+                <div class="alerts-tab-content active" data-tab-content="active">
+                    <div class="alerts-list" id="activeAlertsList">
+                        <div class="alerts-empty">No active alerts yet.</div>
+                    </div>
+                </div>
+                <div class="alerts-tab-content" data-tab-content="log">
+                    <div class="alerts-log-actions">
+                        <button class="btn-secondary btn-small" id="clearAlertsLog" title="Clear this symbol's alert log">Clear Alert Log</button>
+                    </div>
+                    <div class="alerts-log" id="alertsLogList">
+                        <div class="alerts-empty">No alerts fired yet.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Alert Modal -->
+    <div class="modal" id="alertEditModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content alert-edit-modal">
+            <div class="modal-header">
+                <h2 id="alertEditTitle">Create Alert</h2>
+                <button class="modal-close" id="closeAlertEdit">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="alertForm" class="alert-form">
+                    <input type="hidden" id="alertId" value="">
+                    <div class="alert-form-row">
+                        <label>Section</label>
+                        <select id="alertSection" class="alert-select"></select>
+                    </div>
+                    <div class="alert-form-row">
+                        <label>Metric</label>
+                        <select id="alertMetric" class="alert-select"></select>
+                    </div>
+                    <div class="alert-form-row alert-form-split">
+                        <div class="alert-form-col">
+                            <label>Condition</label>
+                            <select id="alertCondition" class="alert-select"></select>
+                        </div>
+                        <div class="alert-form-col" id="alertThresholdWrap">
+                            <label>Value</label>
+                            <input type="number" id="alertThreshold" class="alert-input" step="0.0001">
+                        </div>
+                        <div class="alert-form-col" id="alertCompareMetricWrap" style="display:none">
+                            <label>Compare To</label>
+                            <select id="alertCompareMetric" class="alert-select"></select>
+                        </div>
+                        <div class="alert-form-col" id="alertTargetWrap" style="display:none">
+                            <label>Value</label>
+                            <select id="alertTarget" class="alert-select"></select>
+                        </div>
+                        <div class="alert-form-col" id="alertTextTargetWrap" style="display:none">
+                            <label>Value</label>
+                            <input type="text" id="alertTargetText" class="alert-input" placeholder="e.g. STRONG BUY">
+                        </div>
+                    </div>
+                    <div class="alert-form-row">
+                        <label>Frequency</label>
+                        <select id="alertFrequency" class="alert-select">
+                            <option value="one_time">One time</option>
+                            <option value="once_per_bar">Once per bar</option>
+                            <option value="once_per_min">Once per minute (until closed)</option>
+                        </select>
+                    </div>
+                    <div class="alert-form-row alert-form-delivery">
+                        <label>Delivery</label>
+                        <div class="alert-delivery-options">
+                            <label class="alert-check">
+                                <input type="checkbox" id="alertNotify" checked>
+                                <span>Browser notification</span>
+                            </label>
+                            <label class="alert-check">
+                                <input type="checkbox" id="alertSound" checked>
+                                <span>Sound</span>
+                            </label>
+                            <select id="alertSoundType" class="alert-select" title="Alert sound">
+                                <option value="alarm" selected>Alarm (clock)</option>
+                                <option value="beep">Beep</option>
+                                <option value="chime">Chime</option>
+                            </select>
+                            <button type="button" class="btn-secondary btn-small" id="previewAlertSound" title="Preview sound">▶︎</button>
+                        </div>
+                    </div>
+                    <div class="alert-preview">
+                        <span class="preview-label">Current:</span>
+                        <span class="preview-value" id="alertCurrentValue">--</span>
+                        <span class="preview-hint" id="alertCurrentHint"></span>
+                    </div>
+                    <div class="alert-form-actions">
+                        <button type="button" class="btn-secondary" id="cancelAlertEdit">Cancel</button>
+                        <button type="submit" class="btn-primary" id="saveAlert">Save Alert</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alerts Disclaimer (shown once) -->
+    <div class="modal" id="alertsDisclaimerModal">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content alerts-disclaimer-content">
+            <div class="modal-header">
+                <h2>Alerts Notice</h2>
+                <button class="modal-close" id="closeAlertsDisclaimer">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="alerts-disclaimer-text">
+                    Since this is a browser app, the tab must stay open/active for alerts to work.
+                </p>
+                <label class="alerts-disclaimer-check">
+                    <input type="checkbox" id="alertsDisclaimerCheck">
+                    <span>I understand — this tab must remain open/active for alerts to work.</span>
+                </label>
+                <div class="alerts-disclaimer-actions">
+                    <button class="btn-secondary" id="alertsDisclaimerCancel">Cancel</button>
+                    <button class="btn-primary" id="alertsDisclaimerContinue" disabled>Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/db.js?v=20251211.14"></script>
+    <script src="js/websocket-orderbook.js?v=20251211.14"></script>
+    <script src="js/orderbook-aggregator.js?v=20251211.14"></script>
+    <script src="js/api.js?v=20251211.14"></script>
+    <script src="js/websocket.js?v=20251211.14"></script>
+    <script src="js/bb-pulse.js?v=20251211.14"></script>
+    <script src="js/chart.js?v=20251211.14"></script>
+    <script src="js/depth.js?v=20251211.14"></script>
+    <script src="js/direction.js?v=20251211.14"></script>
+    <script src="js/app.js?v=20251211.14"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>

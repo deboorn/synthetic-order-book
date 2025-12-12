@@ -918,6 +918,63 @@ body {
     color: var(--text-secondary);
 }
 
+/* Panel header actions (badges, selectors, alerts) */
+.panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.panel-alert-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.panel-alert-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+    border-color: rgba(59, 130, 246, 0.25);
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.12);
+}
+
+.panel-alert-btn.has-alerts {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #60a5fa;
+}
+
+.panel-alert-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    display: none;
+}
+
+.panel-alert-count.visible {
+    display: inline-block;
+}
+
 .panel-badge {
     font-size: 0.65rem;
     padding: 2px 6px;
@@ -2913,6 +2970,7 @@ body {
     justify-content: center;
     width: 32px;
     height: 32px;
+    position: relative;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -2930,6 +2988,23 @@ body {
 .icon-btn svg {
     width: 16px;
     height: 16px;
+}
+
+/* Alerts dot indicator (global toolbar) */
+.alerts-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #fbbf24;
+    box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+    display: none;
+}
+
+.alerts-dot.visible {
+    display: block;
 }
 
 /* Modal Styles */
@@ -3022,6 +3097,304 @@ body {
     padding: var(--spacing-lg);
     overflow-y: auto;
     max-height: 60vh;
+}
+
+/* Alerts Modals */
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.alerts-modal-wide {
+    max-width: 820px;
+    width: 92%;
+}
+
+.alert-edit-modal {
+    max-width: 560px;
+}
+
+.alerts-disclaimer-content {
+    max-width: 560px;
+}
+
+.alerts-modal-body {
+    padding: var(--spacing-md) var(--spacing-lg);
+}
+
+.alerts-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 12px;
+}
+
+.alerts-tab {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.alerts-tab:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
+.alerts-tab.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(139, 92, 246, 0.15) 100%);
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #60a5fa;
+}
+
+.alerts-tab-content {
+    display: none;
+}
+
+.alerts-tab-content.active {
+    display: block;
+}
+
+.alerts-list,
+.alerts-log {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.alert-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.alert-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+
+.alert-enabled-toggle {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+}
+
+.alert-row-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.alert-row-title {
+    font-size: 0.85rem;
+    font-weight: 650;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.alert-row-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.alert-row-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.alert-log-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.alert-log-time {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.alert-log-msg {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.alerts-log-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+.alerts-empty {
+    padding: 14px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+.alert-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.alert-form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.alert-form-row label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.alert-form-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.alert-form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.alert-input,
+.alert-select {
+    width: 100%;
+    padding: 10px 10px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.alert-input:focus,
+.alert-select:focus {
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.alert-form-delivery .alert-delivery-options {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.alert-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.alert-check input {
+    accent-color: var(--accent-primary);
+}
+
+.alert-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.preview-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.preview-value {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.preview-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.alert-form-actions,
+.alerts-disclaimer-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.alerts-disclaimer-text {
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.alerts-disclaimer-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.18);
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.alerts-disclaimer-check input {
+    margin-top: 3px;
+    accent-color: #fbbf24;
 }
 
 /* Fullscreen Modal (Settings) */
@@ -3626,6 +3999,7 @@ body {
 }
 
 .btn-small {
+    flex: 0 0 auto;
     padding: 4px 8px;
     font-size: 0.7rem;
     border-radius: 4px;

@@ -1064,10 +1064,11 @@ class OrderBookChart {
         
         // Skip redraw if no significant change
         if (!hasSignificantChange && this.priceLines.length > 0) {
-            // Still update fair value indicators (they have their own change detection)
+            // Keep latest levels for interactions (highlighting), but do NOT
+            // recalculate fair value (VWMP/IFV) from chart-rendered levels.
+            // Fair value is computed from the full order book via analytics.
             if (levels && levels.length > 0) {
                 this.levelLines = levels;
-                this.setFairValueLevels(levels);
             }
             return;
         }
@@ -1149,9 +1150,6 @@ class OrderBookChart {
 
         // Store levels for highlighting
         this.levelLines = levels;
-        
-        // Update fair value indicators with new levels
-        this.setFairValueLevels(levels);
 
         // Restore view position
         if (savedRange && preserveView) {
@@ -4626,7 +4624,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     /**
      * Set levels for order flow calculations
      */
-    setOrderFlowLevels(levels, currentPrice) {
+    setOrderFlowLevels(levels, currentPrice, fairValueLevels = null) {
         if (!this.orderFlowPressure) {
             this.initOrderFlowPressure();
         }
@@ -4635,7 +4633,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         this.updateOrderFlowPressure();
         
         // Also update fair value indicators (which triggers Alpha Score and Market Consensus)
-        this.fairValueIndicators.currentLevels = levels;
+        // VWMP/IFV are computed from the FULL order book for accuracy.
+        const fvLevels = (fairValueLevels && fairValueLevels.length) ? fairValueLevels : levels;
+        this.fairValueIndicators.currentLevels = fvLevels;
         this.currentPrice = currentPrice;
         this.updateFairValueIndicators();
     }

@@ -2,7 +2,7 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251211.13-green)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251211.14-green)
 
 ## 📸 Screenshots
 
@@ -28,6 +28,7 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 4. [Installation](#installation)
 5. [Configuration](#configuration)
 6. [License](#license)
+7. [Alerts](#alerts)
 
 ---
 
@@ -41,6 +42,29 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 - **Multi-Timeframe Consensus** - MM, Swing, and HTF perspectives
 - **Support/Resistance Levels** - Auto-detected from order book clusters
 - **Historical Klines** - Via Binance Vision API (CORS-friendly)
+- **TradingView-style Alerts** - Browser notifications + sound for key metrics (one time / once per bar / once per minute)
+
+---
+
+## 🔔 Alerts
+
+Alerts are **client-side only** (no server). You can create alerts from:
+
+- Any panel header **bell icon**
+- The chart header **“Create chart alert”** button (price / mid / VWMP / IFV / EMA / ZEMA, etc.)
+
+**Alert frequency modes:**
+
+- **One time** (auto-disables after firing once)
+- **Once per bar** (uses the active chart timeframe candle boundary)
+- **Once per minute** (repeats while condition remains true)
+
+**Delivery:**
+
+- **Browser notifications** (requires permission)
+- **Sound** (select from built-in sounds or WAV files in `order-book/sounds/`)
+
+**Important:** Since this is a browser app, the tab must stay **open/active** for alerts to work reliably.
 
 ---
 
@@ -728,3 +752,4 @@ Special thanks to:
 - **[GitHub](https://github.com)** - For hosting this project and providing GitHub Pages for the live demo.
 - **[Binance Vision API](https://data.binance.vision/)** - Historical kline/candlestick data.
 - **Exchange WebSocket APIs** - Real-time order book data from Kraken, Coinbase, and Bitstamp.
+- **[Mixkit](https://mixkit.co/)** - Sound effects used for alert sounds.

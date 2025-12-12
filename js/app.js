@@ -66,6 +66,974 @@ function formatSmartVolume(volume, symbol = 'BTC') {
     }
 }
 
+// Bundled WAV sounds (served from /sounds/)
+const ALERT_SOUND_FILES = [
+    'mixkit-arcade-bonus-alert-767.wav',
+    'mixkit-arcade-game-explosion-1699.wav',
+    'mixkit-arcade-game-explosion-echo-1698.wav',
+    'mixkit-arcade-race-game-countdown-1952.wav',
+    'mixkit-arcade-retro-game-over-213.wav',
+    'mixkit-arcade-retro-run-sound-220.wav',
+    'mixkit-arcade-slot-machine-wheel-1933.wav',
+    'mixkit-fairy-arcade-sparkle-866.wav',
+    'mixkit-repeating-arcade-beep-1084.wav',
+    'mixkit-retro-arcade-casino-notification-211.wav',
+    'mixkit-retro-arcade-game-over-470.wav',
+    'mixkit-retro-arcade-lose-2027.wav',
+    'mixkit-retro-game-notification-212.wav',
+    'mixkit-retro-video-game-bubble-laser-277.wav',
+    'mixkit-synthetic-sci-fi-wobble-278.wav',
+    'mixkit-unlock-game-notification-253.wav'
+];
+
+function formatAlertSoundLabel(filename) {
+    if (!filename) return 'Sound';
+    let base = String(filename).replace(/\.[^.]+$/, '');
+    base = base.replace(/^mixkit-/, '');
+    let code = '';
+    const m = base.match(/-(\d+)$/);
+    if (m) {
+        code = m[1];
+        base = base.slice(0, -(m[0].length));
+    }
+    base = base.replace(/-/g, ' ').trim();
+    base = base.replace(/\b\w/g, (c) => c.toUpperCase());
+    return code ? `${base} (${code})` : base;
+}
+
+/**
+ * AlertsManager (TradingView-style)
+ * - Per-symbol persistence (localStorage)
+ * - Active alerts + alert log
+ * - Bar-aware throttling (once per bar) via `newBarOpened`
+ * - Minute throttling (once per minute)
+ *
+ * NOTE: Metric registry + evaluation logic are layered in via the app
+ * (keeps existing indicator logic untouched).
+ */
+class AlertsManager {
+    constructor(app) {
+        this.app = app;
+        this.symbol = (app?.currentSymbol || 'BTC').toUpperCase();
+        this.alerts = [];
+        this.log = [];
+        this.currentBarId = null; // candleTime (seconds)
+        this.metricRegistry = null; // injected later
+    }
+
+    // ---------- Storage ----------
+    _alertsKey(symbol) {
+        return `alerts.v1.${(symbol || this.symbol).toUpperCase()}`;
+    }
+
+    _logKey(symbol) {
+        return `alerts.log.v1.${(symbol || this.symbol).toUpperCase()}`;
+    }
+
+    load(symbol = null) {
+        if (symbol) this.symbol = symbol.toUpperCase();
+
+        try {
+            const raw = localStorage.getItem(this._alertsKey());
+            this.alerts = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(this.alerts)) this.alerts = [];
+        } catch (_) {
+            this.alerts = [];
+        }
+
+        try {
+            const rawLog = localStorage.getItem(this._logKey());
+            this.log = rawLog ? JSON.parse(rawLog) : [];
+            if (!Array.isArray(this.log)) this.log = [];
+        } catch (_) {
+            this.log = [];
+        }
+    }
+
+    save() {
+        localStorage.setItem(this._alertsKey(), JSON.stringify(this.alerts));
+        localStorage.setItem(this._logKey(), JSON.stringify(this.log));
+    }
+
+    setSymbol(symbol) {
+        const sym = (symbol || 'BTC').toUpperCase();
+        if (sym === this.symbol) return;
+        this.symbol = sym;
+        this.load(sym);
+    }
+
+    setCurrentBarId(barId) {
+        // barId = candleTime seconds
+        this.currentBarId = barId;
+    }
+
+    // ---------- CRUD ----------
+    list() {
+        return this.alerts || [];
+    }
+
+    listEnabled() {
+        return (this.alerts || []).filter(a => a && a.enabled);
+    }
+
+    getById(id) {
+        return (this.alerts || []).find(a => a && a.id === id) || null;
+    }
+
+    upsert(alert) {
+        if (!alert) return;
+        const a = { ...alert };
+        if (!a.id) a.id = `a_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        if (!a.symbol) a.symbol = this.symbol;
+        if (a.enabled === undefined) a.enabled = true;
+        if (!a.createdAt) a.createdAt = Date.now();
+        if (!a.frequency) a.frequency = 'one_time';
+        if (a.notify === undefined) a.notify = true;
+        if (a.sound === undefined) a.sound = true;
+        if (!a.soundType) a.soundType = 'alarm';
+
+        const idx = (this.alerts || []).findIndex(x => x && x.id === a.id);
+        if (idx >= 0) this.alerts[idx] = { ...this.alerts[idx], ...a };
+        else this.alerts.push(a);
+
+        this.save();
+    }
+
+    remove(id) {
+        this.alerts = (this.alerts || []).filter(a => a && a.id !== id);
+        this.save();
+    }
+
+    toggle(id, enabled) {
+        const a = this.getById(id);
+        if (!a) return;
+        a.enabled = !!enabled;
+        this.save();
+    }
+
+    clearLog() {
+        this.log = [];
+        this.save();
+    }
+
+    appendLog(entry) {
+        const e = { ...entry, ts: entry?.ts || Date.now(), symbol: this.symbol };
+        this.log.unshift(e);
+        // cap size (per symbol)
+        if (this.log.length > 200) this.log.length = 200;
+        this.save();
+    }
+
+    // ---------- Delivery ----------
+    isNotificationSupported() {
+        return typeof Notification !== 'undefined';
+    }
+
+    async ensureNotificationPermission() {
+        if (!this.isNotificationSupported()) return 'unsupported';
+        if (Notification.permission === 'granted') return 'granted';
+        if (Notification.permission === 'denied') return 'denied';
+        try {
+            const perm = await Notification.requestPermission();
+            return perm;
+        } catch (_) {
+            return Notification.permission;
+        }
+    }
+
+    async ensureAudioUnlocked() {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return false;
+        if (!this._audioCtx) this._audioCtx = new Ctx();
+        if (!this._audioBufferCache) this._audioBufferCache = new Map();
+        try {
+            if (this._audioCtx.state === 'suspended') {
+                await this._audioCtx.resume();
+            }
+        } catch (_) {}
+        return this._audioCtx.state === 'running';
+    }
+
+    playBeep() {
+        if (!this._audioCtx || this._audioCtx.state !== 'running') return;
+        try {
+            const ctx = this._audioCtx;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const now = ctx.currentTime;
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, now);
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        } catch (_) {}
+    }
+
+    playChime() {
+        if (!this._audioCtx || this._audioCtx.state !== 'running') return;
+        try {
+            const ctx = this._audioCtx;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const now = ctx.currentTime;
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, now);
+            osc.frequency.exponentialRampToValueAtTime(660, now + 0.25);
+
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        } catch (_) {}
+    }
+
+    playAlarm() {
+        if (!this._audioCtx || this._audioCtx.state !== 'running') return;
+        try {
+            const ctx = this._audioCtx;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const now = ctx.currentTime;
+
+            // Alarm-clock style: repeating two-tone beeps
+            osc.type = 'square';
+            gain.gain.setValueAtTime(0.0001, now);
+
+            const beeps = [
+                { t: 0.00, f: 880, dur: 0.10 },
+                { t: 0.16, f: 990, dur: 0.10 },
+                { t: 0.44, f: 880, dur: 0.10 },
+                { t: 0.60, f: 990, dur: 0.10 }
+            ];
+
+            for (const b of beeps) {
+                const t0 = now + b.t;
+                osc.frequency.setValueAtTime(b.f, t0);
+                gain.gain.setValueAtTime(0.0001, t0);
+                gain.gain.exponentialRampToValueAtTime(0.22, t0 + 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t0 + b.dur);
+            }
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.8);
+        } catch (_) {}
+    }
+
+    playSound(type) {
+        const raw = type || 'alarm';
+        if (typeof raw === 'string' && raw.startsWith('file:')) {
+            const url = raw.slice(5);
+            return this.playAudioFile(url);
+        }
+        const t = String(raw).toLowerCase();
+        if (t === 'beep') return this.playBeep();
+        if (t === 'chime') return this.playChime();
+        return this.playAlarm();
+    }
+
+    async _getAudioBuffer(url) {
+        if (!this._audioCtx || this._audioCtx.state !== 'running') return null;
+        if (!url) return null;
+        if (this._audioBufferCache?.has(url)) return this._audioBufferCache.get(url);
+
+        try {
+            const res = await fetch(url, { cache: 'force-cache' });
+            if (!res.ok) return null;
+            const arr = await res.arrayBuffer();
+            const ctx = this._audioCtx;
+
+            const buffer = await new Promise((resolve, reject) => {
+                try {
+                    ctx.decodeAudioData(arr, resolve, reject);
+                } catch (e) {
+                    reject(e);
+                }
+            });
+
+            if (buffer) this._audioBufferCache?.set(url, buffer);
+            return buffer || null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    _playAudioBuffer(buffer, volume = 0.95) {
+        if (!this._audioCtx || this._audioCtx.state !== 'running' || !buffer) return;
+        try {
+            const ctx = this._audioCtx;
+            const src = ctx.createBufferSource();
+            const gain = ctx.createGain();
+            gain.gain.value = volume;
+            src.buffer = buffer;
+            src.connect(gain);
+            gain.connect(ctx.destination);
+            src.start();
+        } catch (_) {}
+    }
+
+    async playAudioFile(url) {
+        const ok = await this.ensureAudioUnlocked();
+        if (!ok) return;
+        const buffer = await this._getAudioBuffer(url);
+        if (!buffer) return this.playAlarm();
+        this._playAudioBuffer(buffer, 0.95);
+    }
+
+    trigger(alert, metric, value, snapshot, compareMetric = null, compareValue = null) {
+        const now = Date.now();
+        const formatted = metric?.format ? metric.format(value, snapshot) : String(value);
+        const rhsFormatted = compareMetric
+            ? (compareMetric.format ? compareMetric.format(compareValue, snapshot) : String(compareValue))
+            : null;
+        const rhsSuffix = rhsFormatted ? ` vs ${rhsFormatted}` : '';
+        const msg = `[${snapshot?.symbol || this.symbol}] ${metric?.label || alert.metricKey} ${this._formatCondition(alert)} (${formatted}${rhsSuffix})`;
+
+        // Track for UI
+        alert._lastTriggeredAt = now;
+
+        // Log
+        this.appendLog({
+            ts: now,
+            section: alert.section,
+            metricKey: alert.metricKey,
+            message: msg,
+            value,
+            frequency: alert.frequency
+        });
+
+        // Notification
+        if (alert.notify) {
+            if (this.isNotificationSupported() && Notification.permission === 'granted') {
+                try {
+                    new Notification(`${snapshot?.symbol || this.symbol} Alert`, { body: msg });
+                } catch (_) {
+                    this.app?.showToast?.(msg, 'info');
+                }
+            } else {
+                // Fallback: toast
+                this.app?.showToast?.(msg, 'info');
+            }
+        } else {
+            // Still surface via toast (non-intrusive)
+            this.app?.showToast?.(msg, 'info');
+        }
+
+        // Sound
+        if (alert.sound) {
+            this.playSound(alert.soundType);
+        }
+
+        // Refresh Alerts modal live (only if open)
+        if (document.getElementById('alertsModal')?.classList?.contains('open')) {
+            this.app?.renderAlertsModal?.();
+        }
+    }
+
+    // ---------- Evaluation ----------
+    setRegistry(registry) {
+        this.metricRegistry = registry;
+    }
+
+    evaluate(snapshot) {
+        // Registry is injected in metrics-registry step
+        if (!this.metricRegistry) return;
+        const now = Date.now();
+        let shouldSave = false;
+
+        for (const alert of (this.alerts || [])) {
+            if (!alert || !alert.enabled) continue;
+            if (alert.symbol && alert.symbol.toUpperCase() !== this.symbol) continue;
+
+            const metric = this.metricRegistry.getMetric(alert.section, alert.metricKey);
+            if (!metric) continue;
+
+            const value = metric.getValue(snapshot);
+            if (value === null || value === undefined || (typeof value === 'number' && isNaN(value))) continue;
+
+            let compareMetric = null;
+            let compareValue = null;
+            if (alert.compareMetricKey) {
+                compareMetric = this.metricRegistry.getMetric(alert.section, alert.compareMetricKey);
+                compareValue = compareMetric?.getValue?.(snapshot);
+                if (compareValue === null || compareValue === undefined || (typeof compareValue === 'number' && isNaN(compareValue))) {
+                    // Still update last value for cross tracking, but skip triggering
+                    this.metricRegistry.evaluateCondition(alert, value, null);
+                    continue;
+                }
+            }
+
+            const triggered = this.metricRegistry.evaluateCondition(alert, value, compareValue);
+            if (!triggered) continue;
+
+            // Throttle by frequency
+            if (alert.frequency === 'once_per_min') {
+                const lastTs = alert._lastFiredTs || 0;
+                if (now - lastTs < 60_000) continue;
+                alert._lastFiredTs = now;
+            } else if (alert.frequency === 'once_per_bar') {
+                const barId = snapshot?.barId ?? this.currentBarId;
+                if (!barId) continue;
+                const lastBar = alert._lastFiredBarId || null;
+                if (lastBar === barId) continue;
+                alert._lastFiredBarId = barId;
+            } else {
+                // one_time: disable after firing (persist)
+                alert.enabled = false;
+                shouldSave = true;
+            }
+
+            this.metricRegistry.fireAlert(alert, metric, value, snapshot, compareMetric, compareValue);
+        }
+
+        if (shouldSave) {
+            this.save();
+            this.app?.updateAlertIndicators?.();
+            if (document.getElementById('alertsModal')?.classList?.contains('open')) {
+                this.app?.renderAlertsModal?.();
+            }
+        }
+    }
+
+    countBySection() {
+        const map = {};
+        for (const a of (this.alerts || [])) {
+            if (!a || !a.enabled) continue;
+            if (!a.section) continue;
+            map[a.section] = (map[a.section] || 0) + 1;
+        }
+        return map;
+    }
+
+    _formatCondition(alert) {
+        const cond = alert?.condition || '';
+        if (cond === 'above') return 'above ' + alert.threshold;
+        if (cond === 'below') return 'below ' + alert.threshold;
+        if (cond === 'crosses_above') return 'crosses above ' + alert.threshold;
+        if (cond === 'crosses_below') return 'crosses below ' + alert.threshold;
+        if (cond === 'above_metric') return 'above ' + (alert.compareMetricLabel || alert.compareMetricKey || 'metric');
+        if (cond === 'below_metric') return 'below ' + (alert.compareMetricLabel || alert.compareMetricKey || 'metric');
+        if (cond === 'crosses_above_metric') return 'crosses above ' + (alert.compareMetricLabel || alert.compareMetricKey || 'metric');
+        if (cond === 'crosses_below_metric') return 'crosses below ' + (alert.compareMetricLabel || alert.compareMetricKey || 'metric');
+        if (cond === 'is') return 'is ' + alert.target;
+        if (cond === 'changes') return 'changed';
+        if (cond === 'changes_to') return 'changes to ' + alert.target;
+        return cond;
+    }
+}
+
+/**
+ * AlertMetricRegistry
+ * Defines available metrics per section and provides condition evaluation.
+ */
+class AlertMetricRegistry {
+    constructor(app) {
+        this.app = app;
+
+        this.sections = [
+            { key: 'chart', label: 'Main Chart' },
+            { key: 'depth', label: 'Market Depth' },
+            { key: 'orderflow', label: 'Order Flow' },
+            { key: 'forecast', label: 'Price Forecast' },
+            { key: 'fairvalue', label: 'Fair Value' },
+            { key: 'mcs', label: 'Market Consensus' },
+            { key: 'alpha', label: 'Alpha Score' },
+            { key: 'regime', label: 'Regime Engine' },
+            { key: 'levels', label: 'Key Levels' }
+        ];
+
+        // Metric definitions per section
+        this.metrics = {
+            chart: {
+                'price': {
+                    key: 'price',
+                    label: 'Price',
+                    type: 'number',
+                    getValue: (s) => s?.price ?? null,
+                    format: (v) => formatSmartPrice(Number(v))
+                },
+                'mid': {
+                    key: 'mid',
+                    label: 'Mid',
+                    type: 'number',
+                    getValue: (s) => s?.fairValue?.mid ?? null,
+                    format: (v) => formatSmartPrice(Number(v))
+                },
+                'vwmp': {
+                    key: 'vwmp',
+                    label: 'VWMP',
+                    type: 'number',
+                    getValue: (s) => s?.fairValue?.vwmp ?? null,
+                    format: (v) => formatSmartPrice(Number(v))
+                },
+                'ifv': {
+                    key: 'ifv',
+                    label: 'IFV',
+                    type: 'number',
+                    getValue: (s) => s?.fairValue?.ifv ?? null,
+                    format: (v) => formatSmartPrice(Number(v))
+                },
+                'ema': {
+                    key: 'ema',
+                    label: 'EMA',
+                    type: 'number',
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        const existing = chart?.emaGrid?.emaValue;
+                        if (existing !== null && existing !== undefined) return existing;
+                        const candles = chart?.getCandles?.();
+                        const period = chart?.emaGrid?.period || parseInt(localStorage.getItem('emaPeriod') || '20');
+                        return chart?.calculateEMA ? chart.calculateEMA(candles, period) : null;
+                    },
+                    format: (v) => formatSmartPrice(Number(v))
+                },
+                'zema': {
+                    key: 'zema',
+                    label: 'ZEMA',
+                    type: 'number',
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        const existing = chart?.zemaGrid?.zemaValue;
+                        if (existing !== null && existing !== undefined) return existing;
+                        const candles = chart?.getCandles?.();
+                        const period = chart?.zemaGrid?.period || parseInt(localStorage.getItem('zemaPeriod') || '30');
+                        return chart?.calculateZEMA ? chart.calculateZEMA(candles, period) : null;
+                    },
+                    format: (v) => formatSmartPrice(Number(v))
+                }
+            },
+            depth: {
+                'imbalancePct': {
+                    key: 'imbalancePct',
+                    label: 'Imbalance %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => s?.depth?.imbalancePct ?? null,
+                    format: (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%'
+                },
+                'bidVolume': {
+                    key: 'bidVolume',
+                    label: 'Bid Volume',
+                    type: 'number',
+                    unit: 'vol',
+                    getValue: (s) => s?.depth?.totalBid ?? null,
+                    format: (v, s) => formatSmartVolume(Number(v), s?.symbol || 'BTC')
+                },
+                'askVolume': {
+                    key: 'askVolume',
+                    label: 'Ask Volume',
+                    type: 'number',
+                    unit: 'vol',
+                    getValue: (s) => s?.depth?.totalAsk ?? null,
+                    format: (v, s) => formatSmartVolume(Number(v), s?.symbol || 'BTC')
+                }
+            },
+            orderflow: {
+                'bpr': {
+                    key: 'bpr',
+                    label: 'BPR (Bid/Ask Ratio)',
+                    type: 'number',
+                    getValue: (s) => {
+                        const levels = s?.levels || [];
+                        const bpr = this.app?.chart?.calculateBPR ? this.app.chart.calculateBPR(levels) : null;
+                        return bpr?.ratio ?? null;
+                    },
+                    format: (v) => Number(v).toFixed(2)
+                },
+                'ldDelta': {
+                    key: 'ldDelta',
+                    label: 'LD (Liquidity Delta)',
+                    type: 'number',
+                    getValue: (s) => {
+                        const levels = s?.levels || [];
+                        const price = s?.price || 0;
+                        const ld = this.app?.chart?.calculateLiquidityDelta ? this.app.chart.calculateLiquidityDelta(levels, price) : null;
+                        return ld?.delta ?? null;
+                    },
+                    format: (v) => {
+                        const n = Number(v);
+                        const abs = Math.abs(n);
+                        if (abs >= 1000) return (n / 1000).toFixed(1) + 'K';
+                        return n >= 0 ? '+' + n.toFixed(0) : n.toFixed(0);
+                    }
+                }
+            },
+            forecast: {
+                'overallBias': {
+                    key: 'overallBias',
+                    label: 'Overall Bias',
+                    type: 'enum',
+                    options: ['bullish', 'neutral', 'bearish'],
+                    getValue: (s) => s?.direction?.overallBias ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'confidence': {
+                    key: 'confidence',
+                    label: 'Confidence',
+                    type: 'enum',
+                    options: ['high', 'medium', 'low'],
+                    getValue: (s) => s?.direction?.confidence ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'shortBias': {
+                    key: 'shortBias',
+                    label: 'Short Bias',
+                    type: 'enum',
+                    options: ['bullish', 'neutral', 'bearish'],
+                    getValue: (s) => s?.direction?.short?.bias ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'mediumBias': {
+                    key: 'mediumBias',
+                    label: 'Medium Bias',
+                    type: 'enum',
+                    options: ['bullish', 'neutral', 'bearish'],
+                    getValue: (s) => s?.direction?.medium?.bias ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'longBias': {
+                    key: 'longBias',
+                    label: 'Long Bias',
+                    type: 'enum',
+                    options: ['bullish', 'neutral', 'bearish'],
+                    getValue: (s) => s?.direction?.long?.bias ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                }
+            },
+            fairvalue: {
+                'midPct': {
+                    key: 'midPct',
+                    label: 'Price vs Mid %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => {
+                        const mid = s?.fairValue?.mid;
+                        const price = s?.price;
+                        if (!mid || !price) return null;
+                        return ((price - mid) / mid) * 100;
+                    },
+                    format: (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+                },
+                'vwmpPct': {
+                    key: 'vwmpPct',
+                    label: 'Price vs VWMP %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => {
+                        const vwmp = s?.fairValue?.vwmp;
+                        const price = s?.price;
+                        if (!vwmp || !price) return null;
+                        return ((price - vwmp) / vwmp) * 100;
+                    },
+                    format: (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+                },
+                'ifvPct': {
+                    key: 'ifvPct',
+                    label: 'Price vs IFV %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => {
+                        const ifv = s?.fairValue?.ifv;
+                        const price = s?.price;
+                        if (!ifv || !price) return null;
+                        return ((price - ifv) / ifv) * 100;
+                    },
+                    format: (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+                }
+            },
+            mcs: {
+                'score': {
+                    key: 'score',
+                    label: 'MCS Score',
+                    type: 'number',
+                    getValue: (s) => s?.marketConsensus?.mcs ?? null,
+                    format: (v) => Number(v).toFixed(0)
+                },
+                'signal': {
+                    key: 'signal',
+                    label: 'MCS Signal',
+                    type: 'string',
+                    getValue: (s) => s?.marketConsensus?.mcsInfo?.label ?? null,
+                    format: (v) => String(v || '')
+                },
+                'mmBias': {
+                    key: 'mmBias',
+                    label: 'MM Bias',
+                    type: 'number',
+                    getValue: (s) => s?.marketConsensus?.mmBias ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(0)
+                },
+                'swingBias': {
+                    key: 'swingBias',
+                    label: 'Swing Bias',
+                    type: 'number',
+                    getValue: (s) => s?.marketConsensus?.swingBias ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(0)
+                },
+                'htfBias': {
+                    key: 'htfBias',
+                    label: 'HTF Bias',
+                    type: 'number',
+                    getValue: (s) => s?.marketConsensus?.htfBias ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(0)
+                },
+                'confidence': {
+                    key: 'confidence',
+                    label: 'Consensus Confidence',
+                    type: 'enum',
+                    options: ['HIGH', 'MEDIUM', 'LOW'],
+                    getValue: (s) => s?.marketConsensus?.confidence?.level ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                }
+            },
+            alpha: {
+                'score': {
+                    key: 'score',
+                    label: 'Alpha Score',
+                    type: 'number',
+                    getValue: (s) => s?.alpha ?? null,
+                    format: (v) => Number(v).toFixed(0)
+                },
+                'regime': {
+                    key: 'regime',
+                    label: 'Alpha Regime',
+                    type: 'enum',
+                    options: ['bearish', 'neutral', 'bullish'],
+                    getValue: (s) => {
+                        const a = s?.alpha;
+                        if (a === null || a === undefined) return null;
+                        if (a <= 30) return 'bearish';
+                        if (a >= 70) return 'bullish';
+                        return 'neutral';
+                    },
+                    format: (v) => String(v || '').toUpperCase()
+                }
+            },
+            regime: {
+                'type': {
+                    key: 'type',
+                    label: 'Regime Type',
+                    type: 'string',
+                    getValue: (s) => s?.regime?.type ?? null,
+                    format: (v) => String(v || '').replace(/_/g, ' ').toUpperCase()
+                },
+                'ldRoc': {
+                    key: 'ldRoc',
+                    label: 'LD_ROC',
+                    type: 'number',
+                    getValue: (s) => s?.regimeSignals?.ld_roc ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(2)
+                },
+                'bprRoc': {
+                    key: 'bprRoc',
+                    label: 'BPR_ROC',
+                    type: 'number',
+                    getValue: (s) => s?.regimeSignals?.bpr_roc ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(2)
+                },
+                'alphaRoc': {
+                    key: 'alphaRoc',
+                    label: 'Alpha_ROC',
+                    type: 'number',
+                    getValue: (s) => s?.regimeSignals?.alpha_roc ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(2)
+                },
+                'vwmpExt': {
+                    key: 'vwmpExt',
+                    label: 'VWMP_ext',
+                    type: 'number',
+                    getValue: (s) => s?.regimeSignals?.vwmp_ext ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + (Number(v) * 100).toFixed(2) + '%'
+                },
+                'ifvExt': {
+                    key: 'ifvExt',
+                    label: 'IFV_ext',
+                    type: 'number',
+                    getValue: (s) => s?.regimeSignals?.ifv_ext ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + (Number(v) * 100).toFixed(2) + '%'
+                }
+            },
+            levels: {
+                'nearestSupportPct': {
+                    key: 'nearestSupportPct',
+                    label: 'Nearest Support Distance %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => this._nearestLevelDistancePct(s, 'support'),
+                    format: (v) => Number(v).toFixed(2) + '%'
+                },
+                'nearestResistPct': {
+                    key: 'nearestResistPct',
+                    label: 'Nearest Resistance Distance %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => this._nearestLevelDistancePct(s, 'resistance'),
+                    format: (v) => Number(v).toFixed(2) + '%'
+                }
+            }
+        };
+    }
+
+    listSections() {
+        return this.sections;
+    }
+
+    listMetrics(section) {
+        const group = this.metrics?.[section] || {};
+        return Object.values(group);
+    }
+
+    getMetric(section, metricKey) {
+        if (!section || !metricKey) return null;
+        const group = this.metrics?.[section] || {};
+        return group?.[metricKey] || null;
+    }
+
+    getConditionsForMetric(metric) {
+        if (!metric) return [];
+        if (metric.type === 'number') {
+            return [
+                { key: 'above', label: 'Above' },
+                { key: 'below', label: 'Below' },
+                { key: 'crosses_above', label: 'Crosses Above' },
+                { key: 'crosses_below', label: 'Crosses Below' },
+                { key: 'above_metric', label: 'Above (Metric)' },
+                { key: 'below_metric', label: 'Below (Metric)' },
+                { key: 'crosses_above_metric', label: 'Crosses Above (Metric)' },
+                { key: 'crosses_below_metric', label: 'Crosses Below (Metric)' }
+            ];
+        }
+        if (metric.type === 'enum') {
+            return [{ key: 'is', label: 'Is' }];
+        }
+        // string/event
+        return [
+            { key: 'changes', label: 'Changes' },
+            { key: 'is', label: 'Is' },
+            { key: 'changes_to', label: 'Changes To' }
+        ];
+    }
+
+    evaluateCondition(alert, value, compareValue = null) {
+        const metric = this.getMetric(alert.section, alert.metricKey);
+        if (!metric) return false;
+        const cond = alert.condition || 'above';
+        const last = alert._lastValue;
+
+        let triggered = false;
+
+        if (metric.type === 'number') {
+            const v = Number(value);
+            if (!isFinite(v)) {
+                alert._lastValue = value;
+                return false;
+            }
+
+            if (cond.endsWith('_metric')) {
+                if (compareValue === null || compareValue === undefined) {
+                    alert._lastValue = v;
+                    alert._lastDiff = null;
+                    return false;
+                }
+                const rhs = Number(compareValue);
+                if (!isFinite(rhs)) {
+                    alert._lastValue = v;
+                    alert._lastDiff = null;
+                    return false;
+                }
+                const diff = v - rhs;
+                const lastDiff = alert._lastDiff;
+
+                if (cond === 'above_metric') triggered = diff > 0;
+                else if (cond === 'below_metric') triggered = diff < 0;
+                else if (cond === 'crosses_above_metric') triggered = (lastDiff !== undefined && lastDiff !== null) && lastDiff <= 0 && diff > 0;
+                else if (cond === 'crosses_below_metric') triggered = (lastDiff !== undefined && lastDiff !== null) && lastDiff >= 0 && diff < 0;
+                else triggered = false;
+
+                alert._lastDiff = diff;
+            } else {
+                const threshold = Number(alert.threshold);
+                if (!isFinite(threshold)) {
+                    alert._lastValue = v;
+                    return false;
+                }
+
+                if (cond === 'above') triggered = v > threshold;
+                else if (cond === 'below') triggered = v < threshold;
+                else if (cond === 'crosses_above') triggered = (last !== undefined && last !== null) && Number(last) <= threshold && v > threshold;
+                else if (cond === 'crosses_below') triggered = (last !== undefined && last !== null) && Number(last) >= threshold && v < threshold;
+                else triggered = false;
+            }
+        } else {
+            const v = String(value);
+            const target = alert.target !== undefined && alert.target !== null ? String(alert.target) : '';
+            if (cond === 'is') triggered = target ? v === target : false;
+            else if (cond === 'changes') triggered = (last !== undefined && last !== null) && String(last) !== v;
+            else if (cond === 'changes_to') triggered = (last !== undefined && last !== null) && String(last) !== v && target ? v === target : false;
+            else triggered = false;
+        }
+
+        // Always update last value for cross/change logic
+        alert._lastValue = metric.type === 'number' ? Number(value) : value;
+        return triggered;
+    }
+
+    fireAlert(alert, metric, value, snapshot, compareMetric = null, compareValue = null) {
+        // Delegate to AlertsManager delivery (notification + sound + log)
+        this.app?.alertsManager?.trigger(alert, metric, value, snapshot, compareMetric, compareValue);
+    }
+
+    // ---------- helpers ----------
+    _formatCondition(alert) {
+        const cond = alert.condition || '';
+        if (cond === 'above') return 'above ' + alert.threshold;
+        if (cond === 'below') return 'below ' + alert.threshold;
+        if (cond === 'crosses_above') return 'crosses above ' + alert.threshold;
+        if (cond === 'crosses_below') return 'crosses below ' + alert.threshold;
+        if (cond === 'is') return 'is ' + alert.target;
+        if (cond === 'changes') return 'changed';
+        if (cond === 'changes_to') return 'changes to ' + alert.target;
+        return cond;
+    }
+
+    _nearestLevelDistancePct(snapshot, type) {
+        const price = snapshot?.price || 0;
+        if (!price) return null;
+        const levels = snapshot?.levels || [];
+        const isSupport = type === 'support';
+        let best = null;
+
+        for (const l of levels) {
+            if (!l || l.type !== type) continue;
+            const p = Number(l.price);
+            if (!p) continue;
+            if (isSupport && p > price) continue;
+            if (!isSupport && p < price) continue;
+            if (best === null) best = p;
+            else {
+                if (isSupport) best = Math.max(best, p); // closest below
+                else best = Math.min(best, p); // closest above
+            }
+        }
+
+        if (!best) return null;
+        const dist = isSupport ? (price - best) / price * 100 : (best - price) / price * 100;
+        return Math.max(0, dist);
+    }
+}
+
 class OrderBookApp {
     constructor() {
         this.chart = null;
@@ -85,6 +1053,11 @@ class OrderBookApp {
         this.currentSymbol = localStorage.getItem('selectedSymbol') || 'BTC';
         this.currentTimeframe = localStorage.getItem('selectedTimeframe') || '4h';
         this.lastDirectionUpdate = 0;
+        
+        // Alerts (per-symbol)
+        this.alertsManager = new AlertsManager(this);
+        this._alertsEvalInterval = null;
+        this._alertsEvalIntervalMs = 10_000;
         
         // Level settings - load from localStorage or use defaults
         this.levelSettings = this.loadSettings();
@@ -115,6 +1088,11 @@ class OrderBookApp {
         // Cache DOM elements
         this.cacheElements();
 
+        // Load alerts for current symbol (per-symbol persistence)
+        if (this.alertsManager) {
+            this.alertsManager.load(this.currentSymbol);
+        }
+
         // Initialize charts with current symbol
         this.chart = new OrderBookChart('chartContainer');
         this.chart.setSymbol(this.currentSymbol);
@@ -132,8 +1110,20 @@ class OrderBookApp {
         
         this.depthChart = new DepthChart('depthChart').init();
 
+        // Alerts metric registry (read-only access to computed state)
+        this.alertMetricRegistry = new AlertMetricRegistry(this);
+        if (this.alertsManager) {
+            this.alertsManager.setRegistry(this.alertMetricRegistry);
+        }
+
         // Setup event listeners
         this.setupEventListeners();
+        
+        // Paint initial alert badges/dot (based on stored alerts)
+        this.updateAlertIndicators();
+        
+        // Alerts heartbeat (ensures alerts check at least every N seconds)
+        this.startAlertsScheduler(this._alertsEvalIntervalMs);
 
         // Set API symbol BEFORE loading data (critical for correct symbol data)
         api.setSymbol(this.currentSymbol);
@@ -173,6 +1163,30 @@ class OrderBookApp {
         this.initWebSocketOrderBook();
 
         console.log('Order Book App initialized');
+    }
+
+    startAlertsScheduler(intervalMs = 10_000) {
+        const ms = Math.max(2000, Number(intervalMs) || 10_000);
+        this._alertsEvalIntervalMs = ms;
+
+        if (this._alertsEvalInterval) {
+            clearInterval(this._alertsEvalInterval);
+            this._alertsEvalInterval = null;
+        }
+
+        this._alertsEvalInterval = setInterval(() => {
+            this.evaluateAlertsHeartbeat();
+        }, ms);
+    }
+
+    evaluateAlertsHeartbeat() {
+        if (!this.alertsManager) return;
+        if (!this.currentPrice) return;
+        if (this.alertsManager.listEnabled().length === 0) return;
+
+        const levels = this.getCurrentAnalyticsLevelsForAlerts();
+        const snapshot = this.getAlertsSnapshot(levels);
+        this.alertsManager.evaluate(snapshot);
     }
     
     /**
@@ -430,6 +1444,10 @@ class OrderBookApp {
         // Only refresh if NOT from OHLC stream (OHLC stream is already accurate)
         window.addEventListener('newBarOpened', (e) => {
             const source = e.detail?.source;
+            const barTime = e.detail?.time;
+            if (this.alertsManager && barTime) {
+                this.alertsManager.setCurrentBarId(barTime);
+            }
             
             // Reset countdown timer
             this.updateBarCountdown();
@@ -743,6 +1761,133 @@ class OrderBookApp {
             document.getElementById('legendModal').classList.remove('open');
         });
 
+        // Alerts modal (TradingView-style)
+        const btnAlerts = document.getElementById('btnAlerts');
+        if (btnAlerts) {
+            btnAlerts.addEventListener('click', () => {
+                if (typeof this.openAlertsModal === 'function') {
+                    this.openAlertsModal();
+                } else {
+                    this.showToast('Alerts loading...', 'info');
+                }
+            });
+        }
+
+        // Quick create: Chart alert (price/mid/ema/zema/vwmp/etc.)
+        const btnChartAlert = document.getElementById('btnChartAlert');
+        if (btnChartAlert) {
+            btnChartAlert.addEventListener('click', () => {
+                if (typeof this.openAddAlertModal === 'function') {
+                    this.openAddAlertModal('chart');
+                }
+            });
+        }
+
+        // Alerts modal wiring
+        const alertsModal = document.getElementById('alertsModal');
+        if (alertsModal) {
+            document.getElementById('closeAlerts')?.addEventListener('click', () => alertsModal.classList.remove('open'));
+            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertsModal.classList.remove('open'));
+            document.getElementById('btnCreateAlertFromModal')?.addEventListener('click', () => {
+                if (typeof this.openAddAlertModal === 'function') {
+                    this.openAddAlertModal(null);
+                }
+            });
+            alertsModal.querySelectorAll('.alerts-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    this.switchAlertsTab(tab.dataset.tab);
+                });
+            });
+            document.getElementById('clearAlertsLog')?.addEventListener('click', () => {
+                if (this.alertsManager && typeof this.alertsManager.clearLog === 'function') {
+                    this.alertsManager.clearLog();
+                    this.renderAlertsModal?.();
+                }
+            });
+
+            // Active alerts list interactions (toggle/edit/delete)
+            const activeList = document.getElementById('activeAlertsList');
+            activeList?.addEventListener('click', (e) => {
+                const row = e.target.closest?.('.alert-row');
+                if (!row) return;
+                const id = row.dataset.alertId;
+                if (!id) return;
+                if (e.target.closest?.('.alert-edit-btn')) {
+                    this.openEditAlertModal(id);
+                } else if (e.target.closest?.('.alert-delete-btn')) {
+                    this.alertsManager?.remove(id);
+                    this.updateAlertIndicators();
+                    this.renderAlertsModal();
+                }
+            });
+            activeList?.addEventListener('change', (e) => {
+                if (!e.target.classList?.contains('alert-enabled-toggle')) return;
+                const row = e.target.closest?.('.alert-row');
+                const id = row?.dataset?.alertId;
+                if (!id) return;
+                this.alertsManager?.toggle(id, e.target.checked);
+                this.updateAlertIndicators();
+                this.renderAlertsModal();
+            });
+        }
+
+        const alertEditModal = document.getElementById('alertEditModal');
+        if (alertEditModal) {
+            document.getElementById('closeAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            document.getElementById('alertForm')?.addEventListener('submit', (e) => {
+                e.preventDefault();
+                if (typeof this.handleAlertFormSubmit === 'function') {
+                    this.handleAlertFormSubmit();
+                } else {
+                    this.showToast('Alerts loading...', 'info');
+                }
+            });
+
+            // Reactive editor UI
+            document.getElementById('alertSection')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertMetric')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertCondition')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertCompareMetric')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertTarget')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertSound')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertSoundType')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('previewAlertSound')?.addEventListener('click', () => this.previewSelectedAlertSound());
+        }
+
+        const alertsDisclaimerModal = document.getElementById('alertsDisclaimerModal');
+        if (alertsDisclaimerModal) {
+            const chk = document.getElementById('alertsDisclaimerCheck');
+            const btnContinue = document.getElementById('alertsDisclaimerContinue');
+            const setContinueEnabled = () => {
+                if (btnContinue) btnContinue.disabled = !chk?.checked;
+            };
+            chk?.addEventListener('change', setContinueEnabled);
+            setContinueEnabled();
+
+            document.getElementById('closeAlertsDisclaimer')?.addEventListener('click', () => {
+                this._pendingAlertSave = null;
+                alertsDisclaimerModal.classList.remove('open');
+            });
+            document.getElementById('alertsDisclaimerCancel')?.addEventListener('click', () => {
+                this._pendingAlertSave = null;
+                alertsDisclaimerModal.classList.remove('open');
+            });
+            alertsDisclaimerModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+                this._pendingAlertSave = null;
+                alertsDisclaimerModal.classList.remove('open');
+            });
+            document.getElementById('alertsDisclaimerContinue')?.addEventListener('click', () => {
+                if (!chk?.checked) return;
+                if (typeof this.confirmAlertsDisclaimer === 'function') {
+                    this.confirmAlertsDisclaimer();
+                } else {
+                    alertsDisclaimerModal.classList.remove('open');
+                }
+            });
+        }
+
         // Fullscreen chart toggle (mobile/tablet)
         const btnFullscreen = document.getElementById('btnFullscreen');
         if (btnFullscreen) {
@@ -762,6 +1907,20 @@ class OrderBookApp {
         
         document.querySelector('#settingsModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
+        });
+
+        // Panel alert buttons (prevent panel collapse toggle)
+        document.querySelectorAll('.panel-alert-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const section = btn.dataset.alertSection || 'unknown';
+                if (typeof this.openAddAlertModal === 'function') {
+                    this.openAddAlertModal(section);
+                } else {
+                    this.showToast('Alerts loading...', 'info');
+                }
+            });
         });
 
         // Settings inputs - cluster is now a number input (no display update needed)
@@ -805,6 +1964,13 @@ class OrderBookApp {
             if (e.key === 'Escape') {
                 document.getElementById('legendModal').classList.remove('open');
                 document.getElementById('settingsModal').classList.remove('open');
+                document.getElementById('alertsModal')?.classList.remove('open');
+                document.getElementById('alertEditModal')?.classList.remove('open');
+                const dm = document.getElementById('alertsDisclaimerModal');
+                if (dm?.classList?.contains('open')) {
+                    this._pendingAlertSave = null;
+                }
+                dm?.classList.remove('open');
             }
         });
     }
@@ -862,6 +2028,551 @@ class OrderBookApp {
         document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
+    }
+
+    // ==============================
+    // Alerts UI (wiring; logic in AlertsManager)
+    // ==============================
+    openAlertsModal() {
+        const modal = document.getElementById('alertsModal');
+        if (!modal) return;
+        modal.classList.add('open');
+        this.switchAlertsTab('active');
+        if (typeof this.renderAlertsModal === 'function') {
+            this.renderAlertsModal();
+        }
+    }
+
+    switchAlertsTab(tab) {
+        const modal = document.getElementById('alertsModal');
+        if (!modal) return;
+        const target = tab || 'active';
+
+        modal.querySelectorAll('.alerts-tab').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === target);
+        });
+        modal.querySelectorAll('.alerts-tab-content').forEach(panel => {
+            panel.classList.toggle('active', panel.dataset.tabContent === target);
+        });
+    }
+
+    openAddAlertModal(section = null) {
+        const modal = document.getElementById('alertEditModal');
+        if (!modal) return;
+
+        const titleEl = document.getElementById('alertEditTitle');
+        if (titleEl) titleEl.textContent = 'Create Alert';
+
+        const idEl = document.getElementById('alertId');
+        if (idEl) idEl.value = '';
+        const thresholdEl = document.getElementById('alertThreshold');
+        if (thresholdEl) thresholdEl.value = '';
+        const targetEl = document.getElementById('alertTarget');
+        if (targetEl) targetEl.value = '';
+        const targetTextEl = document.getElementById('alertTargetText');
+        if (targetTextEl) targetTextEl.value = '';
+        const compareEl = document.getElementById('alertCompareMetric');
+        if (compareEl) compareEl.value = '';
+        
+        this.ensureAlertSoundOptions();
+        const soundTypeEl = document.getElementById('alertSoundType');
+        if (soundTypeEl) soundTypeEl.value = 'alarm';
+
+        // Populate section list (registry-driven)
+        const sectionSelect = document.getElementById('alertSection');
+        const sections = this.alertMetricRegistry?.listSections?.() || [
+            { key: 'chart', label: 'Main Chart' },
+            { key: 'depth', label: 'Market Depth' },
+            { key: 'orderflow', label: 'Order Flow' },
+            { key: 'forecast', label: 'Price Forecast' },
+            { key: 'fairvalue', label: 'Fair Value' },
+            { key: 'mcs', label: 'Market Consensus' },
+            { key: 'alpha', label: 'Alpha Score' },
+            { key: 'regime', label: 'Regime Engine' },
+            { key: 'levels', label: 'Key Levels' }
+        ];
+        if (sectionSelect) {
+            sectionSelect.innerHTML = sections.map(s => `<option value="${s.key}">${s.label}</option>`).join('');
+            if (section) {
+                sectionSelect.value = section;
+                sectionSelect.disabled = true;
+            } else {
+                sectionSelect.disabled = false;
+                sectionSelect.value = sectionSelect.value || 'mcs';
+            }
+        }
+
+        // Populate metric/condition/value UI from registry
+        this.populateAlertEditorUI();
+
+        modal.classList.add('open');
+
+        // Prime audio on user gesture (enables sound alerts later)
+        this.alertsManager?.ensureAudioUnlocked?.();
+    }
+
+    ensureAlertSoundOptions() {
+        const select = document.getElementById('alertSoundType');
+        if (!select) return;
+
+        const prev = select.value;
+        select.innerHTML = '';
+
+        const builtIn = document.createElement('optgroup');
+        builtIn.label = 'Built-in';
+        builtIn.appendChild(new Option('Alarm (clock)', 'alarm'));
+        builtIn.appendChild(new Option('Beep', 'beep'));
+        builtIn.appendChild(new Option('Chime', 'chime'));
+        select.appendChild(builtIn);
+
+        const files = document.createElement('optgroup');
+        files.label = 'Sounds';
+        for (const f of (ALERT_SOUND_FILES || [])) {
+            files.appendChild(new Option(formatAlertSoundLabel(f), `file:sounds/${f}`));
+        }
+        select.appendChild(files);
+
+        // Restore selection if possible
+        const hasPrev = Array.from(select.options).some(o => o.value === prev);
+        if (hasPrev) select.value = prev;
+        else select.value = 'alarm';
+    }
+
+    previewSelectedAlertSound() {
+        if (!this.alertsManager) return;
+        this.ensureAlertSoundOptions();
+        const soundType = document.getElementById('alertSoundType')?.value || 'alarm';
+        this.alertsManager.ensureAudioUnlocked().then(() => {
+            this.alertsManager.playSound(soundType);
+        });
+    }
+
+    getCurrentAnalyticsLevelsForAlerts() {
+        return this.useFullBookForAnalytics
+            ? (this.fullBookLevels.length ? this.fullBookLevels : this.levels)
+            : this.levels;
+    }
+
+    populateAlertEditorUI() {
+        const sectionSelect = document.getElementById('alertSection');
+        const metricSelect = document.getElementById('alertMetric');
+        const condSelect = document.getElementById('alertCondition');
+        const thresholdWrap = document.getElementById('alertThresholdWrap');
+        const compareWrap = document.getElementById('alertCompareMetricWrap');
+        const targetWrap = document.getElementById('alertTargetWrap');
+        const textTargetWrap = document.getElementById('alertTextTargetWrap');
+        const targetSelect = document.getElementById('alertTarget');
+        const compareSelect = document.getElementById('alertCompareMetric');
+        const targetText = document.getElementById('alertTargetText');
+        const thresholdInput = document.getElementById('alertThreshold');
+        const currentValEl = document.getElementById('alertCurrentValue');
+        const currentHintEl = document.getElementById('alertCurrentHint');
+        const soundChk = document.getElementById('alertSound');
+        const soundTypeSelect = document.getElementById('alertSoundType');
+
+        const section = sectionSelect?.value;
+        if (!this.alertMetricRegistry || !section || !metricSelect || !condSelect) {
+            if (metricSelect) metricSelect.innerHTML = `<option value="">Loading...</option>`;
+            if (condSelect) condSelect.innerHTML = `<option value="">Loading...</option>`;
+            return;
+        }
+
+        // Metrics
+        const metrics = this.alertMetricRegistry.listMetrics(section) || [];
+        const prevMetricKey = metricSelect.value;
+        metricSelect.innerHTML = metrics
+            .map(m => `<option value="${m.key}">${m.label}</option>`)
+            .join('') || `<option value="">No metrics</option>`;
+        if (prevMetricKey && metrics.some(m => m.key === prevMetricKey)) {
+            metricSelect.value = prevMetricKey;
+        }
+
+        const metric = this.alertMetricRegistry.getMetric(section, metricSelect.value);
+        if (!metric) {
+            condSelect.innerHTML = `<option value="">--</option>`;
+            return;
+        }
+
+        // Conditions
+        const prevCond = condSelect.value;
+        const conds = this.alertMetricRegistry.getConditionsForMetric(metric);
+        condSelect.innerHTML = conds.map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+        if (prevCond && conds.some(c => c.key === prevCond)) {
+            condSelect.value = prevCond;
+        }
+
+        // Value input mode
+        const cond = condSelect.value || '';
+        const compareMode = metric.type === 'number' && cond.endsWith('_metric');
+        const showThreshold = metric.type === 'number' && !compareMode;
+        const showCompareMetric = metric.type === 'number' && compareMode;
+        const showEnumTarget = metric.type === 'enum';
+        const showTextTarget = (metric.type !== 'number' && metric.type !== 'enum' && cond !== 'changes');
+
+        if (thresholdWrap) thresholdWrap.style.display = showThreshold ? '' : 'none';
+        if (compareWrap) compareWrap.style.display = showCompareMetric ? '' : 'none';
+        if (targetWrap) targetWrap.style.display = showEnumTarget ? '' : 'none';
+        if (textTargetWrap) textTargetWrap.style.display = showTextTarget ? '' : 'none';
+
+        if (showCompareMetric && compareSelect) {
+            const all = this.alertMetricRegistry.listMetrics(section) || [];
+            const options = all.filter(m => m && m.type === 'number' && m.key !== metric.key);
+            const prev = compareSelect.value;
+            compareSelect.innerHTML = options.map(m => `<option value="${m.key}">${m.label}</option>`).join('') || `<option value="">--</option>`;
+            if (prev && options.some(m => m.key === prev)) {
+                compareSelect.value = prev;
+            } else if (options.length) {
+                // Default: compare price against EMA when possible
+                const preferred = options.find(m => m.key === 'ema') || options.find(m => m.key === 'vwmp') || options[0];
+                compareSelect.value = preferred.key;
+            }
+        } else if (compareSelect) {
+            compareSelect.innerHTML = '';
+        }
+
+        if (showEnumTarget && targetSelect) {
+            const opts = metric.options || [];
+            targetSelect.innerHTML = opts.map(v => `<option value="${v}">${v}</option>`).join('') || `<option value="">--</option>`;
+        }
+        if (!showTextTarget && targetText) {
+            // Avoid accidental reuse when switching metric types
+            targetText.value = '';
+        }
+
+        // Preview current value
+        const levels = this.getCurrentAnalyticsLevelsForAlerts();
+        const snapshot = this.getAlertsSnapshot(levels);
+        const val = metric.getValue(snapshot);
+        let previewText = '--';
+        if (val !== null && val !== undefined) {
+            previewText = metric.format ? metric.format(val, snapshot) : String(val);
+        }
+        if (showCompareMetric && compareSelect?.value) {
+            const rhsMetric = this.alertMetricRegistry.getMetric(section, compareSelect.value);
+            const rhsVal = rhsMetric?.getValue?.(snapshot);
+            const rhsText = (rhsVal !== null && rhsVal !== undefined)
+                ? (rhsMetric?.format ? rhsMetric.format(rhsVal, snapshot) : String(rhsVal))
+                : '--';
+            previewText = `${previewText} vs ${rhsText}`;
+        }
+        if (currentValEl) currentValEl.textContent = previewText;
+        if (currentHintEl) currentHintEl.textContent = metric.unit ? metric.unit : '';
+
+        // Sensible numeric input step
+        if (showThreshold && thresholdInput && metric.type === 'number') {
+            thresholdInput.step = metric.unit === '%' ? '0.01' : '0.0001';
+        }
+
+        // Sound type enabled only when sound is enabled
+        if (soundTypeSelect && soundChk) {
+            soundTypeSelect.disabled = !soundChk.checked;
+        }
+    }
+
+    updateAlertIndicators() {
+        if (!this.alertsManager) return;
+        const counts = this.alertsManager.countBySection();
+
+        document.querySelectorAll('.panel-alert-btn').forEach(btn => {
+            const section = btn.dataset.alertSection;
+            const count = counts[section] || 0;
+            const badge = btn.querySelector('.panel-alert-count');
+            if (badge) {
+                badge.textContent = count > 0 ? String(count) : '';
+                badge.classList.toggle('visible', count > 0);
+            }
+            btn.classList.toggle('has-alerts', count > 0);
+        });
+
+        const enabledCount = this.alertsManager.listEnabled().length;
+        const dot = document.getElementById('alertsGlobalDot');
+        if (dot) dot.classList.toggle('visible', enabledCount > 0);
+    }
+
+    async handleAlertFormSubmit() {
+        if (!this.alertsManager || !this.alertMetricRegistry) return;
+
+        const section = document.getElementById('alertSection')?.value;
+        const metricKey = document.getElementById('alertMetric')?.value;
+        const condition = document.getElementById('alertCondition')?.value || '';
+        const frequency = document.getElementById('alertFrequency')?.value || 'one_time';
+        const notify = !!document.getElementById('alertNotify')?.checked;
+        const sound = !!document.getElementById('alertSound')?.checked;
+        const rawSoundType = document.getElementById('alertSoundType')?.value || 'alarm';
+        const soundType = (typeof rawSoundType === 'string' && rawSoundType.startsWith('file:'))
+            ? rawSoundType
+            : String(rawSoundType).toLowerCase();
+        const id = document.getElementById('alertId')?.value || '';
+
+        if (!section || !metricKey) {
+            this.showToast('Please select a section and metric.', 'warning');
+            return;
+        }
+
+        const metric = this.alertMetricRegistry.getMetric(section, metricKey);
+        if (!metric) {
+            this.showToast('Invalid metric.', 'warning');
+            return;
+        }
+
+        // Value (threshold or target)
+        let threshold = null;
+        let target = null;
+        let compareMetricKey = null;
+        let compareMetricLabel = null;
+
+        if (metric.type === 'number') {
+            if (condition.endsWith('_metric')) {
+                compareMetricKey = document.getElementById('alertCompareMetric')?.value || '';
+                if (!compareMetricKey) {
+                    this.showToast('Select a metric to compare against.', 'warning');
+                    return;
+                }
+                const compareMetric = this.alertMetricRegistry.getMetric(section, compareMetricKey);
+                compareMetricLabel = compareMetric?.label || compareMetricKey;
+            } else {
+                threshold = Number(document.getElementById('alertThreshold')?.value);
+                if (!isFinite(threshold)) {
+                    this.showToast('Enter a valid numeric threshold.', 'warning');
+                    return;
+                }
+            }
+        } else if (metric.type === 'enum') {
+            target = document.getElementById('alertTarget')?.value || '';
+            if (!target) {
+                this.showToast('Select a target value.', 'warning');
+                return;
+            }
+        } else {
+            // string/event
+            target = (document.getElementById('alertTargetText')?.value || '').trim();
+            if ((condition === 'is' || condition === 'changes_to') && !target) {
+                this.showToast('Enter a target value.', 'warning');
+                return;
+            }
+        }
+
+        // Human-readable description (used in lists)
+        const sectionLabel = (this.alertMetricRegistry.listSections().find(s => s.key === section)?.label) || section;
+        const metricLabel = metric.label || metricKey;
+        const condLabel = this.alertMetricRegistry.getConditionsForMetric(metric).find(c => c.key === condition)?.label || condition;
+        const rhs = metric.type === 'number'
+            ? (compareMetricLabel || threshold)
+            : (target || '');
+        const description = `${sectionLabel}: ${metricLabel} ${condLabel}${rhs !== '' && rhs !== null && rhs !== undefined ? ' ' + rhs : ''}`;
+
+        const alert = {
+            id: id || undefined,
+            symbol: this.currentSymbol,
+            section,
+            metricKey,
+            metricLabel,
+            condition,
+            threshold,
+            target,
+            compareMetricKey,
+            compareMetricLabel,
+            frequency,
+            notify,
+            sound,
+            soundType,
+            enabled: true,
+            description
+        };
+
+        // One-time disclaimer gate
+        const disclaimerSeen = localStorage.getItem('alertsDisclaimerSeen') === 'true';
+        if (!disclaimerSeen) {
+            this._pendingAlertSave = alert;
+            const dm = document.getElementById('alertsDisclaimerModal');
+            const chk = document.getElementById('alertsDisclaimerCheck');
+            const btn = document.getElementById('alertsDisclaimerContinue');
+            if (chk) chk.checked = false;
+            if (btn) btn.disabled = true;
+            dm?.classList.add('open');
+            return;
+        }
+
+        await this.finalizeAlertSave(alert);
+    }
+
+    async finalizeAlertSave(alert) {
+        if (!this.alertsManager) return;
+
+        // Permission gating (must be on user gesture)
+        if (alert.notify) {
+            await this.alertsManager.ensureNotificationPermission();
+        }
+        if (alert.sound) {
+            await this.alertsManager.ensureAudioUnlocked();
+        }
+
+        this.alertsManager.upsert(alert);
+        this.updateAlertIndicators();
+
+        // Close editor
+        document.getElementById('alertEditModal')?.classList.remove('open');
+
+        // Refresh modal if open
+        if (document.getElementById('alertsModal')?.classList.contains('open')) {
+            this.renderAlertsModal?.();
+        }
+
+        this.showToast('Alert saved.', 'info');
+    }
+
+    confirmAlertsDisclaimer() {
+        localStorage.setItem('alertsDisclaimerSeen', 'true');
+        document.getElementById('alertsDisclaimerModal')?.classList.remove('open');
+
+        const pending = this._pendingAlertSave;
+        this._pendingAlertSave = null;
+        if (pending) {
+            // Continue the save flow (still a user gesture)
+            this.finalizeAlertSave(pending);
+        }
+    }
+
+    renderAlertsModal() {
+        if (!this.alertsManager) return;
+        const activeList = document.getElementById('activeAlertsList');
+        const logList = document.getElementById('alertsLogList');
+        if (!activeList || !logList) return;
+
+        const alerts = this.alertsManager.list() || [];
+        const formatTime = (ts) => {
+            try {
+                return new Date(ts).toLocaleTimeString();
+            } catch (_) {
+                return '';
+            }
+        };
+
+        // Active alerts
+        if (!alerts.length) {
+            activeList.innerHTML = `<div class="alerts-empty">No active alerts yet.</div>`;
+        } else {
+            activeList.innerHTML = alerts.map(a => {
+                const enabled = !!a.enabled;
+                const freq = a.frequency === 'once_per_bar' ? 'Once per bar' : a.frequency === 'once_per_min' ? 'Once per min' : 'One time';
+                const delivery = `${a.notify ? 'Notify' : 'No notify'}${a.sound ? ' + Sound' : ''}`;
+                const last = a._lastTriggeredAt ? `Last: ${formatTime(a._lastTriggeredAt)}` : '';
+                return `
+                    <div class="alert-row" data-alert-id="${a.id}">
+                        <label class="alert-toggle">
+                            <input type="checkbox" class="alert-enabled-toggle" ${enabled ? 'checked' : ''}>
+                        </label>
+                        <div class="alert-row-main">
+                            <div class="alert-row-title">${a.description || (a.metricLabel || a.metricKey)}</div>
+                            <div class="alert-row-meta">${freq} • ${delivery}${last ? ' • ' + last : ''}</div>
+                        </div>
+                        <div class="alert-row-actions">
+                            <button class="btn-secondary btn-small alert-edit-btn" type="button">Edit</button>
+                            <button class="btn-secondary btn-small alert-delete-btn" type="button">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Log
+        const logs = this.alertsManager.log || [];
+        if (!logs.length) {
+            logList.innerHTML = `<div class="alerts-empty">No alerts fired yet.</div>`;
+        } else {
+            logList.innerHTML = logs.map(e => {
+                const t = formatTime(e.ts);
+                return `
+                    <div class="alert-log-row">
+                        <span class="alert-log-time">${t}</span>
+                        <span class="alert-log-msg">${e.message || ''}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    openEditAlertModal(alertId) {
+        if (!this.alertsManager || !this.alertMetricRegistry) return;
+        const alert = this.alertsManager.getById(alertId);
+        if (!alert) return;
+
+        const modal = document.getElementById('alertEditModal');
+        if (!modal) return;
+
+        const titleEl = document.getElementById('alertEditTitle');
+        if (titleEl) titleEl.textContent = 'Edit Alert';
+
+        const idEl = document.getElementById('alertId');
+        if (idEl) idEl.value = alert.id;
+
+        // Section selectable on edit
+        const sectionSelect = document.getElementById('alertSection');
+        if (sectionSelect) {
+            sectionSelect.innerHTML = this.alertMetricRegistry.listSections().map(s => `<option value="${s.key}">${s.label}</option>`).join('');
+            sectionSelect.disabled = false;
+            sectionSelect.value = alert.section;
+        }
+
+        // Populate selects based on section
+        this.populateAlertEditorUI();
+
+        const metricSelect = document.getElementById('alertMetric');
+        if (metricSelect) {
+            metricSelect.value = alert.metricKey;
+        }
+        // Rebuild condition/value inputs for selected metric
+        this.populateAlertEditorUI();
+
+        const condSelect = document.getElementById('alertCondition');
+        if (condSelect && alert.condition) {
+            condSelect.value = alert.condition;
+        }
+        this.populateAlertEditorUI();
+
+        // Value
+        const metric = this.alertMetricRegistry.getMetric(alert.section, alert.metricKey);
+        if (metric?.type === 'number') {
+            if (alert.compareMetricKey && String(alert.condition || '').endsWith('_metric')) {
+                const compareEl = document.getElementById('alertCompareMetric');
+                if (compareEl) compareEl.value = String(alert.compareMetricKey);
+            } else {
+                const thresholdEl = document.getElementById('alertThreshold');
+                if (thresholdEl && alert.threshold !== null && alert.threshold !== undefined) {
+                    thresholdEl.value = String(alert.threshold);
+                }
+            }
+        } else if (metric?.type === 'enum') {
+            const targetEl = document.getElementById('alertTarget');
+            if (targetEl && alert.target !== null && alert.target !== undefined) {
+                targetEl.value = String(alert.target);
+            }
+        } else {
+            const targetText = document.getElementById('alertTargetText');
+            if (targetText && alert.target !== null && alert.target !== undefined) {
+                targetText.value = String(alert.target);
+            }
+        }
+
+        // Frequency + delivery toggles
+        const freqEl = document.getElementById('alertFrequency');
+        if (freqEl && alert.frequency) freqEl.value = alert.frequency;
+        const notifyEl = document.getElementById('alertNotify');
+        if (notifyEl) notifyEl.checked = !!alert.notify;
+        const soundEl = document.getElementById('alertSound');
+        if (soundEl) soundEl.checked = !!alert.sound;
+        this.ensureAlertSoundOptions();
+        const soundTypeEl = document.getElementById('alertSoundType');
+        if (soundTypeEl) {
+            const raw = alert.soundType || 'alarm';
+            soundTypeEl.value = (typeof raw === 'string' && raw.startsWith('file:')) ? raw : String(raw).toLowerCase();
+        }
+
+        // Refresh UI visibility + preview after setting values
+        this.populateAlertEditorUI();
+
+        modal.classList.add('open');
+        this.alertsManager?.ensureAudioUnlocked?.();
     }
 
     // Load settings from localStorage
@@ -1593,18 +3304,49 @@ class OrderBookApp {
             : this.levels;
         
         // Update Order Flow indicators (BPR, LD, OBIC, Alpha Score, Regime Engine)
-        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice);
+        // VWMP/IFV fair value is ALWAYS computed from the full order book for accuracy
+        // (independent of the analytics toggle).
+        const fairValueLevels = this.fullBookLevels.length ? this.fullBookLevels : analyticsLevels;
+        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels);
         
         // Update Price Forecast (directional analysis)
         if (typeof directionAnalysis !== 'undefined') {
             directionAnalysis.update(analyticsLevels, this.currentPrice, this.currentSymbol);
             this.updateProjections();
         }
+
+        // Evaluate alerts (no effect until metric registry is attached)
+        if (this.alertsManager) {
+            const snapshot = this.getAlertsSnapshot(analyticsLevels);
+            this.alertsManager.evaluate(snapshot);
+        }
         
         // Log data source for debugging
         const source = this.useFullBookForAnalytics ? 'Full Book' : 'Visible Only';
         const levelCount = analyticsLevels.length;
         console.log(`[Analytics] Using ${source}: ${levelCount} levels`);
+    }
+
+    /**
+     * Build a read-only snapshot for alerts evaluation.
+     * (Metric registry determines what to read from this.)
+     */
+    getAlertsSnapshot(analyticsLevels) {
+        return {
+            ts: Date.now(),
+            symbol: (this.currentSymbol || 'BTC').toUpperCase(),
+            barId: this.alertsManager?.currentBarId || null,
+            timeframe: this.currentTimeframe || null,
+            price: this.currentPrice || 0,
+            depth: this.lastDepthStats || null,
+            levels: analyticsLevels || [],
+            fairValue: this.chart?.fairValueIndicators?.lastValues || null,
+            alpha: this.chart?.alphaScore ?? null,
+            regime: this.chart?.regimeEngine?.currentRegime || null,
+            regimeSignals: this.chart?.regimeEngine?.signals || null,
+            marketConsensus: this.chart?.marketConsensus || null,
+            direction: (typeof directionAnalysis !== 'undefined') ? directionAnalysis.lastAnalysis : null
+        };
     }
     
     /**
@@ -1945,10 +3687,19 @@ class OrderBookApp {
         // Calculate imbalance
         const total = totalBid + totalAsk;
         if (total > 0) {
-            const imbalance = ((totalBid - totalAsk) / total * 100).toFixed(1);
+            const imbalanceNum = ((totalBid - totalAsk) / total * 100);
+            const imbalance = imbalanceNum.toFixed(1);
             const imbalanceEl = this.elements.imbalance;
             imbalanceEl.textContent = (imbalance > 0 ? '+' : '') + imbalance + '%';
             imbalanceEl.className = 'stat-value ' + (imbalance > 0 ? 'bid' : 'ask');
+
+            // Cache for alerts snapshot
+            this.lastDepthStats = {
+                totalBid,
+                totalAsk,
+                imbalancePct: imbalanceNum,
+                ts: Date.now()
+            };
         }
     }
 
