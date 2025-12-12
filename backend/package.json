@@ -1,0 +1,17 @@
+{
+  "name": "synthetic-order-book-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "recorder": "node src/recorder/index.js",
+    "processor": "node src/processor/index.js",
+    "fmt": "node -e \"console.log('No formatter configured.');\""
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
