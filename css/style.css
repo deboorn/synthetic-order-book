@@ -3252,6 +3252,22 @@ body {
     white-space: nowrap;
 }
 
+.alert-log-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.alert-log-meta {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .alerts-log-actions {
     display: flex;
     justify-content: flex-end;
@@ -3311,6 +3327,38 @@ body {
     outline: none;
 }
 
+.alert-textarea {
+    min-height: 72px;
+    resize: vertical;
+    line-height: 1.35;
+}
+
+.alert-template-hints {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.alert-template-hints.subtle {
+    opacity: 0.85;
+}
+
+.alert-template-hints code {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 999px;
+}
+
+.alert-message-preview .preview-value {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
 .alert-input:focus,
 .alert-select:focus {
     border-color: rgba(59, 130, 246, 0.5);
@@ -3321,6 +3369,39 @@ body {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+}
+
+.alert-form-chart .alert-delivery-options {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.alert-form-chart input[type="color"] {
+    width: 44px;
+    height: 36px;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-tertiary);
+    cursor: pointer;
+}
+
+.alert-plot-text {
+    width: 140px;
+    max-width: 180px;
+    padding: 8px 10px;
+}
+
+.alert-plot-warning {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.18);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    line-height: 1.35;
 }
 
 .alert-check {

@@ -101,6 +101,48 @@ function formatAlertSoundLabel(filename) {
     return code ? `${base} (${code})` : base;
 }
 
+function escapeHtml(value) {
+    const s = value === null || value === undefined ? '' : String(value);
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function clampString(value, maxLen = 280) {
+    const s = value === null || value === undefined ? '' : String(value);
+    if (s.length <= maxLen) return s;
+    return s.slice(0, maxLen - 1) + '…';
+}
+
+function renderAlertTemplate(template, ctx) {
+    const raw = template === null || template === undefined ? '' : String(template);
+    if (!raw.trim()) return '';
+
+    const map = {
+        symbol: ctx?.symbol ?? '',
+        timeframe: ctx?.timeframe ?? '',
+        price: ctx?.price ?? '',
+        mid: ctx?.mid ?? '',
+        vwmp: ctx?.vwmp ?? '',
+        ifv: ctx?.ifv ?? '',
+        metric: ctx?.metric ?? '',
+        condition: ctx?.condition ?? '',
+        value: ctx?.value ?? '',
+        compare: ctx?.compare ?? '',
+        auto: ctx?.auto ?? ''
+    };
+
+    return raw.replace(/\{([a-zA-Z_]+)\}/g, (_m, key) => {
+        const k = String(key || '').toLowerCase();
+        if (!(k in map)) return `{${key}}`;
+        const v = map[k];
+        return v === null || v === undefined ? '' : String(v);
+    });
+}
+
 /**
  * AlertsManager (TradingView-style)
  * - Per-symbol persistence (localStorage)
@@ -214,6 +256,9 @@ class AlertsManager {
     clearLog() {
         this.log = [];
         this.save();
+        
+        // Log is the source-of-truth for persisted alert markers
+        this.app?.chart?.clearAlertMarkers?.();
     }
 
     appendLog(entry) {
@@ -399,7 +444,67 @@ class AlertsManager {
             ? (compareMetric.format ? compareMetric.format(compareValue, snapshot) : String(compareValue))
             : null;
         const rhsSuffix = rhsFormatted ? ` vs ${rhsFormatted}` : '';
-        const msg = `[${snapshot?.symbol || this.symbol}] ${metric?.label || alert.metricKey} ${this._formatCondition(alert)} (${formatted}${rhsSuffix})`;
+        const baseMsg = `[${snapshot?.symbol || this.symbol}] ${metric?.label || alert.metricKey} ${this._formatCondition(alert)} (${formatted}${rhsSuffix})`;
+
+        // Context snapshot (for rich log rendering)
+        const fv = snapshot?.fairValue || {};
+        const ctxPrice = snapshot?.price ?? null;
+        const ctxMid = fv?.mid ?? null;
+        const ctxVwmp = fv?.vwmp ?? null;
+        const ctxIfv = fv?.ifv ?? null;
+        const ctxLine = (ctxPrice && (ctxVwmp || ctxIfv))
+            ? `P ${formatSmartPrice(ctxPrice)} | Mid ${ctxMid ? formatSmartPrice(ctxMid) : '--'} | VWMP ${ctxVwmp ? formatSmartPrice(ctxVwmp) : '--'} | IFV ${ctxIfv ? formatSmartPrice(ctxIfv) : '--'}`
+            : '';
+
+        // Optional custom message (templated)
+        const customTemplateRaw = (alert?.customMessage || '').toString();
+        const templateCtx = {
+            symbol: snapshot?.symbol || this.symbol,
+            timeframe: snapshot?.timeframe || '',
+            price: ctxPrice ? formatSmartPrice(ctxPrice) : '--',
+            mid: ctxMid ? formatSmartPrice(ctxMid) : '--',
+            vwmp: ctxVwmp ? formatSmartPrice(ctxVwmp) : '--',
+            ifv: ctxIfv ? formatSmartPrice(ctxIfv) : '--',
+            metric: metric?.label || alert.metricKey || '',
+            condition: this._formatCondition(alert),
+            value: formatted || '',
+            compare: rhsFormatted || (alert?.compareMetricLabel || alert?.compareMetricKey || alert?.target || alert?.threshold || ''),
+            auto: baseMsg
+        };
+
+        const customRendered = renderAlertTemplate(customTemplateRaw, templateCtx).trim();
+        const mainBody = customRendered
+            ? (customTemplateRaw.includes('{auto}') ? customRendered : `${customRendered}\n${baseMsg}`)
+            : baseMsg;
+
+        const notifyBody = ctxLine ? `${mainBody}\n${ctxLine}` : mainBody;
+        const logMessage = mainBody.replace(/\s*\n\s*/g, ' • ');
+
+        // Optional: chart marker plotting (persisted via log entry marker field)
+        let alertMarker = null;
+        if (alert.plotOnChart) {
+            const chart = this.app?.chart;
+            const time = snapshot?.barId || chart?.lastCandle?.time || null;
+            if (time) {
+                const cond = String(alert.condition || '');
+                const isUp = cond.includes('above');
+                const isDown = cond.includes('below');
+                const dir = isUp ? 'up' : isDown ? 'down' : 'neutral';
+
+                const shape = (alert.plotShape === 'auto' || !alert.plotShape)
+                    ? (dir === 'up' ? 'arrowUp' : dir === 'down' ? 'arrowDown' : 'circle')
+                    : alert.plotShape;
+                const position = (alert.plotPosition === 'auto' || !alert.plotPosition)
+                    ? (shape === 'arrowUp' ? 'belowBar' : shape === 'arrowDown' ? 'aboveBar' : 'inBar')
+                    : alert.plotPosition;
+                const color = alert.plotColor
+                    ? alert.plotColor
+                    : (dir === 'up' ? '#10b981' : dir === 'down' ? '#ef4444' : '#fbbf24');
+                const text = (alert.plotText || '').toString().slice(0, 10);
+
+                alertMarker = { time, position, color, shape, text };
+            }
+        }
 
         // Track for UI
         alert._lastTriggeredAt = now;
@@ -409,26 +514,39 @@ class AlertsManager {
             ts: now,
             section: alert.section,
             metricKey: alert.metricKey,
-            message: msg,
+            message: logMessage,
+            baseMessage: baseMsg,
+            customMessage: customTemplateRaw || null,
             value,
-            frequency: alert.frequency
+            frequency: alert.frequency,
+            timeframe: snapshot?.timeframe || null,
+            barId: snapshot?.barId || null,
+            price: ctxPrice,
+            mid: ctxMid,
+            vwmp: ctxVwmp,
+            ifv: ctxIfv,
+            marker: alertMarker
         });
 
         // Notification
         if (alert.notify) {
             if (this.isNotificationSupported() && Notification.permission === 'granted') {
                 try {
-                    new Notification(`${snapshot?.symbol || this.symbol} Alert`, { body: msg });
+                    new Notification(`${snapshot?.symbol || this.symbol} Alert`, { body: notifyBody });
                 } catch (_) {
-                    this.app?.showToast?.(msg, 'info');
+                    this.app?.showToast?.(clampString(logMessage, 180), 'info');
                 }
             } else {
                 // Fallback: toast
-                this.app?.showToast?.(msg, 'info');
+                this.app?.showToast?.(clampString(logMessage, 180), 'info');
             }
         } else {
             // Still surface via toast (non-intrusive)
-            this.app?.showToast?.(msg, 'info');
+            this.app?.showToast?.(clampString(logMessage, 180), 'info');
+        }
+
+        if (alertMarker && this.app?.chart?.addAlertMarker) {
+            this.app.chart.addAlertMarker(alertMarker);
         }
 
         // Sound
@@ -1124,6 +1242,9 @@ class OrderBookApp {
         
         // Alerts heartbeat (ensures alerts check at least every N seconds)
         this.startAlertsScheduler(this._alertsEvalIntervalMs);
+        
+        // Restore alert markers from log (persisted until log is cleared)
+        this.restoreAlertMarkersFromLog();
 
         // Set API symbol BEFORE loading data (critical for correct symbol data)
         api.setSymbol(this.currentSymbol);
@@ -1851,9 +1972,15 @@ class OrderBookApp {
             document.getElementById('alertCondition')?.addEventListener('change', () => this.populateAlertEditorUI());
             document.getElementById('alertCompareMetric')?.addEventListener('change', () => this.populateAlertEditorUI());
             document.getElementById('alertTarget')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertCustomMessage')?.addEventListener('input', () => this.populateAlertEditorUI());
             document.getElementById('alertSound')?.addEventListener('change', () => this.populateAlertEditorUI());
             document.getElementById('alertSoundType')?.addEventListener('change', () => this.populateAlertEditorUI());
             document.getElementById('previewAlertSound')?.addEventListener('click', () => this.previewSelectedAlertSound());
+            document.getElementById('alertPlotOnChart')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertPlotShape')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertPlotPosition')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertPlotColor')?.addEventListener('change', () => this.populateAlertEditorUI());
+            document.getElementById('alertPlotText')?.addEventListener('input', () => this.populateAlertEditorUI());
         }
 
         const alertsDisclaimerModal = document.getElementById('alertsDisclaimerModal');
@@ -2073,10 +2200,24 @@ class OrderBookApp {
         if (targetTextEl) targetTextEl.value = '';
         const compareEl = document.getElementById('alertCompareMetric');
         if (compareEl) compareEl.value = '';
+        const customMsgEl = document.getElementById('alertCustomMessage');
+        if (customMsgEl) customMsgEl.value = '';
         
         this.ensureAlertSoundOptions();
         const soundTypeEl = document.getElementById('alertSoundType');
         if (soundTypeEl) soundTypeEl.value = 'alarm';
+
+        // Chart marker defaults
+        const plotOnChartEl = document.getElementById('alertPlotOnChart');
+        if (plotOnChartEl) plotOnChartEl.checked = section === 'chart';
+        const plotShapeEl = document.getElementById('alertPlotShape');
+        if (plotShapeEl) plotShapeEl.value = 'auto';
+        const plotPosEl = document.getElementById('alertPlotPosition');
+        if (plotPosEl) plotPosEl.value = 'auto';
+        const plotColorEl = document.getElementById('alertPlotColor');
+        if (plotColorEl) plotColorEl.value = '#fbbf24';
+        const plotTextEl = document.getElementById('alertPlotText');
+        if (plotTextEl) plotTextEl.value = '';
 
         // Populate section list (registry-driven)
         const sectionSelect = document.getElementById('alertSection');
@@ -2169,6 +2310,14 @@ class OrderBookApp {
         const currentHintEl = document.getElementById('alertCurrentHint');
         const soundChk = document.getElementById('alertSound');
         const soundTypeSelect = document.getElementById('alertSoundType');
+        const plotChk = document.getElementById('alertPlotOnChart');
+        const plotShape = document.getElementById('alertPlotShape');
+        const plotPos = document.getElementById('alertPlotPosition');
+        const plotColor = document.getElementById('alertPlotColor');
+        const plotText = document.getElementById('alertPlotText');
+        const plotWarning = document.getElementById('alertPlotWarning');
+        const customMsgEl = document.getElementById('alertCustomMessage');
+        const messagePreviewEl = document.getElementById('alertMessagePreview');
 
         const section = sectionSelect?.value;
         if (!this.alertMetricRegistry || !section || !metricSelect || !condSelect) {
@@ -2267,6 +2416,60 @@ class OrderBookApp {
         if (soundTypeSelect && soundChk) {
             soundTypeSelect.disabled = !soundChk.checked;
         }
+
+        // Chart marker controls
+        const plotEnabled = !!plotChk?.checked;
+        if (plotWarning) plotWarning.style.display = plotEnabled ? '' : 'none';
+        [plotShape, plotPos, plotColor, plotText].forEach(el => {
+            if (el) el.disabled = !plotEnabled;
+        });
+
+        // Message preview
+        if (messagePreviewEl) {
+            const symbol = snapshot?.symbol || this.currentSymbol || 'BTC';
+            const timeframe = snapshot?.timeframe || this.currentTimeframe || '';
+            const fv = snapshot?.fairValue || {};
+            const ctx = {
+                symbol,
+                timeframe,
+                price: snapshot?.price ? formatSmartPrice(snapshot.price) : '--',
+                mid: fv?.mid ? formatSmartPrice(fv.mid) : '--',
+                vwmp: fv?.vwmp ? formatSmartPrice(fv.vwmp) : '--',
+                ifv: fv?.ifv ? formatSmartPrice(fv.ifv) : '--',
+                metric: metric?.label || metric.key,
+                condition: condSelect?.value || '',
+                value: (val !== null && val !== undefined) ? (metric.format ? metric.format(val, snapshot) : String(val)) : '--',
+                compare: ''
+            };
+
+            // Compare/target preview (best-effort)
+            if (metric.type === 'number') {
+                if ((condSelect?.value || '').endsWith('_metric')) {
+                    const rhsMetric = this.alertMetricRegistry.getMetric(section, compareSelect?.value);
+                    const rhsVal = rhsMetric?.getValue?.(snapshot);
+                    ctx.compare = rhsMetric?.label
+                        ? `${rhsMetric.label} (${rhsVal !== null && rhsVal !== undefined ? (rhsMetric.format ? rhsMetric.format(rhsVal, snapshot) : rhsVal) : '--'})`
+                        : '';
+                } else {
+                    const thr = thresholdInput?.value;
+                    ctx.compare = thr ? String(thr) : '';
+                }
+            } else if (metric.type === 'enum') {
+                ctx.compare = targetSelect?.value || '';
+            } else {
+                ctx.compare = targetText?.value || '';
+            }
+
+            const baseMsg = `[${symbol}] ${ctx.metric} ${ctx.condition} (${ctx.value})`;
+            ctx.auto = baseMsg;
+            const customRaw = (customMsgEl?.value || '').replace(/\r\n/g, '\n');
+            const rendered = renderAlertTemplate(customRaw, ctx).trim();
+            const preview = rendered
+                ? (customRaw.includes('{auto}') ? rendered : `${rendered} • ${baseMsg}`)
+                : baseMsg;
+
+            messagePreviewEl.textContent = clampString(preview, 220);
+        }
     }
 
     updateAlertIndicators() {
@@ -2289,6 +2492,35 @@ class OrderBookApp {
         if (dot) dot.classList.toggle('visible', enabledCount > 0);
     }
 
+    restoreAlertMarkersFromLog() {
+        if (!this.alertsManager || !this.chart) return;
+        const entries = this.alertsManager.log || [];
+        const markers = [];
+        
+        for (const e of entries) {
+            const m = e?.marker;
+            if (m && m.time) {
+                markers.push({
+                    time: m.time,
+                    position: m.position || 'inBar',
+                    color: m.color || '#fbbf24',
+                    shape: m.shape || 'circle',
+                    text: m.text || ''
+                });
+            }
+        }
+        
+        // Keep chronological order for rendering
+        markers.sort((a, b) => a.time - b.time);
+        
+        if (typeof this.chart.setAlertMarkers === 'function') {
+            this.chart.setAlertMarkers(markers);
+        } else {
+            this.chart.alertMarkers = markers;
+            this.chart.updateAllSignalMarkers?.();
+        }
+    }
+
     async handleAlertFormSubmit() {
         if (!this.alertsManager || !this.alertMetricRegistry) return;
 
@@ -2302,6 +2534,12 @@ class OrderBookApp {
         const soundType = (typeof rawSoundType === 'string' && rawSoundType.startsWith('file:'))
             ? rawSoundType
             : String(rawSoundType).toLowerCase();
+        const plotOnChart = !!document.getElementById('alertPlotOnChart')?.checked;
+        const plotShape = document.getElementById('alertPlotShape')?.value || 'auto';
+        const plotPosition = document.getElementById('alertPlotPosition')?.value || 'auto';
+        const plotColor = document.getElementById('alertPlotColor')?.value || '';
+        const plotText = (document.getElementById('alertPlotText')?.value || '').trim();
+        const customMessage = (document.getElementById('alertCustomMessage')?.value || '').replace(/\r\n/g, '\n');
         const id = document.getElementById('alertId')?.value || '';
 
         if (!section || !metricKey) {
@@ -2376,6 +2614,12 @@ class OrderBookApp {
             notify,
             sound,
             soundType,
+            plotOnChart,
+            plotShape,
+            plotPosition,
+            plotColor,
+            plotText,
+            customMessage: clampString(customMessage, 500),
             enabled: true,
             description
         };
@@ -2456,6 +2700,7 @@ class OrderBookApp {
                 const enabled = !!a.enabled;
                 const freq = a.frequency === 'once_per_bar' ? 'Once per bar' : a.frequency === 'once_per_min' ? 'Once per min' : 'One time';
                 const delivery = `${a.notify ? 'Notify' : 'No notify'}${a.sound ? ' + Sound' : ''}`;
+                const note = a.customMessage && String(a.customMessage).trim() ? ' • Msg' : '';
                 const last = a._lastTriggeredAt ? `Last: ${formatTime(a._lastTriggeredAt)}` : '';
                 return `
                     <div class="alert-row" data-alert-id="${a.id}">
@@ -2463,8 +2708,8 @@ class OrderBookApp {
                             <input type="checkbox" class="alert-enabled-toggle" ${enabled ? 'checked' : ''}>
                         </label>
                         <div class="alert-row-main">
-                            <div class="alert-row-title">${a.description || (a.metricLabel || a.metricKey)}</div>
-                            <div class="alert-row-meta">${freq} • ${delivery}${last ? ' • ' + last : ''}</div>
+                            <div class="alert-row-title">${escapeHtml(a.description || (a.metricLabel || a.metricKey))}</div>
+                            <div class="alert-row-meta">${escapeHtml(freq)} • ${escapeHtml(delivery)}${escapeHtml(note)}${last ? ' • ' + escapeHtml(last) : ''}</div>
                         </div>
                         <div class="alert-row-actions">
                             <button class="btn-secondary btn-small alert-edit-btn" type="button">Edit</button>
@@ -2482,10 +2727,19 @@ class OrderBookApp {
         } else {
             logList.innerHTML = logs.map(e => {
                 const t = formatTime(e.ts);
+                const metaParts = [];
+                if (e.price) metaParts.push(`P ${formatSmartPrice(e.price)}`);
+                if (e.mid) metaParts.push(`Mid ${formatSmartPrice(e.mid)}`);
+                if (e.vwmp) metaParts.push(`VWMP ${formatSmartPrice(e.vwmp)}`);
+                if (e.ifv) metaParts.push(`IFV ${formatSmartPrice(e.ifv)}`);
+                const meta = metaParts.join(' • ');
                 return `
                     <div class="alert-log-row">
                         <span class="alert-log-time">${t}</span>
-                        <span class="alert-log-msg">${e.message || ''}</span>
+                        <div class="alert-log-main">
+                            <div class="alert-log-msg">${escapeHtml(e.message || '')}</div>
+                            ${meta ? `<div class="alert-log-meta">${escapeHtml(meta)}</div>` : ''}
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -2567,6 +2821,20 @@ class OrderBookApp {
             const raw = alert.soundType || 'alarm';
             soundTypeEl.value = (typeof raw === 'string' && raw.startsWith('file:')) ? raw : String(raw).toLowerCase();
         }
+        
+        const customMsgEl = document.getElementById('alertCustomMessage');
+        if (customMsgEl) customMsgEl.value = alert.customMessage || '';
+        
+        const plotOnChartEl = document.getElementById('alertPlotOnChart');
+        if (plotOnChartEl) plotOnChartEl.checked = !!alert.plotOnChart;
+        const plotShapeEl = document.getElementById('alertPlotShape');
+        if (plotShapeEl) plotShapeEl.value = alert.plotShape || 'auto';
+        const plotPosEl = document.getElementById('alertPlotPosition');
+        if (plotPosEl) plotPosEl.value = alert.plotPosition || 'auto';
+        const plotColorEl = document.getElementById('alertPlotColor');
+        if (plotColorEl && alert.plotColor) plotColorEl.value = alert.plotColor;
+        const plotTextEl = document.getElementById('alertPlotText');
+        if (plotTextEl) plotTextEl.value = alert.plotText || '';
 
         // Refresh UI visibility + preview after setting values
         this.populateAlertEditorUI();

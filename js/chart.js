@@ -110,12 +110,18 @@ class OrderBookChart {
             currentInterval: null         // Track which interval data is for
         };
         
-        // Historical Fair Value tracking - ghosted VWMP, IFV, targets on past bars
+        // Historical Fair Value tracking - VWMP/IFV history plot (per-candle)
         this.historicalFairValue = {
             enabled: localStorage.getItem('showHistoricalFairValue') !== 'false', // Default ON
-            cachedData: new Map(),        // candleTime => { vwmp, ifv, targets: { upside, downside } }
-            series: [],                   // Line series for rendering
-            previousValues: null          // Last values for change detection
+            maxCandles: 500,              // Cap history (lowest timeframe-friendly)
+            cachedData: new Map(),        // candleTime => { vwmp, ifv, upsideTarget, downsideTarget }
+            series: [],                   // Line series for rendering (managed)
+            vwmpSeries: null,
+            ifvSeries: null,
+            upsideSeries: null,
+            downsideSeries: null,
+            lastSavedCandleTime: null,
+            lastSaveTs: 0
         };
         
         // Order Flow Pressure indicators
@@ -134,6 +140,10 @@ class OrderBookChart {
             series: {},     // Store all plot series
             markers: []     // Store signal markers
         };
+
+        // Alert markers (plotted when alerts fire)
+        this.alertMarkers = [];
+        this.alertMarkersMax = 200;
         
         // Regime Engine - stores previous values for ROC calculations
         this.regimeEngine = {
@@ -376,12 +386,18 @@ class OrderBookChart {
             
             // Clear and reload historical fair values for new interval
             this.historicalFairValue.cachedData.clear();
-            this.historicalFairValue.previousValues = null;
+            this.historicalFairValue.lastSavedCandleTime = null;
+            this.historicalFairValue.lastSaveTs = 0;
             this.clearHistoricalFairValueSeries();
             
             console.log(`[Chart] Interval changed to ${interval}, cleared local candles and historical data`);
         }
         this.currentInterval = interval;
+
+        // Reload interval-scoped historical fair value (VWMP/IFV history plot)
+        if (this.historicalFairValue.enabled) {
+            this.loadHistoricalFairValue();
+        }
     }
 
     init() {
@@ -1652,7 +1668,8 @@ class OrderBookChart {
         
         // Also clear historical fair values (VWMP, IFV, targets)
         this.historicalFairValue.cachedData.clear();
-        this.historicalFairValue.previousValues = null;
+        this.historicalFairValue.lastSavedCandleTime = null;
+        this.historicalFairValue.lastSaveTs = 0;
         this.clearHistoricalFairValueSeries();
         
         // Clear from localStorage
@@ -1984,12 +2001,13 @@ class OrderBookChart {
                 shape: markerShape,
                 text: bias === 'bullish' ? 'BULL' : 'BEAR'
             }];
-            this.candleSeries.setMarkers(this.projections.markers);
         } else {
             // Clear markers for neutral bias
-            this.candleSeries.setMarkers([]);
             this.projections.markers = null;
         }
+        
+        // Re-apply combined markers (projections + signals + alerts)
+        this.updateAllSignalMarkers();
     }
     
     /**
@@ -2027,9 +2045,9 @@ class OrderBookChart {
         }
         
         // Clear markers
-        if (this.candleSeries && this.projections.markers) {
-            this.candleSeries.setMarkers([]);
+        if (this.projections && this.projections.markers) {
             this.projections.markers = null;
+            this.updateAllSignalMarkers();
         }
     }
     
@@ -2725,13 +2743,55 @@ class OrderBookChart {
      * Update all signal markers on the candlestick series
      * Combines BB Pulse signals with EMA/ZEMA grid signals
      */
+    addAlertMarker(marker) {
+        if (!this.candleSeries) return;
+        if (!marker || !marker.time) return;
+        
+        if (!this.alertMarkers) this.alertMarkers = [];
+        this.alertMarkers.push(marker);
+        
+        // Cap size to prevent marker overload
+        const max = this.alertMarkersMax || 200;
+        if (this.alertMarkers.length > max) {
+            this.alertMarkers = this.alertMarkers.slice(-max);
+        }
+        
+        // Re-apply combined markers immediately
+        this.updateAllSignalMarkers();
+    }
+    
+    clearAlertMarkers() {
+        this.alertMarkers = [];
+        this.updateAllSignalMarkers();
+    }
+
+    setAlertMarkers(markers) {
+        this.alertMarkers = Array.isArray(markers) ? markers : [];
+        const max = this.alertMarkersMax || 200;
+        if (this.alertMarkers.length > max) {
+            this.alertMarkers = this.alertMarkers.slice(-max);
+        }
+        this.updateAllSignalMarkers();
+    }
+    
     updateAllSignalMarkers() {
         if (!this.candleSeries) return;
         
         const candles = this.getCandles();
-        if (!candles || candles.length < 50) return;
+        if (!candles || candles.length === 0) return;
+        const canCalcSignals = candles.length >= 50;
         
         let allMarkers = [];
+        
+        // Add alert markers (if any)
+        if (this.alertMarkers && this.alertMarkers.length > 0) {
+            allMarkers = allMarkers.concat(this.alertMarkers);
+        }
+        
+        // Add projection markers (if any)
+        if (this.projections && this.projections.markers && this.projections.markers.length > 0) {
+            allMarkers = allMarkers.concat(this.projections.markers);
+        }
         
         // Add BB Pulse signals if enabled
         if (this.bbPulse && this.bbPulse.enabled && this.bbPulse.markers) {
@@ -2739,13 +2799,13 @@ class OrderBookChart {
         }
         
         // Add EMA grid signals if enabled
-        if (this.emaGrid && this.emaGrid.showSignals) {
+        if (canCalcSignals && this.emaGrid && this.emaGrid.showSignals) {
             const emaSignals = this.calculateEmaGridSignals(candles);
             allMarkers = allMarkers.concat(emaSignals);
         }
         
         // Add ZEMA grid signals if enabled
-        if (this.zemaGrid && this.zemaGrid.showSignals) {
+        if (canCalcSignals && this.zemaGrid && this.zemaGrid.showSignals) {
             const zemaSignals = this.calculateZemaGridSignals(candles);
             allMarkers = allMarkers.concat(zemaSignals);
         }
@@ -2886,6 +2946,9 @@ class OrderBookChart {
     toggleIFV(show) {
         this.fairValueIndicators.showIFV = show;
         this.updateFairValueIndicators();
+        if (this.historicalFairValue?.enabled) {
+            this.renderHistoricalFairValue();
+        }
     }
     
     /**
@@ -2894,6 +2957,9 @@ class OrderBookChart {
     toggleVWMP(show) {
         this.fairValueIndicators.showVWMP = show;
         this.updateFairValueIndicators();
+        if (this.historicalFairValue?.enabled) {
+            this.renderHistoricalFairValue();
+        }
     }
     
     /**
@@ -3056,6 +3122,9 @@ class OrderBookChart {
         const mid = this.calculateMid(levels);
         const ifv = this.calculateIFV(levels, this.currentPrice);
         const vwmp = this.calculateVWMP(levels, this.currentPrice);
+
+        // Track VWMP/IFV history plot (per-candle) regardless of redraw threshold
+        this.trackHistoricalFairValue(vwmp, ifv);
         
         // Check if values have changed significantly (0.05% threshold)
         const threshold = 0.0005;
@@ -3078,9 +3147,6 @@ class OrderBookChart {
             
             // Clear existing lines
             this.clearFairValueLines();
-        
-        // Track historical fair values
-        this.trackHistoricalFairValue(vwmp, ifv);
         
         // Draw Simple Mid line
         if (this.fairValueIndicators.showMid && mid !== null) {
@@ -3283,17 +3349,11 @@ class OrderBookChart {
     /**
      * Track historical fair value (VWMP, IFV) at each candle
      * Also tracks projection targets
-     * Throttled to prevent excessive saves with WebSocket updates
      */
     trackHistoricalFairValue(vwmp, ifv) {
         if (!this.historicalFairValue.enabled) return;
         
-        // Throttle to max once per 10 seconds (prevents massive cache buildup)
         const now = Date.now();
-        if (!this._lastFairValueTrack) this._lastFairValueTrack = 0;
-        if ((now - this._lastFairValueTrack) < 10000) return;
-        this._lastFairValueTrack = now;
-        
         const candleTime = this.getCurrentCandleTime();
         if (!candleTime) return;
         
@@ -3302,46 +3362,51 @@ class OrderBookChart {
         
         // Create current snapshot
         const current = {
-            vwmp: vwmp ? parseFloat(vwmp.toFixed(2)) : null,
-            ifv: ifv ? parseFloat(ifv.toFixed(2)) : null,
+            vwmp: (vwmp && isFinite(vwmp)) ? parseFloat(vwmp.toFixed(2)) : null,
+            ifv: (ifv && isFinite(ifv)) ? parseFloat(ifv.toFixed(2)) : null,
             upsideTarget: targets?.upside || null,
             downsideTarget: targets?.downside || null,
             timestamp: Date.now()
         };
         
-        // Check if values have changed significantly (>0.1%)
-        const prev = this.historicalFairValue.previousValues;
-        const hasChanged = !prev || 
-            (current.vwmp && prev.vwmp && Math.abs(current.vwmp - prev.vwmp) / prev.vwmp > 0.001) ||
-            (current.ifv && prev.ifv && Math.abs(current.ifv - prev.ifv) / prev.ifv > 0.001) ||
-            (current.upsideTarget !== prev.upsideTarget) ||
-            (current.downsideTarget !== prev.downsideTarget);
+        // Skip if nothing meaningful to record yet
+        if (!current.vwmp && !current.ifv && !current.upsideTarget && !current.downsideTarget) return;
         
-        if (hasChanged) {
-            // Store in cache
-            if (!this.historicalFairValue.cachedData.has(candleTime)) {
-                this.historicalFairValue.cachedData.set(candleTime, []);
+        // Update the current candle snapshot (one record per candle)
+        const prev = this.historicalFairValue.cachedData.get(candleTime) || null;
+        const hasChanged = !prev ||
+            prev.vwmp !== current.vwmp ||
+            prev.ifv !== current.ifv ||
+            prev.upsideTarget !== current.upsideTarget ||
+            prev.downsideTarget !== current.downsideTarget;
+        
+        if (!hasChanged) return;
+        
+        this.historicalFairValue.cachedData.set(candleTime, current);
+        
+        // Trim to max candles (oldest first)
+        const maxCandles = this.historicalFairValue.maxCandles || 500;
+        if (this.historicalFairValue.cachedData.size > maxCandles) {
+            const keys = Array.from(this.historicalFairValue.cachedData.keys()).sort((a, b) => a - b);
+            const removeCount = keys.length - maxCandles;
+            for (let i = 0; i < removeCount; i++) {
+                this.historicalFairValue.cachedData.delete(keys[i]);
             }
-            
-            const candleData = this.historicalFairValue.cachedData.get(candleTime);
-            
-            // Add if not a duplicate
-            const isDupe = candleData.some(d => 
-                d.vwmp === current.vwmp && d.ifv === current.ifv
-            );
-            
-            if (!isDupe) {
-                candleData.push(current);
-                
-                // Save to localStorage
-                this.saveHistoricalFairValueToStorage(current, candleTime);
-            }
-            
-            // Update previous values
-            this.historicalFairValue.previousValues = { ...current };
-            
-            // Re-render
-            this.renderHistoricalFairValue();
+        }
+        
+        // Re-render plot
+        this.renderHistoricalFairValue();
+        
+        // Persist to localStorage (throttled)
+        const lastSaveTs = this.historicalFairValue.lastSaveTs || 0;
+        const lastSavedCandleTime = this.historicalFairValue.lastSavedCandleTime;
+        const candleRolled = lastSavedCandleTime && candleTime !== lastSavedCandleTime;
+        const timeDue = (now - lastSaveTs) >= 15000; // ~4 saves/min max
+        const firstSave = lastSaveTs === 0;
+        
+        if (firstSave || candleRolled || timeDue) {
+            this.historicalFairValue.lastSavedCandleTime = candleTime;
+            this.saveHistoricalFairValueToStorage();
         }
     }
     
@@ -3360,18 +3425,21 @@ class OrderBookChart {
     /**
      * Save historical fair value to localStorage (simpler than DB schema changes)
      */
-    saveHistoricalFairValueToStorage(data, candleTime) {
+    saveHistoricalFairValueToStorage() {
         try {
             const storageKey = `histFV_${this.symbol}_${this.currentInterval}`;
-            let stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            const maxCandles = this.historicalFairValue.maxCandles || 500;
             
-            // Limit to last 100 records to avoid storage limits
-            stored.push({ ...data, candleTime });
-            if (stored.length > 100) {
-                stored = stored.slice(-100);
+            let stored = Array.from(this.historicalFairValue.cachedData.entries())
+                .sort((a, b) => a[0] - b[0])
+                .map(([candleTime, record]) => ({ ...record, candleTime }));
+            
+            if (stored.length > maxCandles) {
+                stored = stored.slice(-maxCandles);
             }
             
             localStorage.setItem(storageKey, JSON.stringify(stored));
+            this.historicalFairValue.lastSaveTs = Date.now();
         } catch (e) {
             // localStorage might be full, silently fail
         }
@@ -3389,27 +3457,38 @@ class OrderBookChart {
             const storageKey = `histFV_${this.symbol}_${this.currentInterval}`;
             const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
             
-            if (stored.length === 0) {
+            if (!Array.isArray(stored) || stored.length === 0) {
                 console.log(`[Historical FV] No data for ${this.symbol} ${this.currentInterval}`);
                 return;
             }
             
             // Populate cache
             this.historicalFairValue.cachedData.clear();
-            stored.forEach(record => {
-                const candleTime = record.candleTime;
-                if (!this.historicalFairValue.cachedData.has(candleTime)) {
-                    this.historicalFairValue.cachedData.set(candleTime, []);
-                }
-                this.historicalFairValue.cachedData.get(candleTime).push({
-                    vwmp: record.vwmp,
-                    ifv: record.ifv,
-                    upsideTarget: record.upsideTarget,
-                    downsideTarget: record.downsideTarget
+            for (const record of stored) {
+                const candleTime = parseInt(record?.candleTime, 10);
+                if (!candleTime || isNaN(candleTime)) continue;
+                
+                // Last write wins if duplicates exist (older schema)
+                this.historicalFairValue.cachedData.set(candleTime, {
+                    vwmp: record.vwmp ?? null,
+                    ifv: record.ifv ?? null,
+                    upsideTarget: record.upsideTarget ?? null,
+                    downsideTarget: record.downsideTarget ?? null,
+                    timestamp: record.timestamp ?? null
                 });
-            });
+            }
             
-            console.log(`[Historical FV] Loaded ${stored.length} records for ${this.currentInterval}`);
+            // Trim to max candles
+            const maxCandles = this.historicalFairValue.maxCandles || 500;
+            if (this.historicalFairValue.cachedData.size > maxCandles) {
+                const keys = Array.from(this.historicalFairValue.cachedData.keys()).sort((a, b) => a - b);
+                const removeCount = keys.length - maxCandles;
+                for (let i = 0; i < removeCount; i++) {
+                    this.historicalFairValue.cachedData.delete(keys[i]);
+                }
+            }
+            
+            console.log(`[Historical FV] Loaded ${this.historicalFairValue.cachedData.size} candles for ${this.currentInterval}`);
             this.renderHistoricalFairValue();
         } catch (e) {
             console.warn('[Historical FV] Failed to load from storage:', e);
@@ -3417,23 +3496,27 @@ class OrderBookChart {
     }
     
     /**
-     * Render historical fair values as ghosted lines on past bars
+     * Render historical fair values as VWMP/IFV history plots
      */
     renderHistoricalFairValue() {
         if (!this.historicalFairValue.enabled || !this.chart) return;
         
-        // Clear existing series
-        this.clearHistoricalFairValueSeries();
-        
         const cachedData = this.historicalFairValue.cachedData;
-        if (cachedData.size === 0) return;
+        if (cachedData.size === 0) {
+            // Keep series objects, but clear their data
+            try { this.historicalFairValue.vwmpSeries?.setData([]); } catch (e) {}
+            try { this.historicalFairValue.ifvSeries?.setData([]); } catch (e) {}
+            try { this.historicalFairValue.upsideSeries?.setData([]); } catch (e) {}
+            try { this.historicalFairValue.downsideSeries?.setData([]); } catch (e) {}
+            return;
+        }
         
         const intervalSeconds = this.getIntervalSeconds();
         
-        // Limit to recent candles for performance
-        const maxCandles = 20;
-        const sortedCandles = Array.from(cachedData.keys()).sort((a, b) => b - a);
-        const limitedCandles = sortedCandles.slice(0, maxCandles);
+        // Limit to recent candles for performance (cap = lowest timeframe-friendly)
+        const maxCandles = this.historicalFairValue.maxCandles || 500;
+        const sortedCandlesAsc = Array.from(cachedData.keys()).sort((a, b) => a - b);
+        const limitedCandles = sortedCandlesAsc.slice(-maxCandles);
         
         // Collect all unique values per candle
         const vwmpData = [];
@@ -3442,11 +3525,8 @@ class OrderBookChart {
         const downsideData = [];
         
         limitedCandles.forEach(candleTime => {
-            const records = cachedData.get(candleTime);
-            if (!records || records.length === 0) return;
-            
-            // Use the last (most recent) record for each candle
-            const record = records[records.length - 1];
+            const record = cachedData.get(candleTime);
+            if (!record) return;
             
             if (record.vwmp) {
                 vwmpData.push({ time: candleTime, value: record.vwmp });
@@ -3470,72 +3550,94 @@ class OrderBookChart {
         });
         
         // Get brightness from settings (0-1), shared with historical levels
-        const brightness = this.historicalLevels.brightness || 0.5;
-        const baseOpacity = brightness * 0.6; // Scale opacity by brightness
+        // Keep same base colors as current VWMP/IFV, but with lower opacity for history.
+        const baseOpacity = 0.55;
         
-        // Create ghosted VWMP series (faded green)
-        if (vwmpData.length > 0) {
+        // Ensure series exist (create once, then update)
+        if (!this.historicalFairValue.vwmpSeries) {
             try {
-                const series = this.chart.addLineSeries({
-                    color: `rgba(52, 211, 153, ${baseOpacity})`,  // Faded green
-                    lineWidth: 1,
+                this.historicalFairValue.vwmpSeries = this.chart.addLineSeries({
+                    color: `rgba(52, 211, 153, ${baseOpacity})`,  // VWMP green (history)
+                    lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
                 });
-                series.setData(vwmpData.sort((a, b) => a.time - b.time));
-                this.historicalFairValue.series.push(series);
+                this.historicalFairValue.series.push(this.historicalFairValue.vwmpSeries);
             } catch (e) { /* ignore */ }
+        } else {
+            try { this.historicalFairValue.vwmpSeries.applyOptions({ color: `rgba(52, 211, 153, ${baseOpacity})` }); } catch (e) {}
         }
         
-        // Create ghosted IFV series (faded purple)
-        if (ifvData.length > 0) {
+        if (!this.historicalFairValue.ifvSeries) {
             try {
-                const series = this.chart.addLineSeries({
-                    color: `rgba(167, 139, 250, ${baseOpacity})`,  // Faded purple
-                    lineWidth: 1,
+                this.historicalFairValue.ifvSeries = this.chart.addLineSeries({
+                    color: `rgba(167, 139, 250, ${baseOpacity})`,  // IFV purple (history)
+                    lineWidth: 2,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
                 });
-                series.setData(ifvData.sort((a, b) => a.time - b.time));
-                this.historicalFairValue.series.push(series);
+                this.historicalFairValue.series.push(this.historicalFairValue.ifvSeries);
             } catch (e) { /* ignore */ }
+        } else {
+            try { this.historicalFairValue.ifvSeries.applyOptions({ color: `rgba(167, 139, 250, ${baseOpacity})` }); } catch (e) {}
         }
         
         // Create ghosted upside target series (faded cyan)
-        if (upsideData.length > 0) {
+        const targetOpacity = baseOpacity * 0.75;
+        if (!this.historicalFairValue.upsideSeries) {
             try {
-                const series = this.chart.addLineSeries({
-                    color: `rgba(0, 217, 255, ${baseOpacity * 0.8})`,  // Faded cyan
+                this.historicalFairValue.upsideSeries = this.chart.addLineSeries({
+                    color: `rgba(0, 217, 255, ${targetOpacity})`,  // Cyan
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dashed,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
                 });
-                series.setData(upsideData.sort((a, b) => a.time - b.time));
-                this.historicalFairValue.series.push(series);
+                this.historicalFairValue.series.push(this.historicalFairValue.upsideSeries);
             } catch (e) { /* ignore */ }
+        } else {
+            try { this.historicalFairValue.upsideSeries.applyOptions({ color: `rgba(0, 217, 255, ${targetOpacity})` }); } catch (e) {}
         }
         
         // Create ghosted downside target series (faded pink)
-        if (downsideData.length > 0) {
+        if (!this.historicalFairValue.downsideSeries) {
             try {
-                const series = this.chart.addLineSeries({
-                    color: `rgba(255, 0, 110, ${baseOpacity * 0.8})`,  // Faded pink
+                this.historicalFairValue.downsideSeries = this.chart.addLineSeries({
+                    color: `rgba(255, 0, 110, ${targetOpacity})`,  // Pink
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dashed,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
                 });
-                series.setData(downsideData.sort((a, b) => a.time - b.time));
-                this.historicalFairValue.series.push(series);
+                this.historicalFairValue.series.push(this.historicalFairValue.downsideSeries);
             } catch (e) { /* ignore */ }
+        } else {
+            try { this.historicalFairValue.downsideSeries.applyOptions({ color: `rgba(255, 0, 110, ${targetOpacity})` }); } catch (e) {}
         }
+        
+        // Apply data (VWMP/IFV history should only show when their current lines are enabled)
+        try {
+            if (this.historicalFairValue.vwmpSeries) {
+                this.historicalFairValue.vwmpSeries.setData(this.fairValueIndicators.showVWMP ? vwmpData : []);
+            }
+        } catch (e) { /* ignore */ }
+        
+        try {
+            if (this.historicalFairValue.ifvSeries) {
+                this.historicalFairValue.ifvSeries.setData(this.fairValueIndicators.showIFV ? ifvData : []);
+            }
+        } catch (e) { /* ignore */ }
+        
+        // Targets remain tied to the projection overlay toggle (if present)
+        const showTargets = !!this.projections?.showTargets;
+        try { this.historicalFairValue.upsideSeries?.setData(showTargets ? upsideData : []); } catch (e) {}
+        try { this.historicalFairValue.downsideSeries?.setData(showTargets ? downsideData : []); } catch (e) {}
     }
     
     /**
@@ -3550,6 +3652,10 @@ class OrderBookChart {
             });
         }
         this.historicalFairValue.series = [];
+        this.historicalFairValue.vwmpSeries = null;
+        this.historicalFairValue.ifvSeries = null;
+        this.historicalFairValue.upsideSeries = null;
+        this.historicalFairValue.downsideSeries = null;
     }
     
     /**
