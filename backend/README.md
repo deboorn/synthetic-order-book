@@ -63,6 +63,10 @@ npm run processor -- \
 Outputs:
 - `backend/data/derived/candles/{symbol}/{timeframe}/YYYY/MM/DD.ndjson`
 
+Processor notes:
+- The processor **deduplicates** Kraken 1m OHLC updates by coalescing multiple updates for the same `time_sec` into a single finalized 1m candle before aggregating.
+- It also writes a checkpoint under `backend/data/state/processor/candles/{symbol}/{timeframe}.json` so reruns do **not** append duplicate derived candles.
+
 ### CLI options (both commands)
 
 - `--symbols` (required): comma-separated symbols (e.g. `BTC,ETH`)

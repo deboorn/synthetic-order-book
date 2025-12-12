@@ -6,6 +6,7 @@ const readline = require("readline");
 
 const { parseArgs, csv, asBool } = require("../shared/cli");
 const { SUPPORTED_TIMEFRAMES } = require("../shared/timeframes");
+const { readJsonIfExists, writeJsonAtomic } = require("../shared/state");
 
 const { listFilesRecursive } = require("./readers/file-list");
 const { CandleAggregator } = require("./aggregators/candle-aggregator");
@@ -26,17 +27,48 @@ async function processSymbol({ symbol, inDir, outDir, includeTmp }) {
     return;
   }
 
+  const stateDir = path.resolve(outDir, "..", "state", "processor", "candles", symbol);
+
   const writers = new Map();
-  function getWriter(timeframe) {
+  async function getWriter(timeframe) {
     if (writers.has(timeframe)) return writers.get(timeframe);
+
+    const statePath = path.join(stateDir, `${timeframe}.json`);
+    const state = await readJsonIfExists(statePath, { lastWrittenTime: 0 });
     const w = new RotatingCandleWriter({ outDir, symbol, timeframe });
-    writers.set(timeframe, w);
-    return w;
+
+    const wrapped = {
+      timeframe,
+      writer: w,
+      statePath,
+      lastWrittenTime: Number(state.lastWrittenTime) || 0,
+      written: 0,
+      async writeCandle(c) {
+        // Output-side dedupe/idempotency: only append strictly increasing bars.
+        if (!c || !c.time) return;
+        if (c.time <= this.lastWrittenTime) return;
+        await this.writer.writeCandle(c);
+        this.lastWrittenTime = c.time;
+        this.written += 1;
+
+        // Periodic checkpoint so restarts don't re-append.
+        if (this.written % 200 === 0) {
+          await writeJsonAtomic(this.statePath, { lastWrittenTime: this.lastWrittenTime, ts: Date.now() });
+        }
+      },
+      async close() {
+        await this.writer.close();
+        await writeJsonAtomic(this.statePath, { lastWrittenTime: this.lastWrittenTime, ts: Date.now() });
+      },
+    };
+
+    writers.set(timeframe, wrapped);
+    return wrapped;
   }
 
   const aggregators = new Map();
   for (const tf of SUPPORTED_TIMEFRAMES) {
-    const w = getWriter(tf);
+    const w = await getWriter(tf);
     aggregators.set(
       tf,
       new CandleAggregator({
@@ -52,6 +84,28 @@ async function processSymbol({ symbol, inDir, outDir, includeTmp }) {
 
   let lines = 0;
   let candles = 0;
+  let baseFinalized = 0;
+  let baseUpdatesCollapsed = 0;
+
+  // Dedup strategy for Kraken OHLC 1m:
+  // Kraken may emit multiple updates for the same 1m candle. We coalesce them
+  // into a single finalized 1m candle when the timestamp advances.
+  let currentBase = null; // { timeSec, open, high, low, close, volume }
+
+  function finalizeBaseIfAny() {
+    if (!currentBase) return;
+    baseFinalized += 1;
+    for (const agg of aggregators.values()) {
+      agg.ingestBaseCandle({
+        timeSec: currentBase.timeSec,
+        open: currentBase.open,
+        high: currentBase.high,
+        low: currentBase.low,
+        close: currentBase.close,
+        volume: currentBase.volume,
+      });
+    }
+  }
 
   for (const file of files) {
     const rl = readline.createInterface({
@@ -83,16 +137,44 @@ async function processSymbol({ symbol, inDir, outDir, includeTmp }) {
       if (!timeSec || !isFinite(open) || !isFinite(high) || !isFinite(low) || !isFinite(close)) continue;
 
       candles += 1;
-      for (const agg of aggregators.values()) {
-        agg.ingestBaseCandle({ timeSec, open, high, low, close, volume });
+
+      if (!currentBase) {
+        currentBase = { timeSec, open, high, low, close, volume };
+        continue;
       }
+
+      if (timeSec === currentBase.timeSec) {
+        // Coalesce updates for the same 1m candle.
+        currentBase.high = Math.max(currentBase.high, high);
+        currentBase.low = Math.min(currentBase.low, low);
+        currentBase.close = close;
+        // Kraken OHLC volume is cumulative within the candle; keep the latest value.
+        currentBase.volume = volume;
+        baseUpdatesCollapsed += 1;
+        continue;
+      }
+
+      if (timeSec > currentBase.timeSec) {
+        // Finalize the previous candle and start a new one.
+        finalizeBaseIfAny();
+        currentBase = { timeSec, open, high, low, close, volume };
+        continue;
+      }
+
+      // Out-of-order (older candle) – ignore to keep outputs append-only/deterministic.
     }
   }
+
+  // Final flush: push the last coalesced 1m candle, then flush aggregators.
+  finalizeBaseIfAny();
+  currentBase = null;
 
   for (const agg of aggregators.values()) agg.flush();
   await Promise.allSettled(Array.from(writers.values()).map((w) => w.close()));
 
-  console.log(`[processor] ${symbol}: read ${files.length} files, ${lines} lines, ${candles} base candles`);
+  console.log(
+    `[processor] ${symbol}: read ${files.length} files, ${lines} lines, ${candles} raw ohlc lines, finalized ${baseFinalized} base candles, collapsed ${baseUpdatesCollapsed} intra-candle updates`
+  );
 }
 
 async function main() {
