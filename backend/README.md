@@ -31,6 +31,7 @@ cd backend
 npm run recorder -- \
   --symbols BTC,ETH \
   --streams kraken_ohlc_1m,kraken_ticker,coinbase_ticker,bitstamp_trades \
+  --maxFileMb 256 \
   --outDir ./data
 ```
 
@@ -69,6 +70,7 @@ Outputs:
 
 Recorder-specific:
 - `--streams` (optional): comma-separated stream list
+- `--maxFileMb` (optional): max single raw file size before rotating within the hour (default `0` = disabled)
 
 Processor-specific:
 - `--inDir` (optional): raw input dir (default `./data/raw`)

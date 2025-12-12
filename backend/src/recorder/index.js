@@ -28,6 +28,8 @@ async function main() {
   }
 
   const outDir = args.outDir ? path.resolve(args.outDir) : path.resolve(__dirname, "..", "..", "data");
+  const maxFileMb = args.maxFileMb !== undefined ? Number(args.maxFileMb) : 0;
+  const maxBytes = maxFileMb > 0 ? Math.floor(maxFileMb * 1024 * 1024) : 0;
 
   const streams = csv(args.streams);
   const enabled = new Set(streams.length ? streams : ["kraken_ohlc_1m"]);
@@ -39,7 +41,8 @@ async function main() {
     if (writers.has(key)) return writers.get(key);
 
     const w = new RotatingNdjsonWriter({
-      filePathForTsMs: (tsMs) => rawFilePathForTsMs({ outDir, exchange, stream, symbol }, tsMs),
+      filePathForTsMs: (tsMs, part) => rawFilePathForTsMs({ outDir, exchange, stream, symbol }, tsMs, part),
+      maxBytes,
     });
     writers.set(key, w);
     return w;
@@ -160,6 +163,7 @@ async function main() {
   console.log(`[recorder] outDir=${outDir}`);
   console.log(`[recorder] symbols=${symbols.join(",")}`);
   console.log(`[recorder] streams=${Array.from(enabled).join(",")}`);
+  if (maxBytes > 0) console.log(`[recorder] maxFileMb=${maxFileMb}`);
 
   let stopping = false;
   async function shutdown() {
