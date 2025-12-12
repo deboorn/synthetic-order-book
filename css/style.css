@@ -3231,6 +3231,7 @@ body {
     display: grid;
     grid-template-columns: 90px 1fr;
     gap: 10px;
+    align-items: start;
     padding: 10px 12px;
     border-radius: 12px;
     background: rgba(0, 0, 0, 0.18);
@@ -3247,9 +3248,10 @@ body {
 .alert-log-msg {
     font-size: 0.8rem;
     color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
 }
 
 .alert-log-main {
@@ -3263,9 +3265,10 @@ body {
     font-family: var(--font-mono);
     font-size: 0.7rem;
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
 }
 
 .alerts-log-actions {

@@ -145,6 +145,13 @@ class OrderBookChart {
         this.alertMarkers = [];
         this.alertMarkersMax = 200;
         
+        // Signal marker caches (for alerts)
+        this.emaSignalMarkers = [];
+        this.zemaSignalMarkers = [];
+        
+        // Trade setup suggestion (for alerts)
+        this.tradeSetupRecommendation = 'WAIT';
+        
         // Regime Engine - stores previous values for ROC calculations
         this.regimeEngine = {
             // Mode presets - affects sensitivity of regime detection
@@ -2782,6 +2789,8 @@ class OrderBookChart {
         const canCalcSignals = candles.length >= 50;
         
         let allMarkers = [];
+        let emaSignals = [];
+        let zemaSignals = [];
         
         // Add alert markers (if any)
         if (this.alertMarkers && this.alertMarkers.length > 0) {
@@ -2800,15 +2809,19 @@ class OrderBookChart {
         
         // Add EMA grid signals if enabled
         if (canCalcSignals && this.emaGrid && this.emaGrid.showSignals) {
-            const emaSignals = this.calculateEmaGridSignals(candles);
+            emaSignals = this.calculateEmaGridSignals(candles);
             allMarkers = allMarkers.concat(emaSignals);
         }
         
         // Add ZEMA grid signals if enabled
         if (canCalcSignals && this.zemaGrid && this.zemaGrid.showSignals) {
-            const zemaSignals = this.calculateZemaGridSignals(candles);
+            zemaSignals = this.calculateZemaGridSignals(candles);
             allMarkers = allMarkers.concat(zemaSignals);
         }
+        
+        // Cache for alerts/other consumers (avoid heavy recompute)
+        this.emaSignalMarkers = emaSignals;
+        this.zemaSignalMarkers = zemaSignals;
         
         // Sort markers by time
         allMarkers.sort((a, b) => a.time - b.time);
@@ -4374,6 +4387,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         let recommendedDir = 'WAIT';
         if (netScore >= 2) recommendedDir = 'LONG';
         else if (netScore <= -2) recommendedDir = 'SHORT';
+        
+        // Cache for alerts + external consumers
+        this.tradeSetupRecommendation = recommendedDir;
         
         // Update recommendation display
         if (recommendedDirection) {

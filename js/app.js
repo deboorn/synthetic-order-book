@@ -730,6 +730,63 @@ class AlertMetricRegistry {
                         return chart?.calculateZEMA ? chart.calculateZEMA(candles, period) : null;
                     },
                     format: (v) => formatSmartPrice(Number(v))
+                },
+                'bbPulseSignal': {
+                    key: 'bbPulseSignal',
+                    label: 'BB Pulse Signal',
+                    type: 'enum',
+                    options: ['NONE', 'BUY', 'SELL', 'BOTH'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        const t = chart?.lastCandle?.time;
+                        if (!chart || !t) return 'NONE';
+                        if (!chart.bbPulse?.enabled) return 'NONE';
+                        const markers = chart.bbPulse?.markers || [];
+                        const hasBuy = markers.some(m => m && m.time === t && m.shape === 'arrowUp');
+                        const hasSell = markers.some(m => m && m.time === t && m.shape === 'arrowDown');
+                        if (hasBuy && hasSell) return 'BOTH';
+                        if (hasBuy) return 'BUY';
+                        if (hasSell) return 'SELL';
+                        return 'NONE';
+                    }
+                },
+                'emaGridSignal': {
+                    key: 'emaGridSignal',
+                    label: 'EMA Grid Signal',
+                    type: 'enum',
+                    options: ['NONE', 'ARROW_UP', 'ARROW_DOWN', 'BOTH'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        const t = chart?.lastCandle?.time;
+                        if (!chart || !t) return 'NONE';
+                        if (!chart.emaGrid?.showSignals) return 'NONE';
+                        const markers = chart.emaSignalMarkers || [];
+                        const hasUp = markers.some(m => m && m.time === t && m.shape === 'arrowUp');
+                        const hasDown = markers.some(m => m && m.time === t && m.shape === 'arrowDown');
+                        if (hasUp && hasDown) return 'BOTH';
+                        if (hasUp) return 'ARROW_UP';
+                        if (hasDown) return 'ARROW_DOWN';
+                        return 'NONE';
+                    }
+                },
+                'zemaGridSignal': {
+                    key: 'zemaGridSignal',
+                    label: 'ZEMA Grid Signal',
+                    type: 'enum',
+                    options: ['NONE', 'ARROW_UP', 'ARROW_DOWN', 'BOTH'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        const t = chart?.lastCandle?.time;
+                        if (!chart || !t) return 'NONE';
+                        if (!chart.zemaGrid?.showSignals) return 'NONE';
+                        const markers = chart.zemaSignalMarkers || [];
+                        const hasUp = markers.some(m => m && m.time === t && m.shape === 'arrowUp');
+                        const hasDown = markers.some(m => m && m.time === t && m.shape === 'arrowDown');
+                        if (hasUp && hasDown) return 'BOTH';
+                        if (hasUp) return 'ARROW_UP';
+                        if (hasDown) return 'ARROW_DOWN';
+                        return 'NONE';
+                    }
                 }
             },
             depth: {
@@ -869,6 +926,17 @@ class AlertMetricRegistry {
                         return ((price - ifv) / ifv) * 100;
                     },
                     format: (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+                },
+                'suggestedDirection': {
+                    key: 'suggestedDirection',
+                    label: 'Suggested Direction',
+                    type: 'enum',
+                    options: ['WAIT', 'LONG', 'SHORT'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        return chart?.tradeSetupRecommendation || 'WAIT';
+                    },
+                    format: (v) => String(v || '').toUpperCase()
                 }
             },
             mcs: {
@@ -943,7 +1011,20 @@ class AlertMetricRegistry {
                 'type': {
                     key: 'type',
                     label: 'Regime Type',
-                    type: 'string',
+                    type: 'enum',
+                    options: [
+                        'neutral',
+                        'compression',
+                        'mean_reversion',
+                        'uptrend',
+                        'downtrend',
+                        'accumulation',
+                        'distribution',
+                        'expansion_up',
+                        'expansion_down',
+                        'vacuum_up',
+                        'vacuum_down'
+                    ],
                     getValue: (s) => s?.regime?.type ?? null,
                     format: (v) => String(v || '').replace(/_/g, ' ').toUpperCase()
                 },
@@ -1034,7 +1115,11 @@ class AlertMetricRegistry {
             ];
         }
         if (metric.type === 'enum') {
-            return [{ key: 'is', label: 'Is' }];
+            return [
+                { key: 'changes', label: 'Changes' },
+                { key: 'is', label: 'Is' },
+                { key: 'changes_to', label: 'Changes To' }
+            ];
         }
         // string/event
         return [
@@ -2355,7 +2440,7 @@ class OrderBookApp {
         const compareMode = metric.type === 'number' && cond.endsWith('_metric');
         const showThreshold = metric.type === 'number' && !compareMode;
         const showCompareMetric = metric.type === 'number' && compareMode;
-        const showEnumTarget = metric.type === 'enum';
+        const showEnumTarget = metric.type === 'enum' && cond !== 'changes';
         const showTextTarget = (metric.type !== 'number' && metric.type !== 'enum' && cond !== 'changes');
 
         if (thresholdWrap) thresholdWrap.style.display = showThreshold ? '' : 'none';
@@ -2379,7 +2464,7 @@ class OrderBookApp {
             compareSelect.innerHTML = '';
         }
 
-        if (showEnumTarget && targetSelect) {
+        if (metric.type === 'enum' && targetSelect) {
             const opts = metric.options || [];
             targetSelect.innerHTML = opts.map(v => `<option value="${v}">${v}</option>`).join('') || `<option value="">--</option>`;
         }
@@ -2577,7 +2662,9 @@ class OrderBookApp {
             }
         } else if (metric.type === 'enum') {
             target = document.getElementById('alertTarget')?.value || '';
-            if (!target) {
+            if (condition === 'changes') {
+                target = null; // no target needed
+            } else if (!target) {
                 this.showToast('Select a target value.', 'warning');
                 return;
             }
