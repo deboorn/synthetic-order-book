@@ -44,6 +44,13 @@
   const shortCertaintyEl = $("shortCertainty");
   const longCertaintyBar = $("longCertaintyBar");
   const shortCertaintyBar = $("shortCertaintyBar");
+  // Alerts UI (Entry Signals panel)
+  const alertsRow = $("alertsRow");
+  const alertsEnabledEl = $("alertsEnabled");
+  const alertsSoundEl = $("alertsSound");
+  const alertsThresholdEl = $("alertsThreshold");
+  const alertsDeltaEl = $("alertsDelta");
+  const alertsLastEl = $("alertsLast");
   const sigNearPressure = $("sigNearPressure");
   const sigDepthImbal = $("sigDepthImbal");
   const sigBPR = $("sigBPR");
@@ -80,6 +87,231 @@
   let countdownInterval = null; // Countdown timer interval
   let lastBarTime = 0; // Last closed bar timestamp (seconds)
   const MAX_RAW_BARS = 2000; // Cap raw 1m candles kept in memory
+
+  // Timeframe utilities
+  const TF_SECONDS = Object.freeze({ "1m": 60, "5m": 300, "15m": 900, "1h": 3600 });
+  function getTimeframeSeconds(tf) {
+    return TF_SECONDS[tf] || 60;
+  }
+
+  function coerceUnixSeconds(t) {
+    if (typeof t === "number" && isFinite(t)) return Math.floor(t);
+    if (t && typeof t === "object") {
+      // BusinessDay-like
+      if (typeof t.year === "number" && typeof t.month === "number" && typeof t.day === "number") {
+        return Math.floor(Date.UTC(t.year, t.month - 1, t.day) / 1000);
+      }
+      if (typeof t.timestamp === "number") return Math.floor(t.timestamp);
+    }
+    return 0;
+  }
+
+  function normalizeToIntervalStart(timeSec, intervalSec) {
+    const t = Math.floor(Number(timeSec) || 0);
+    const i = Math.floor(Number(intervalSec) || 0);
+    if (!t || !i) return t;
+    return Math.floor(t / i) * i;
+  }
+
+  // Alerts state
+  let prevAlertSignal = null;
+  let prevAlertLong = null;
+  let prevAlertShort = null;
+  let lastAlertAtSec = 0;
+  let lastAlertKey = "";
+  let alertFlashTimer = null;
+  let audioCtx = null;
+
+  function getAlertSettings() {
+    const enabled = alertsEnabledEl ? !!alertsEnabledEl.checked : true;
+    const sound = alertsSoundEl ? !!alertsSoundEl.checked : true;
+    const threshold = alertsThresholdEl ? Math.max(0, Math.min(100, parseInt(alertsThresholdEl.value || "80", 10) || 80)) : 80;
+    const delta = alertsDeltaEl ? Math.max(1, Math.min(100, parseInt(alertsDeltaEl.value || "15", 10) || 15)) : 15;
+    return { enabled, sound, threshold, delta, cooldownSec: 8 };
+  }
+
+  function loadAlertSettingsFromStorage() {
+    try {
+      const enabled = localStorage.getItem("analysis_alerts_enabled");
+      const sound = localStorage.getItem("analysis_alerts_sound");
+      const threshold = localStorage.getItem("analysis_alerts_threshold");
+      const delta = localStorage.getItem("analysis_alerts_delta");
+      if (alertsEnabledEl) alertsEnabledEl.checked = enabled === null ? true : enabled === "1";
+      if (alertsSoundEl) alertsSoundEl.checked = sound === null ? true : sound === "1";
+      if (alertsThresholdEl) alertsThresholdEl.value = threshold !== null ? String(parseInt(threshold, 10) || 80) : (alertsThresholdEl.value || "80");
+      if (alertsDeltaEl) alertsDeltaEl.value = delta !== null ? String(parseInt(delta, 10) || 15) : (alertsDeltaEl.value || "15");
+    } catch (_) {}
+  }
+
+  function persistAlertSettings() {
+    try {
+      const s = getAlertSettings();
+      localStorage.setItem("analysis_alerts_enabled", s.enabled ? "1" : "0");
+      localStorage.setItem("analysis_alerts_sound", s.sound ? "1" : "0");
+      localStorage.setItem("analysis_alerts_threshold", String(s.threshold));
+      localStorage.setItem("analysis_alerts_delta", String(s.delta));
+    } catch (_) {}
+  }
+
+  function bindAlertEvents() {
+    const els = [alertsEnabledEl, alertsSoundEl, alertsThresholdEl, alertsDeltaEl];
+    els.forEach((el) => {
+      if (!el) return;
+      el.addEventListener("change", () => {
+        persistAlertSettings();
+      });
+    });
+  }
+
+  function ensureAudio() {
+    if (audioCtx) return audioCtx;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtx = new Ctx();
+      return audioCtx;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function playBeep(freq, durationMs, gainValue = 0.06) {
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.value = gainValue;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      osc.start(now);
+      osc.stop(now + durationMs / 1000);
+    } catch (_) {}
+  }
+
+  function playAlertSound(kind) {
+    const s = getAlertSettings();
+    if (!s.sound) return;
+    // Different tones for direction
+    if (kind === "LONG") {
+      playBeep(740, 120, 0.06);
+      setTimeout(() => playBeep(880, 120, 0.05), 140);
+    } else if (kind === "SHORT") {
+      playBeep(440, 140, 0.06);
+      setTimeout(() => playBeep(330, 140, 0.05), 160);
+    } else {
+      playBeep(520, 110, 0.04);
+    }
+  }
+
+  function flashAlertsRow(color, bg) {
+    if (!alertsRow) return;
+    if (alertFlashTimer) clearTimeout(alertFlashTimer);
+    const prevBorder = alertsRow.style.borderColor;
+    const prevBg = alertsRow.style.background;
+    alertsRow.style.borderColor = color;
+    alertsRow.style.background = bg;
+    alertsRow.style.boxShadow = `0 0 0 1px ${color}`;
+    alertFlashTimer = setTimeout(() => {
+      alertsRow.style.borderColor = prevBorder;
+      alertsRow.style.background = prevBg;
+      alertsRow.style.boxShadow = "none";
+    }, 1600);
+  }
+
+  function setLastAlertText(text, color = "#94a3b8") {
+    if (!alertsLastEl) return;
+    alertsLastEl.textContent = text;
+    alertsLastEl.style.color = color;
+    setTimeout(() => {
+      if (alertsLastEl) alertsLastEl.style.color = "#94a3b8";
+    }, 3000);
+  }
+
+  function processEntryAlerts(barTime, metrics) {
+    if (!metrics) return;
+    const s = getAlertSettings();
+    if (!s.enabled) {
+      prevAlertSignal = metrics.entrySignal || "WAIT";
+      prevAlertLong = Number(metrics.longCertainty || 0);
+      prevAlertShort = Number(metrics.shortCertainty || 0);
+      return;
+    }
+    if (!isStreaming) return;
+
+    const signal = metrics.entrySignal || "WAIT";
+    const long = Number(metrics.longCertainty || 0);
+    const short = Number(metrics.shortCertainty || 0);
+
+    const prevSignal = prevAlertSignal;
+    const prevLong = prevAlertLong;
+    const prevShort = prevAlertShort;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const timeStr = barTime ? new Date(barTime * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+
+    const signalChanged = prevSignal !== null && signal !== prevSignal;
+    const longCrossUp = prevLong !== null && prevLong < s.threshold && long >= s.threshold;
+    const shortCrossUp = prevShort !== null && prevShort < s.threshold && short >= s.threshold;
+    const longDelta = prevLong !== null ? long - prevLong : 0;
+    const shortDelta = prevShort !== null ? short - prevShort : 0;
+    const bigLongDelta = prevLong !== null && Math.abs(longDelta) >= s.delta;
+    const bigShortDelta = prevShort !== null && Math.abs(shortDelta) >= s.delta;
+
+    let alertKind = "";
+    let alertText = "";
+    let alertColor = "";
+    let alertBg = "";
+    let critical = false;
+
+    if (signalChanged && (signal === "LONG" || signal === "SHORT")) {
+      alertKind = signal;
+      critical = (prevSignal === "LONG" && signal === "SHORT") || (prevSignal === "SHORT" && signal === "LONG");
+      alertText = `${timeStr} • SIGNAL ${prevSignal || "—"} → ${signal} (L:${long} S:${short})`;
+    } else if (longCrossUp) {
+      alertKind = "LONG";
+      alertText = `${timeStr} • LONG certainty crossed ${s.threshold} (L:${long})`;
+    } else if (shortCrossUp) {
+      alertKind = "SHORT";
+      alertText = `${timeStr} • SHORT certainty crossed ${s.threshold} (S:${short})`;
+    } else if (bigLongDelta) {
+      alertKind = "LONG";
+      alertText = `${timeStr} • LONG certainty Δ${longDelta > 0 ? "+" : ""}${longDelta} (L:${long})`;
+    } else if (bigShortDelta) {
+      alertKind = "SHORT";
+      alertText = `${timeStr} • SHORT certainty Δ${shortDelta > 0 ? "+" : ""}${shortDelta} (S:${short})`;
+    }
+
+    if (alertKind) {
+      if (alertKind === "LONG") {
+        alertColor = "#10b981";
+        alertBg = "rgba(16,185,129,0.10)";
+      } else if (alertKind === "SHORT") {
+        alertColor = "#ef4444";
+        alertBg = "rgba(239,68,68,0.10)";
+      } else {
+        alertColor = "#fbbf24";
+        alertBg = "rgba(234,179,8,0.10)";
+      }
+
+      const key = `${barTime || 0}:${alertKind}:${signal}:${long}:${short}:${s.threshold}:${s.delta}`;
+      const cooldownOk = (nowSec - lastAlertAtSec) >= s.cooldownSec;
+      if ((cooldownOk || critical) && key !== lastAlertKey) {
+        lastAlertAtSec = nowSec;
+        lastAlertKey = key;
+        setLastAlertText(alertText, alertColor);
+        flashAlertsRow(alertColor, alertBg);
+        playAlertSound(alertKind);
+      }
+    }
+
+    prevAlertSignal = signal;
+    prevAlertLong = long;
+    prevAlertShort = short;
+  }
 
   function setStatus(msg, isError = false) {
     if (statusEl) {
@@ -209,13 +441,22 @@
     
     // Get selected timeframe and convert to seconds
     const tf = timeframeSelect ? timeframeSelect.value : "1m";
-    const tfSeconds = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600 };
-    const interval = tfSeconds[tf] || 60;
+    const interval = getTimeframeSeconds(tf);
     
     const now = Math.floor(Date.now() / 1000);
-    const currentBarStart = Math.floor(now / interval) * interval;
-    const nextBarStart = currentBarStart + interval;
-    const secondsRemaining = nextBarStart - now;
+    // Prefer the actual chart bar start time to avoid drift vs exchange timestamps
+    let barStart = 0;
+    if (snapshots && snapshots.length > 0 && snapshots[snapshots.length - 1] && snapshots[snapshots.length - 1].time) {
+      barStart = snapshots[snapshots.length - 1].time;
+    } else if (pendingSnapshot && pendingSnapshot.time) {
+      barStart = normalizeToIntervalStart(pendingSnapshot.time, interval);
+    } else if (lastBarTime) {
+      barStart = lastBarTime;
+    } else {
+      barStart = Math.floor(now / interval) * interval;
+    }
+    const nextBarStart = barStart + interval;
+    const secondsRemaining = Math.max(0, nextBarStart - now);
     
     // Format as mm:ss for longer intervals
     if (interval > 60) {
@@ -227,7 +468,7 @@
     }
     
     // Change color based on percentage remaining
-    const pctRemaining = secondsRemaining / interval;
+    const pctRemaining = interval > 0 ? (secondsRemaining / interval) : 0;
     if (pctRemaining <= 0.15) {
       countdownEl.style.color = "#ef4444"; // Red when close
     } else if (pctRemaining <= 0.5) {
@@ -604,8 +845,7 @@
     snapshotTimeSet.add(snapshot.time);
     
     // For higher timeframes, check if we need to re-aggregate
-    const tfSeconds = { "1m": 60, "5m": 300, "15m": 900, "1h": 3600 };
-    const interval = tfSeconds[currentTimeframe] || 60;
+    const interval = getTimeframeSeconds(currentTimeframe);
     
     // Calculate if this snapshot completes a new bar in the current timeframe
     const newBarTime = Math.floor(snapshot.time / interval) * interval;
@@ -758,7 +998,9 @@
   }
   
   function buildSnapshotFromOhlcCandle(candle) {
-    const time = candle && candle.time ? Math.floor(Number(candle.time)) : 0;
+    // Kraken OHLC "time" is candle start. Normalize to 1m boundaries to avoid tick drift.
+    const timeRaw = candle && candle.time ? Math.floor(Number(candle.time)) : 0;
+    const time = normalizeToIntervalStart(timeRaw, 60);
     const o = Number(candle?.open);
     const h = Number(candle?.high);
     const l = Number(candle?.low);
@@ -874,16 +1116,8 @@
   function aggregateSnapshots(snapshots, targetTimeframe) {
     if (!snapshots || snapshots.length === 0) return [];
     if (targetTimeframe === "1m") return snapshots;
-    
-    // Timeframe to seconds
-    const tfSeconds = {
-      "1m": 60,
-      "5m": 300,
-      "15m": 900,
-      "1h": 3600,
-    };
-    
-    const interval = tfSeconds[targetTimeframe] || 60;
+
+    const interval = getTimeframeSeconds(targetTimeframe);
     const aggregated = [];
     let currentBar = null;
     let currentBarTime = 0;
@@ -1595,31 +1829,58 @@
     lastBarTime = 0;
   }
 
-  // Time formatter for chart axis - shows HH:MM for intraday
-  function formatTimeAxis(time) {
-    const date = new Date(time * 1000);
+  // Time formatter for chart axis - adapts to current timeframe
+  function formatTimeAxis(time, _tickMarkType) {
+    const t = coerceUnixSeconds(time);
+    if (!t) return "";
+    const interval = getTimeframeSeconds(currentTimeframe);
+    // Only show labels on timeframe boundaries (prevents repeated HH:MM labels)
+    if (interval >= 60 && (t % interval) !== 0) return "";
+
+    const date = new Date(t * 1000);
     const hours = date.getHours().toString().padStart(2, "0");
     const mins = date.getMinutes().toString().padStart(2, "0");
+    
+    // For 1h timeframe, show date if it's 00:00
+    if (currentTimeframe === "1h" && mins === "00") {
+      const month = (date.getMonth() + 1).toString().padStart(2, "0");
+      const day = date.getDate().toString().padStart(2, "0");
+      return hours === "00" ? `${month}/${day}` : `${hours}:${mins}`;
+    }
+    
     return `${hours}:${mins}`;
   }
 
-  // Common timeScale configuration with time display
-  const timeScaleConfig = {
-    borderColor: "rgba(30,41,59,0.9)",
-    barSpacing: 8,
-    timeVisible: true,
-    secondsVisible: false,
-    tickMarkFormatter: (time) => formatTimeAxis(time),
-  };
+  // Get timeScale configuration based on current timeframe
+  function getTimeScaleConfig() {
+    // Adjust bar spacing based on timeframe for better visual appearance
+    const spacingByTf = {
+      "1m": 6,
+      "5m": 10,
+      "15m": 14,
+      "1h": 18,
+    };
+    const barSpacing = spacingByTf[currentTimeframe] || 8;
+    
+    return {
+      borderColor: "rgba(30,41,59,0.9)",
+      barSpacing: barSpacing,
+      minBarSpacing: 4,
+      timeVisible: true,
+      secondsVisible: false,
+      tickMarkFormatter: (time, tickMarkType) => formatTimeAxis(time, tickMarkType),
+    };
+  }
 
   // Standard chart with histogram metric in lower pane
-  function createDualPaneChart(container, candleData, metricData, colorFn) {
+  // options: { fixedRange: { min, max } } - for metrics like certainty scores that need 0-100 range
+  function createDualPaneChart(container, candleData, metricData, colorFn, options = {}) {
     const chart = LightweightCharts.createChart(container, {
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.02, bottom: 0.45 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.60, bottom: 0.02 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -1644,15 +1905,37 @@
     });
     
     // Validate metric data
-    const validMetricData = metricData
+    let validMetricData = metricData
       .filter((d) => d.time && d.time > 0 && d.value !== null && d.value !== undefined && isFinite(d.value))
       .map((d) => ({ time: d.time, value: d.value, color: colorFn(d.value) }));
+    
     if (validMetricData.length > 0) {
       try {
         metricSeries.setData(validMetricData);
       } catch (e) {
         console.warn("[DualPaneChart] Error setting metric data:", e.message);
       }
+    }
+    
+    // If fixedRange provided, add an invisible line series to anchor the Y-axis scale
+    if (options.fixedRange && validMetricData.length >= 1) {
+      const { min, max } = options.fixedRange;
+      const anchorSeries = chart.addLineSeries({
+        priceScaleId: "left",
+        color: "rgba(0,0,0,0)", // invisible
+        lineWidth: 0,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      
+      // Create anchor points at the bounds using first and last visible times
+      const firstTime = validMetricData[0].time;
+      const lastTime = validMetricData[validMetricData.length - 1].time;
+      anchorSeries.setData([
+        { time: firstTime, value: min },
+        { time: lastTime, value: max },
+      ]);
     }
 
     chart.timeScale().fitContent();
@@ -1828,7 +2111,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.1, bottom: 0.1 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.65, bottom: 0.02 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
     
@@ -2055,7 +2338,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.1, bottom: 0.35 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.70, bottom: 0.02 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
     
@@ -2208,7 +2491,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2328,7 +2611,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: false, minimum: -0.5, maximum: 1.5 },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2488,7 +2771,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.45 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.55, bottom: 0.05 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2540,7 +2823,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.45 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.55, bottom: 0.05 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2597,7 +2880,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.1, bottom: 0.1 }, autoScale: true, minimum: 0, maximum: 100 },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.4 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2677,7 +2960,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2773,7 +3056,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.02, bottom: 0.02 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2861,7 +3144,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2947,7 +3230,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -2992,7 +3275,7 @@
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.45 }, autoScale: true },
       leftPriceScale: { visible: true, borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.55, bottom: 0.05 } },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -3047,7 +3330,7 @@
       layout: { background: { type: "solid", color: "#0a0e17" }, textColor: "#94a3b8" },
       grid: { vertLines: { visible: false }, horzLines: { visible: false } },
       rightPriceScale: { borderColor: "rgba(30,41,59,0.9)", scaleMargins: { top: 0.05, bottom: 0.05 }, autoScale: true },
-      timeScale: timeScaleConfig,
+      timeScale: getTimeScaleConfig(),
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     });
 
@@ -3765,7 +4048,12 @@
           const gridSpacing = metric.hasGrid ? (gridSettings[metric.id] || 0) : 0;
           chartObj = createPriceOverlayChart(chartContainer, candleData, metricData, metric.lineColor, gridSpacing);
         } else {
-          chartObj = createDualPaneChart(chartContainer, candleData, metricData, metric.color);
+          // Apply fixed 0-100 range for certainty score charts
+          const chartOptions = {};
+          if (metric.id === "longCertainty" || metric.id === "shortCertainty" || metric.isSignal) {
+            chartOptions.fixedRange = { min: 0, max: 100 };
+          }
+          chartObj = createDualPaneChart(chartContainer, candleData, metricData, metric.color, chartOptions);
         }
         charts.push({ chart: chartObj.chart, barSeries: chartObj.barSeries, metricSeries: chartObj.metricSeries, id: metric.id });
         chartCount++;
@@ -3779,6 +4067,7 @@
       const lastRecord = validRecords[validRecords.length - 1];
       if (lastRecord && lastRecord.metrics) {
         updateEntrySignalsPanel(lastRecord.metrics);
+        processEntryAlerts(lastRecord.time, lastRecord.metrics);
         lastBarTime = lastRecord.time;
       }
     }
@@ -3846,6 +4135,22 @@
   async function init() {
     loadSettingsFromStorage();
     bindSettingsEvents();
+    loadAlertSettingsFromStorage();
+    bindAlertEvents();
+    // Persist defaults on first load (keeps UI + storage in sync)
+    persistAlertSettings();
+
+    // Browsers require a user gesture to enable audio; unlock on first interaction.
+    const unlockAudioOnce = () => {
+      try {
+        const ctx = ensureAudio();
+        if (ctx && ctx.state === "suspended" && typeof ctx.resume === "function") {
+          ctx.resume().catch(() => {});
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("pointerdown", unlockAudioOnce, { once: true });
+    window.addEventListener("keydown", unlockAudioOnce, { once: true });
     
     loadBtn.addEventListener("click", handleLoad);
     

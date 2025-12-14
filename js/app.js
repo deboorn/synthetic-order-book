@@ -2504,7 +2504,20 @@ class OrderBookApp {
 
         if (metric.type === 'enum' && targetSelect) {
             const opts = metric.options || [];
-            targetSelect.innerHTML = opts.map(v => `<option value="${v}">${v}</option>`).join('') || `<option value="">--</option>`;
+
+            // Preserve selection across re-renders. This function is called often (including on editor changes),
+            // so rebuilding the <select> without restoring the value makes it "stick" to the first option.
+            const prevValue = targetSelect.value;
+            const prevSig = Array.from(targetSelect.options).map(o => o.value).join('|');
+            const nextSig = opts.join('|');
+
+            if (prevSig !== nextSig) {
+                targetSelect.innerHTML = opts.map(v => `<option value="${v}">${v}</option>`).join('') || `<option value="">--</option>`;
+            }
+
+            if (prevValue && opts.includes(prevValue)) {
+                targetSelect.value = prevValue;
+            }
         }
         if (!showTextTarget && targetText) {
             // Avoid accidental reuse when switching metric types
@@ -3412,8 +3425,14 @@ class OrderBookApp {
         // Update direction analysis every 3 seconds max
         const now = Date.now();
         if (!this.lastDirectionUpdate || now - this.lastDirectionUpdate > 3000) {
-            if (typeof directionAnalysis !== 'undefined' && this.levels.length > 0) {
-                directionAnalysis.update(this.levels, price, this.currentSymbol);
+            // Use the same base level source as analytics (but NOT any LD "signal" windowing).
+            // This prevents LONG (15-30%) from flickering when other analytics are using a near-price slice.
+            const directionLevels = (this.useFullBookForAnalytics && this.fullBookLevels?.length)
+                ? this.fullBookLevels
+                : this.levels;
+            
+            if (typeof directionAnalysis !== 'undefined' && directionLevels.length > 0) {
+                directionAnalysis.update(directionLevels, price, this.currentSymbol);
                 this.lastDirectionUpdate = now;
                 
                 // Also update chart projections
@@ -3735,7 +3754,10 @@ class OrderBookApp {
         
         // Update Price Forecast (directional analysis)
         if (typeof directionAnalysis !== 'undefined') {
-            directionAnalysis.update(analyticsLevels, this.currentPrice, this.currentSymbol);
+            // Directional forecast needs the unwindowed base book so LONG (15-30%) doesn't get wiped out.
+            // (LD "signal" windowing above is for order-flow metrics only.)
+            directionAnalysis.update(baseAnalyticsLevels, this.currentPrice, this.currentSymbol);
+            this.lastDirectionUpdate = Date.now();
             this.updateProjections();
         }
 
