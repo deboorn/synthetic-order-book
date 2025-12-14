@@ -4845,8 +4845,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             
             const isNear = distancePercent <= NEAR_THRESHOLD;
             
-            const isBid = (level.type === 'support') || (level.side === 'bid');
-            if (isBid) {
+            if (level.type === 'support') {
                 weightedBidVolume += volume * weight;
                 if (isNear) {
                     nearBidVolume += volume * velocityWeight;

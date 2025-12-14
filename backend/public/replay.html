@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Synthetic Order Book — Analysis</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="css/style.css?v=20251213.3" />
+    <style>
+      .replay-page {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      .replay-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .replay-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+      .replay-subtitle {
+        font-size: 12px;
+        color: #94a3b8;
+        margin-top: 2px;
+      }
+      .replay-controls {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 1px solid rgba(30, 41, 59, 0.9);
+        border-radius: 10px;
+        background: rgba(10, 14, 23, 0.8);
+      }
+      .replay-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .replay-label {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .replay-input,
+      .replay-select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(30, 41, 59, 0.9);
+        background: rgba(2, 6, 23, 0.8);
+        color: #e2e8f0;
+        font-size: 12px;
+      }
+      .replay-btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(30, 41, 59, 0.9);
+        background: rgba(59, 130, 246, 0.15);
+        color: #e2e8f0;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .replay-btn.secondary {
+        background: rgba(148, 163, 184, 0.12);
+      }
+      .replay-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .replay-status {
+        font-size: 12px;
+        color: #94a3b8;
+        margin: 8px 0 14px;
+      }
+      .replay-charts {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding-bottom: 40px;
+      }
+      html, body {
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto !important;
+      }
+      .metric-card {
+        border: 1px solid rgba(30, 41, 59, 0.9);
+        border-radius: 10px;
+        background: rgba(10, 14, 23, 0.75);
+        overflow: hidden;
+      }
+      .metric-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(30, 41, 59, 0.9);
+      }
+      .metric-card-title {
+        font-size: 12px;
+        color: #e2e8f0;
+        font-weight: 600;
+      }
+      .metric-card-meta {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .metric-card-body {
+        height: 320px;
+      }
+      .metric-card-body.half-height {
+        height: 160px;
+      }
+      .metric-card-body.tall-height {
+        height: 400px;
+      }
+      /* Live mode styles */
+      .live-badge {
+        display: none;
+        padding: 4px 10px;
+        background: rgba(239, 68, 68, 0.2);
+        border: 1px solid rgba(239, 68, 68, 0.5);
+        border-radius: 20px;
+        font-size: 10px;
+        font-weight: 700;
+        color: #ef4444;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        animation: pulse-live 2s infinite;
+      }
+      @keyframes pulse-live {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+      }
+      .live-indicator {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: 8px;
+      }
+      .indicator-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #64748b;
+        animation: blink 1.5s infinite;
+      }
+      .indicator-dot.connected {
+        background: #10b981;
+      }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+      .indicator-text {
+        font-size: 11px;
+        color: #94a3b8;
+      }
+      .mode-toggle {
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .mode-toggle:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.25);
+        color: #34d399;
+      }
+      .mode-toggle:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: rgba(100, 116, 139, 0.1);
+        border-color: rgba(100, 116, 139, 0.3);
+        color: #64748b;
+      }
+      .mode-toggle.live-active {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.5);
+        color: #ef4444;
+        animation: pulse-btn 2s infinite;
+      }
+      @keyframes pulse-btn {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+        50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="replay-page">
+      <div class="replay-header">
+        <div>
+          <div class="replay-title" style="display:flex;align-items:center;gap:10px;">
+            <span>Order Book Analysis</span>
+            <span class="live-badge" id="liveBadge">LIVE</span>
+          </div>
+          <div class="replay-subtitle">Analyze order-book metrics vs price. Automatically streams live updates during active recordings.</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <div class="live-indicator" id="liveIndicator">
+            <div class="indicator-dot"></div>
+            <span class="indicator-text">Connecting...</span>
+          </div>
+          <a href="index.html" class="replay-btn secondary" style="text-decoration:none;display:inline-block;">Back to Main</a>
+        </div>
+      </div>
+
+      <div class="replay-controls" id="replayControls">
+        <div class="replay-field" style="min-width:220px;">
+          <label class="replay-label" for="sessionSelect">Session</label>
+          <select class="replay-select" id="sessionSelect"></select>
+        </div>
+
+        <div class="replay-field" style="min-width:80px;">
+          <label class="replay-label" for="symbolInput">Symbol</label>
+          <input class="replay-input" id="symbolInput" value="BTC" maxlength="10" />
+        </div>
+
+        <div class="replay-field" style="min-width:80px;">
+          <label class="replay-label" for="timeframeSelect">Timeframe</label>
+          <select class="replay-select" id="timeframeSelect">
+            <option value="1m" selected>1m</option>
+            <option value="5m">5m</option>
+            <option value="15m">15m</option>
+            <option value="1h">1h</option>
+          </select>
+        </div>
+
+        <button class="replay-btn" id="loadBtn">Load</button>
+      </div>
+
+      <details open style="margin: 0 0 12px 0; border: 1px solid rgba(30, 41, 59, 0.9); border-radius: 10px; padding: 10px 12px; background: rgba(10, 14, 23, 0.75);">
+        <summary style="cursor:pointer; color:#e2e8f0; font-size: 12px; font-weight: 600;">Order Book Settings — changes apply instantly</summary>
+        <div style="margin-top:10px; display:grid; grid-template-columns: repeat(10, 1fr); gap:10px;">
+          <div class="replay-field" style="grid-column: span 2;">
+            <label class="replay-label" for="settingCluster">Cluster %</label>
+            <input class="replay-input" id="settingCluster" type="number" min="0" max="20" step="0.01" />
+          </div>
+          <div class="replay-field" style="grid-column: span 2;">
+            <label class="replay-label" for="settingMaxLevels">Max Levels</label>
+            <input class="replay-input" id="settingMaxLevels" type="number" min="10" max="5000" step="10" />
+          </div>
+          <div class="replay-field" style="grid-column: span 2;">
+            <label class="replay-label" for="settingMinVol">Min Volume</label>
+            <input class="replay-input" id="settingMinVol" type="number" min="0" max="100000" step="1" />
+          </div>
+          <div class="replay-field" style="grid-column: span 2;">
+            <label class="replay-label" for="settingPriceRange">Price Range %</label>
+            <input class="replay-input" id="settingPriceRange" type="number" min="1" max="100" step="1" />
+          </div>
+          <div class="replay-field" style="grid-column: span 2;">
+            <label class="replay-label" for="settingFairValueRange">Fair Value Range %</label>
+            <input class="replay-input" id="settingFairValueRange" type="number" min="1" max="100" step="1" />
+          </div>
+        </div>
+      </details>
+
+      <!-- Individual Alpha sensitivity values stored in hidden inputs -->
+      <input type="hidden" id="settingAlphaMode" value="investor" />
+      <input type="hidden" id="alphaSensitivityMM" value="50" />
+      <input type="hidden" id="alphaSensitivitySwing" value="50" />
+      <input type="hidden" id="alphaSensitivityHTF" value="50" />
+
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
+        <div class="replay-status" id="status" style="margin:0; flex:1;">Ready.</div>
+        <div id="countdownContainer" style="display:none; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.3); border-radius:8px; padding:6px 12px;">
+          <span style="font-size:11px; color:#64748b;">Next bar:</span>
+          <span id="countdown" style="font-size:14px; font-weight:700; color:#3b82f6; margin-left:4px; font-family:monospace;">--</span>
+        </div>
+      </div>
+
+      <!-- ENTRY SIGNALS PANEL - Primary Trading Signals -->
+      <div id="entrySignalsPanel" style="margin: 0 0 16px 0; border: 2px solid rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 16px; background: linear-gradient(135deg, rgba(10, 14, 23, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="font-size:14px; font-weight:700; color:#e2e8f0; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:18px;">🎯</span> ENTRY SIGNALS
+            <span style="font-size:10px; color:#64748b; font-weight:400;">(100% Confluence Mode)</span>
+          </div>
+          <div id="currentSignal" style="padding:8px 20px; border-radius:8px; font-size:14px; font-weight:700; letter-spacing:1px; background:rgba(100,116,139,0.2); color:#94a3b8; border:1px solid rgba(100,116,139,0.4);">
+            WAIT
+          </div>
+        </div>
+        
+        <div style="display:grid; grid-template-columns: 1fr 1fr 2fr; gap:16px;">
+          <!-- Long Certainty -->
+          <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:10px; padding:12px;">
+            <div style="font-size:10px; color:#10b981; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Long Certainty</div>
+            <div style="display:flex; align-items:baseline; gap:4px;">
+              <span id="longCertainty" style="font-size:32px; font-weight:700; color:#10b981; font-family:monospace;">0</span>
+              <span style="font-size:14px; color:#10b981;">/100</span>
+            </div>
+            <div style="height:6px; background:rgba(16,185,129,0.15); border-radius:3px; margin-top:8px; overflow:hidden;">
+              <div id="longCertaintyBar" style="height:100%; width:0%; background:linear-gradient(90deg, #10b981 0%, #34d399 100%); border-radius:3px; transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:10px; color:#64748b; margin-top:6px;">
+              Threshold: <span style="color:#10b981;">≥80 = ENTRY</span>
+            </div>
+          </div>
+          
+          <!-- Short Certainty -->
+          <div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); border-radius:10px; padding:12px;">
+            <div style="font-size:10px; color:#ef4444; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Short Certainty</div>
+            <div style="display:flex; align-items:baseline; gap:4px;">
+              <span id="shortCertainty" style="font-size:32px; font-weight:700; color:#ef4444; font-family:monospace;">0</span>
+              <span style="font-size:14px; color:#ef4444;">/100</span>
+            </div>
+            <div style="height:6px; background:rgba(239,68,68,0.15); border-radius:3px; margin-top:8px; overflow:hidden;">
+              <div id="shortCertaintyBar" style="height:100%; width:0%; background:linear-gradient(90deg, #ef4444 0%, #f87171 100%); border-radius:3px; transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:10px; color:#64748b; margin-top:6px;">
+              Threshold: <span style="color:#ef4444;">≥80 = ENTRY</span>
+            </div>
+          </div>
+          
+          <!-- Signal Components -->
+          <div style="background:rgba(30,41,59,0.5); border:1px solid rgba(30,41,59,0.9); border-radius:10px; padding:12px;">
+            <div style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Signal Components (Last Bar)</div>
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; font-size:10px;">
+              <div style="text-align:center;">
+                <div style="color:#64748b;">Near Pressure</div>
+                <div id="sigNearPressure" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">Depth Imbal</div>
+                <div id="sigDepthImbal" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">BPR</div>
+                <div id="sigBPR" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">LD %</div>
+                <div id="sigLD" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">Price vs IFV</div>
+                <div id="sigIFV" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">Price vs VWMP</div>
+                <div id="sigVWMP" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">LD Momentum</div>
+                <div id="sigLDMom" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+              <div style="text-align:center;">
+                <div style="color:#64748b;">Spread State</div>
+                <div id="sigSpread" style="color:#94a3b8; font-weight:600; font-family:monospace;">-</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Signal Thresholds Help -->
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer; font-size:10px; color:#64748b;">How Certainty Score is Calculated</summary>
+          <div style="margin-top:8px; font-size:10px; color:#94a3b8; line-height:1.6; display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div>
+              <div style="color:#10b981; font-weight:600; margin-bottom:4px;">LONG Components (+points each):</div>
+              <ul style="margin:0; padding-left:16px;">
+                <li>Near Pressure &gt; 40% → +20</li>
+                <li>Depth Imbalance &gt; 40% → +20</li>
+                <li>BPR &gt; 1.5 → +15</li>
+                <li>LD% &gt; 40% → +15</li>
+                <li>Price &lt; IFV → +10</li>
+                <li>Price &lt; VWMP → +10</li>
+                <li>LD Rising (momentum) → +10</li>
+                <li>Spread Tight/Tightening → +10</li>
+              </ul>
+            </div>
+            <div>
+              <div style="color:#ef4444; font-weight:600; margin-bottom:4px;">SHORT Components (+points each):</div>
+              <ul style="margin:0; padding-left:16px;">
+                <li>Near Pressure &lt; -40% → +20</li>
+                <li>Depth Imbalance &lt; -40% → +20</li>
+                <li>BPR &lt; 0.67 → +15</li>
+                <li>LD% &lt; -40% → +15</li>
+                <li>Price &gt; IFV → +10</li>
+                <li>Price &gt; VWMP → +10</li>
+                <li>LD Falling (momentum) → +10</li>
+                <li>Spread Tight/Tightening → +10</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- System Status Panel -->
+      <details id="systemStatus" style="margin: 0 0 12px 0; border: 1px solid rgba(30, 41, 59, 0.9); border-radius: 10px; padding: 10px 12px; background: rgba(10, 14, 23, 0.75);">
+        <summary style="cursor:pointer; color:#e2e8f0; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+          <span id="systemStatusIcon">⚪</span> System Status & Help
+        </summary>
+        <div style="margin-top:12px; display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
+          <!-- Status Indicators -->
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div style="font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Status</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="serverStatusDot" style="width:8px;height:8px;border-radius:50%;background:#64748b;"></span>
+              <span style="font-size:12px;color:#94a3b8;">Server:</span>
+              <span id="serverStatusText" style="font-size:12px;color:#e2e8f0;">Checking...</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="recorderStatusDot" style="width:8px;height:8px;border-radius:50%;background:#64748b;"></span>
+              <span style="font-size:12px;color:#94a3b8;">Recorder:</span>
+              <span id="recorderStatusText" style="font-size:12px;color:#e2e8f0;">Checking...</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span id="wsStatusDot" style="width:8px;height:8px;border-radius:50%;background:#64748b;"></span>
+              <span style="font-size:12px;color:#94a3b8;">WebSocket:</span>
+              <span id="wsStatusText" style="font-size:12px;color:#e2e8f0;">Disconnected</span>
+            </div>
+            <div id="liveStats" style="display:none; margin-top:8px; padding:8px; background:rgba(16,185,129,0.1); border-radius:6px; border:1px solid rgba(16,185,129,0.2);">
+              <div style="font-size:11px;color:#10b981;font-weight:600;">Live Session</div>
+              <div style="font-size:12px;color:#e2e8f0;margin-top:4px;" id="liveStatsContent">-</div>
+            </div>
+          </div>
+          <!-- Help Commands -->
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div style="font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">Quick Commands</div>
+            <div style="font-size:11px; color:#94a3b8;">Start Server:</div>
+            <code style="font-size:10px; background:rgba(2,6,23,0.8); padding:4px 8px; border-radius:4px; color:#10b981; display:block; overflow-x:auto;">cd backend && npm run server</code>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Start Recorder (Live):</div>
+            <code style="font-size:10px; background:rgba(2,6,23,0.8); padding:4px 8px; border-radius:4px; color:#10b981; display:block; overflow-x:auto;">cd backend && npm run recorder -- --symbols BTC --streams kraken_ohlc_1m,kraken_book</code>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Generate Snapshots (Replay):</div>
+            <code style="font-size:10px; background:rgba(2,6,23,0.8); padding:4px 8px; border-radius:4px; color:#10b981; display:block; overflow-x:auto;">cd backend && npm run snapshots -- --session=SESSION_ID</code>
+            <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Stop Recorder:</div>
+            <code style="font-size:10px; background:rgba(2,6,23,0.8); padding:4px 8px; border-radius:4px; color:#ef4444; display:block; overflow-x:auto;">pkill -f "node src/recorder"</code>
+          </div>
+        </div>
+      </details>
+
+      <div class="replay-charts" id="charts"></div>
+    </div>
+
+    <script src="js/replay.js?v=20251213.40"></script>
+  </body>
+</html>

@@ -1,101 +1,202 @@
-## Synthetic Order Book — Backend
+# Synthetic Order Book — Backend
 
-This folder contains a **Node.js backend** for:
+This folder contains the **Node.js backend** for:
 
-- **Recording** exchange websocket data to disk (for replay / research)
-- **Processing** recorded files into **derived candle feeds** for every UI timeframe
+- **Recording** exchange websocket data (order book, trades, OHLC)
+- **Processing** recorded data into derived candle feeds and book snapshots
+- **Serving** the replay UI for historical analysis
 
-### Requirements
+## Directory Structure
 
-- Node.js **18+**
+```
+backend/
+├── captures/           # Recorded session data
+│   └── {session-id}/
+│       ├── raw/        # Raw NDJSON logs
+│       ├── derived/    # Processed candles & snapshots
+│       └── state/      # Checkpoints
+├── public/             # Replay UI (served by the server)
+│   ├── replay.html
+│   ├── js/
+│   └── css/
+├── src/
+│   ├── recorder/       # WebSocket → NDJSON recorder
+│   ├── processor/      # Raw → Derived candles
+│   └── server/         # HTTP server for replay
+└── package.json
+```
 
-### Install
+## Requirements
 
-From repo root:
+- Node.js **18+** (use `nvm use 18` if needed)
+
+## Install
 
 ```bash
 cd backend
 npm install
 ```
 
-### Recorder (websockets → raw NDJSON logs)
+## Quick Start
 
-The recorder writes newline-delimited JSON (NDJSON) into:
-
-- `backend/data/raw/{exchange}/{stream}/{symbol}/YYYY/MM/DD/HH.ndjson`
-
-Run:
+### 1. Record a Session
 
 ```bash
-cd backend
 npm run recorder -- \
-  --symbols BTC,ETH \
-  --streams kraken_ohlc_1m,kraken_ticker,coinbase_ticker,bitstamp_trades \
-  --maxFileMb 256 \
-  --outDir ./data
+  --symbols=BTC \
+  --enabled=kraken_ohlc,kraken_book,coinbase_level2 \
+  --session=my-session
 ```
 
-Notes:
-- **Candles**: the processor expects Kraken **1m OHLC** logs (`kraken_ohlc_1m`).
-- Files are written as `*.ndjson.tmp` during the active hour and atomically renamed to `*.ndjson` on rotation.
+This creates `captures/my-session/raw/...` with live data.
 
-### Processor (raw logs → derived candle feeds)
-
-The processor reads recorded Kraken 1m OHLC logs and produces derived candle feeds for the UI-supported timeframes:
-
-`1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 3d, 1w`
-
-Alignment matches the frontend (`js/chart.js#getBarTime`):
-- Most timeframes align to epoch boundaries.
-- **Weekly (`1w`) aligns to Monday 00:00 UTC** (Jan 5, 1970 anchor).
-
-Run:
+### 2. Process Candles
 
 ```bash
-cd backend
 npm run processor -- \
-  --symbols BTC,ETH \
-  --inDir ./data/raw \
-  --outDir ./data/derived \
-  --includeTmp true
+  --session=my-session \
+  --symbols=BTC
 ```
 
-Outputs:
-- `backend/data/derived/candles/{symbol}/{timeframe}/YYYY/MM/DD.ndjson`
+This creates derived candles at `captures/my-session/derived/candles/...`.
 
-Processor notes:
-- The processor **deduplicates** Kraken 1m OHLC updates by coalescing multiple updates for the same `time_sec` into a single finalized 1m candle before aggregating.
-- It also writes a checkpoint under `backend/data/state/processor/candles/{symbol}/{timeframe}.json` so reruns do **not** append duplicate derived candles.
+### 3. Generate Book Snapshots (for Replay)
 
-### CLI options (both commands)
+```bash
+npm run snapshots -- \
+  --session=my-session \
+  --symbol=BTC \
+  --timeframe=1m
+```
 
-- `--symbols` (required): comma-separated symbols (e.g. `BTC,ETH`)
-- `--outDir` (optional): base data directory (default `./data`)
+This creates `captures/my-session/derived/BTC/snapshots/1m.ndjson`.
 
-Recorder-specific:
-- `--streams` (optional): comma-separated stream list
-- `--maxFileMb` (optional): max single raw file size before rotating within the hour (default `0` = disabled)
+### 4. Start Replay Server
 
-Processor-specific:
-- `--inDir` (optional): raw input dir (default `./data/raw`)
-- `--includeTmp` (optional): read `*.ndjson.tmp` too (default `false`)
+```bash
+npm run server
+```
 
-### Data format (raw)
+Open http://127.0.0.1:8787/ to access the replay UI.
 
-Each NDJSON line is a JSON object with a stable envelope:
+## Commands
 
-- `v`: schema version (1)
-- `ts_capture_ms`: local capture timestamp
-- `exchange`: `kraken|coinbase|bitstamp`
-- `stream`: `ohlc|ticker|trade|meta`
-- `symbol`: normalized symbol (e.g. `BTC`)
-- `ts_event_ms`: exchange timestamp if available, else null
-- `seq`: per-session monotonic sequence
-- `payload`: normalized payload
-- `raw`: optional raw message
+| Command | Description |
+|---------|-------------|
+| `npm run recorder` | Record live exchange data |
+| `npm run processor` | Process raw OHLC → derived candles |
+| `npm run snapshots` | Generate book snapshots for replay |
+| `npm run server` | Start HTTP server for replay UI |
 
-### Safety
+## Recorder Options
 
-- The recorder is append-only and resilient to reconnects.
-- State checkpoints are written under `backend/data/state/`.
+```bash
+npm run recorder -- \
+  --symbols=BTC,ETH \
+  --enabled=kraken_ohlc,kraken_book,coinbase_level2,bitstamp_book \
+  --session=my-session \
+  --bookDepth=100 \
+  --maxFileMb=256
+```
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--symbols` | (required) | Comma-separated symbols |
+| `--enabled` | `kraken_ohlc` | Streams to enable |
+| `--session` | timestamp | Session folder name |
+| `--bookDepth` | `100` | Order book depth levels |
+| `--maxFileMb` | `0` | Max file size before rotation (0=disabled) |
+
+### Order Book Sampling (1-minute intervals)
+
+Book connectors sample at **1-minute intervals** (candle open), not every tick.
+This is how TradingView and institutional platforms handle historical order book data.
+
+**Storage comparison (per hour):**
+| Mode | Book Records | Size |
+|------|--------------|------|
+| Every tick | ~110,000 | ~180 MB |
+| **1-min sampling** | ~60 | **~100 KB** |
+
+The connectors maintain internal book state and emit a single snapshot at each minute boundary.
+
+Available streams:
+- `kraken_ohlc` - 1m OHLC candles (required for processing)
+- `kraken_book` - Order book snapshots
+- `kraken_ticker` - Ticker updates
+- `coinbase_level2` - L2 order book
+- `coinbase_ticker` - Ticker updates
+- `bitstamp_book` - Order book
+- `bitstamp_trades` - Trade stream
+
+## Server Options
+
+```bash
+npm run server -- --port=8787 --host=127.0.0.1
+```
+
+The server:
+- Serves `public/replay.html` as the replay UI
+- Provides `/api/replay/sessions` - list available sessions
+- Provides `/api/replay/stream?kind=snapshots&session=X&symbol=BTC&timeframe=1m` - stream book snapshots
+
+## Data Format
+
+### Raw NDJSON
+
+Each line is a JSON object:
+
+```json
+{
+  "v": 1,
+  "ts_capture_ms": 1702425600000,
+  "exchange": "kraken",
+  "stream": "book",
+  "symbol": "BTC",
+  "seq": 12345,
+  "payload": { ... }
+}
+```
+
+### Derived Candles
+
+```json
+{
+  "time": 1702425600,
+  "open": 43000.5,
+  "high": 43100.0,
+  "low": 42950.0,
+  "close": 43050.0,
+  "volume": 12.5
+}
+```
+
+### Book Snapshots
+
+```json
+{
+  "time": 1702425600,
+  "candle": { "o": 43000, "h": 43100, "l": 42950, "c": 43050, "v": 12.5 },
+  "book": {
+    "bids": [[42999, 1.5], [42998, 2.0], ...],
+    "asks": [[43001, 1.2], [43002, 0.8], ...]
+  }
+}
+```
+
+## Replay UI
+
+The replay UI (`public/replay.html`) allows you to:
+
+- Load recorded sessions
+- View all metrics computed from historical order book data
+- Adjust alpha sensitivity settings per metric (MM, Swing, HTF)
+- Analyze predictive signals vs price action
+
+Metrics include:
+- Fair Value (VWMP, IFV, Mid)
+- Order Flow (BPR, LD Delta, LD%)
+- Alpha Scores (MM, Swing, HTF)
+- Market Consensus (MCS, biases)
+- Regime Engine (pressure, imbalance)
+- Predictive Signals (Next Regime Probability)

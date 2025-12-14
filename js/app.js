@@ -2161,6 +2161,24 @@ class OrderBookApp {
             document.getElementById('thicknessValue').textContent = e.target.value;
         });
         
+        // LD mode + window (settings modal)
+        const ldModeEl = document.getElementById('settingLDMode');
+        const ldRangeEl = document.getElementById('settingLDRange');
+        const ldRangeValueEl = document.getElementById('ldRangeValue');
+        const ldRangeGroup = document.getElementById('settingLDRangeGroup');
+        
+        if (ldRangeEl && ldRangeValueEl) {
+            ldRangeEl.addEventListener('input', (e) => {
+                ldRangeValueEl.textContent = '±' + e.target.value + '%';
+            });
+        }
+        
+        if (ldModeEl && ldRangeGroup) {
+            ldModeEl.addEventListener('change', (e) => {
+                ldRangeGroup.style.display = (e.target.value === 'signal') ? '' : 'none';
+            });
+        }
+
 
         // Settings buttons
         document.getElementById('resetSettings').addEventListener('click', () => {
@@ -2199,6 +2217,26 @@ class OrderBookApp {
         
         document.getElementById('settingPriceRange').value = this.levelSettings.priceRange;
         document.getElementById('priceRangeValue').textContent = '±' + this.levelSettings.priceRange + '%';
+        
+        // LD settings (mode + window)
+        const ldModeEl = document.getElementById('settingLDMode');
+        const ldRangeEl = document.getElementById('settingLDRange');
+        const ldRangeValueEl = document.getElementById('ldRangeValue');
+        const ldRangeGroup = document.getElementById('settingLDRangeGroup');
+        
+        if (ldModeEl) {
+            ldModeEl.value = this.levelSettings.ldMode || 'signal';
+        }
+        if (ldRangeEl) {
+            const r = parseInt(this.levelSettings.ldRange, 10);
+            ldRangeEl.value = Number.isFinite(r) ? r : 10;
+        }
+        if (ldRangeValueEl && ldRangeEl) {
+            ldRangeValueEl.textContent = '±' + ldRangeEl.value + '%';
+        }
+        if (ldRangeGroup && ldModeEl) {
+            ldRangeGroup.style.display = (ldModeEl.value === 'signal') ? '' : 'none';
+        }
         
         // Fair Value Range (stored separately for chart.js)
         const fairValueRange = parseInt(localStorage.getItem('fairValueRange') || '15');
@@ -2937,6 +2975,9 @@ class OrderBookApp {
             maxLevels: 500,      // Max levels
             minVolume: 15,       // 15 BTC minimum
             priceRange: 100,     // Default 100% to show full picture
+            // LD settings (analytics signal shaping)
+            ldMode: 'signal',    // 'signal' | 'context'
+            ldRange: 10,         // Signal mode window (±%)
             // Color settings (vibrant cyan/magenta)
             barUpColor: '#10b981',
             barDownColor: '#ef4444',
@@ -2976,6 +3017,8 @@ class OrderBookApp {
             maxLevels: 500,
             minVolume: 15,
             priceRange: 100,
+            ldMode: 'signal',
+            ldRange: 10,
             barUpColor: '#10b981',
             barDownColor: '#ef4444',
             levelSupportColor: '#00d9ff',
@@ -2997,6 +3040,8 @@ class OrderBookApp {
             maxLevels: parseInt(document.getElementById('settingMaxLevels').value),
             minVolume: parseInt(document.getElementById('settingMinVol').value),
             priceRange: parseInt(document.getElementById('settingPriceRange').value),
+            ldMode: (document.getElementById('settingLDMode')?.value || 'signal'),
+            ldRange: parseInt(document.getElementById('settingLDRange')?.value || '10', 10),
             barUpColor: document.getElementById('colorBarUp').value,
             barDownColor: document.getElementById('colorBarDown').value,
             levelSupportColor: document.getElementById('colorLevelSupport').value,
@@ -3653,10 +3698,34 @@ class OrderBookApp {
     updateAnalyticsData() {
         if (!this.currentPrice) return;
         
-        // Choose data source based on toggle
-        const analyticsLevels = this.useFullBookForAnalytics 
+        // Choose base data source based on toggle
+        const baseAnalyticsLevels = this.useFullBookForAnalytics 
             ? (this.fullBookLevels.length ? this.fullBookLevels : this.levels)
             : this.levels;
+        
+        // LD Mode shaping:
+        // - signal: focus on near-price liquidity window for clearer bias
+        // - context: keep broader book (as selected above)
+        let analyticsLevels = baseAnalyticsLevels;
+        const ldMode = (this.levelSettings?.ldMode || 'signal');
+        const ldRange = Math.max(1, Math.min(50, parseInt(this.levelSettings?.ldRange || 10, 10)));
+        
+        if (ldMode === 'signal') {
+            const sourceLevels = this.fullBookLevels.length ? this.fullBookLevels : baseAnalyticsLevels;
+            const price = this.currentPrice;
+            const minP = price * (1 - (ldRange / 100));
+            const maxP = price * (1 + (ldRange / 100));
+            
+            const windowed = (sourceLevels || []).filter(l => {
+                const p = parseFloat(l.price);
+                return p > 0 && p >= minP && p <= maxP;
+            });
+            
+            // Only switch if we have usable data; otherwise keep base levels
+            if (windowed.length > 0) {
+                analyticsLevels = windowed;
+            }
+        }
         
         // Update Order Flow indicators (BPR, LD, OBIC, Alpha Score, Regime Engine)
         // VWMP/IFV fair value is ALWAYS computed from the full order book for accuracy

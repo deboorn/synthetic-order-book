@@ -186,8 +186,8 @@ async function main() {
     process.exit(2);
   }
 
-  const inDir = args.inDir ? path.resolve(args.inDir) : path.resolve(__dirname, "..", "..", "data", "raw");
-  const outDir = args.outDir ? path.resolve(args.outDir) : path.resolve(__dirname, "..", "..", "data", "derived");
+  const inDir = args.inDir ? path.resolve(args.inDir) : path.resolve(__dirname, "..", "..", "captures", "raw");
+  const outDir = args.outDir ? path.resolve(args.outDir) : path.resolve(__dirname, "..", "..", "captures", "derived");
   const includeTmp = asBool(args.includeTmp, false);
 
   console.log(`[processor] inDir=${inDir}`);

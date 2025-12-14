@@ -2,21 +2,22 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251211.14-green)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251213.2-green)
 
 ## 📸 Screenshots
 
 ### Desktop View
-![Synthetic Order Book - Desktop](./screenshot-desktop.jpg)
+![Synthetic Order Book - Desktop](./img/screenshot-desktop.jpg)
 
 ### Mobile View
 <p align="center">
-  <img src="./screenshot_mobile.png" alt="Synthetic Order Book - Mobile" width="350">
+  <img src="./img/screenshot_mobile.png" alt="Synthetic Order Book - Mobile" width="350">
 </p>
 
 ## 🔗 Quick Links
 
 - **[Live Demo](https://deboorn.github.io/synthetic-order-book/)** - GitHub Pages deployment
+- **[Backend / Replay](./backend/README.md)** - Record data & replay historical sessions
 
 ---
 
@@ -26,9 +27,10 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 2. [Understanding the Interface](#understanding-the-interface)
 3. [Output Reference Guide](#output-reference-guide)
 4. [Installation](#installation)
-5. [Configuration](#configuration)
-6. [License](#license)
+5. [Backend & Replay](#backend--replay)
+6. [Configuration](#configuration)
 7. [Alerts](#alerts)
+8. [License](#license)
 
 ---
 
@@ -657,6 +659,41 @@ open http://localhost:8888
 - JavaScript enabled
 - WebSocket support
 - No backend required - runs entirely client-side
+
+---
+
+## 🔄 Backend & Replay
+
+The `backend/` folder contains a Node.js toolkit for recording and replaying historical order book data.
+
+### Features
+
+- **Record** live WebSocket data from multiple exchanges
+- **Process** raw data into derived candle feeds
+- **Replay** historical sessions with all metrics computed client-side
+- **Analyze** predictive signals with adjustable alpha sensitivity
+
+### Quick Start
+
+```bash
+cd backend
+npm install
+
+# Record a session
+npm run recorder -- --symbols=BTC --enabled=kraken_ohlc,kraken_book,coinbase_level2 --session=my-session
+
+# Process candles
+npm run processor -- --session=my-session --symbols=BTC
+
+# Generate snapshots for replay
+npm run snapshots -- --session=my-session --symbol=BTC --timeframe=1m
+
+# Start replay server
+npm run server
+# Open http://127.0.0.1:8787/
+```
+
+See **[backend/README.md](./backend/README.md)** for full documentation.
 
 ---
 

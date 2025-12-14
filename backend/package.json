@@ -9,6 +9,9 @@
   "scripts": {
     "recorder": "node src/recorder/index.js",
     "processor": "node src/processor/index.js",
+    "metrics": "node src/processor/metrics.js",
+    "snapshots": "node src/processor/snapshots.js",
+    "server": "node src/server/index.js",
     "fmt": "node -e \"console.log('No formatter configured.');\""
   },
   "dependencies": {

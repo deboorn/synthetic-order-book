@@ -5,13 +5,21 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
-    const key = a.slice(2);
-    const next = argv[i + 1];
-    if (next && !next.startsWith("--")) {
-      args[key] = next;
-      i++;
+    const rest = a.slice(2);
+    // Handle --key=value format
+    if (rest.includes("=")) {
+      const [key, ...valueParts] = rest.split("=");
+      args[key] = valueParts.join("=");
     } else {
-      args[key] = true;
+      // Handle --key value format
+      const key = rest;
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        args[key] = next;
+        i++;
+      } else {
+        args[key] = true;
+      }
     }
   }
   return args;
