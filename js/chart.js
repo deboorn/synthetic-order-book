@@ -2904,6 +2904,33 @@ class OrderBookChart {
         this.updateAllSignalMarkers();
     }
 
+    /**
+     * Clear all signals cache (memory + localStorage) for all intervals
+     */
+    clearSignalsCache() {
+        // Clear in-memory markers
+        if (this.nearestClusterWinner) {
+            this.nearestClusterWinner.markerByTime = new Map();
+            this.nearestClusterWinner.markers = [];
+            this.nearestClusterWinner.currentBarMarker = null;
+        }
+        
+        // Clear localStorage for all intervals
+        const intervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
+        let cleared = 0;
+        for (const interval of intervals) {
+            const key = `ncw_${this.symbol}_${interval}`;
+            if (localStorage.getItem(key)) {
+                localStorage.removeItem(key);
+                cleared++;
+            }
+        }
+        
+        console.log(`[NCW] Cleared signals cache for ${this.symbol} (${cleared} intervals)`);
+        this.updateAllSignalMarkers();
+        return cleared;
+    }
+
     upsertNearestClusterWinnerMarker(marker, isCurrentBar = false) {
         if (!marker || !marker.time) return;
         if (!this.nearestClusterWinner) {

@@ -2252,6 +2252,14 @@ class OrderBookApp {
             this.applyLevelSettings();
         });
 
+        // Clear Signals Cache button
+        document.getElementById('clearSignalsCache')?.addEventListener('click', () => {
+            if (this.chart && typeof this.chart.clearSignalsCache === 'function') {
+                const cleared = this.chart.clearSignalsCache();
+                this.showToast(`Signals cache cleared (${cleared} intervals)`, 'success');
+            }
+        });
+
         // Close modals on Escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -4038,20 +4046,21 @@ class OrderBookApp {
         }
 
         if (!above || !below) return;
-        const sum = above.volume + below.volume;
-        if (!sum || sum <= 0) return;
+        if (above.volume <= 0 || below.volume <= 0) return;
 
-        // Calculate winner's share of total volume (more intuitive than difference)
-        const winnerVolume = Math.max(above.volume, below.volume);
-        const pct = Math.round((winnerVolume / sum) * 100);
-        if (!Number.isFinite(pct) || pct <= 50) return; // Only show if there's meaningful imbalance (>50%)
+        // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
+        const smallerVolume = Math.min(above.volume, below.volume);
+        const largerVolume = Math.max(above.volume, below.volume);
+        const pct = Math.round((smallerVolume / largerVolume) * 100);
+        if (!Number.isFinite(pct) || pct >= 95) return; // Only show if there's meaningful imbalance (<95% ratio)
 
-        const highWins = above.volume > below.volume;
+        // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
+        const moreAbove = above.volume > below.volume;
         const marker = {
             time: closedTime,
-            position: highWins ? 'aboveBar' : 'belowBar',
-            color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-            shape: highWins ? 'arrowDown' : 'arrowUp',
+            position: moreAbove ? 'aboveBar' : 'belowBar',
+            color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+            shape: moreAbove ? 'arrowDown' : 'arrowUp',
             text: pct + '%'
         };
 
@@ -4122,20 +4131,21 @@ class OrderBookApp {
             }
 
             if (!above || !below) continue;
-            const sum = above.volume + below.volume;
-            if (!sum || sum <= 0) continue;
+            if (above.volume <= 0 || below.volume <= 0) continue;
 
-            // Calculate winner's share of total volume (more intuitive than difference)
-            const winnerVolume = Math.max(above.volume, below.volume);
-            const pct = Math.round((winnerVolume / sum) * 100);
-            if (!Number.isFinite(pct) || pct <= 50) continue; // Only show if there's meaningful imbalance (>50%)
+            // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
+            const smallerVolume = Math.min(above.volume, below.volume);
+            const largerVolume = Math.max(above.volume, below.volume);
+            const pct = Math.round((smallerVolume / largerVolume) * 100);
+            if (!Number.isFinite(pct) || pct >= 95) continue; // Only show if there's meaningful imbalance (<95% ratio)
 
-            const highWins = above.volume > below.volume;
+            // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
+            const moreAbove = above.volume > below.volume;
             const marker = {
                 time: candleTime,
-                position: highWins ? 'aboveBar' : 'belowBar',
-                color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-                shape: highWins ? 'arrowDown' : 'arrowUp',
+                position: moreAbove ? 'aboveBar' : 'belowBar',
+                color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+                shape: moreAbove ? 'arrowDown' : 'arrowUp',
                 text: pct + '%'
             };
 
@@ -4204,27 +4214,28 @@ class OrderBookApp {
             this.clearCurrentBarNearestClusterWinner();
             return;
         }
-        const sum = above.volume + below.volume;
-        if (!sum || sum <= 0) {
+        if (above.volume <= 0 || below.volume <= 0) {
             this.clearCurrentBarNearestClusterWinner();
             return;
         }
 
-        // Calculate winner's share of total volume (more intuitive than difference)
-        const winnerVolume = Math.max(above.volume, below.volume);
-        const pct = Math.round((winnerVolume / sum) * 100);
-        if (!Number.isFinite(pct) || pct <= 50) {
+        // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
+        const smallerVolume = Math.min(above.volume, below.volume);
+        const largerVolume = Math.max(above.volume, below.volume);
+        const pct = Math.round((smallerVolume / largerVolume) * 100);
+        if (!Number.isFinite(pct) || pct >= 95) {
             // No meaningful imbalance - clear any stale marker
             this.clearCurrentBarNearestClusterWinner();
             return;
         }
 
-        const highWins = above.volume > below.volume;
+        // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
+        const moreAbove = above.volume > below.volume;
         const marker = {
             time: currentBarTime,
-            position: highWins ? 'aboveBar' : 'belowBar',
-            color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-            shape: highWins ? 'arrowDown' : 'arrowUp',
+            position: moreAbove ? 'aboveBar' : 'belowBar',
+            color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+            shape: moreAbove ? 'arrowDown' : 'arrowUp',
             text: pct + '%'
         };
 
