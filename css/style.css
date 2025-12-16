@@ -3490,7 +3490,11 @@ body.modal-open {
 .fullscreen-modal .modal-content.fullscreen-content {
     max-width: 95vw;
     width: 95vw;
+    /* Use dynamic viewport units to avoid mobile landscape clipping (Fold/Android URL bar) */
+    height: 90vh;
     max-height: 90vh;
+    height: 90dvh;
+    max-height: 90dvh;
     height: auto;
     display: flex;
     flex-direction: column;
