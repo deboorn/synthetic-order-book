@@ -4002,9 +4002,8 @@ class OrderBookApp {
         // Only compute when enabled
         if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
         if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
 
         const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
@@ -4080,9 +4079,8 @@ class OrderBookApp {
         if (!this.chart || !this.chart.localCandles || this.chart.localCandles.size === 0) return;
         if (!this.chart.upsertNearestClusterWinnerMarker) return;
 
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
 
         const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
@@ -4179,9 +4177,8 @@ class OrderBookApp {
             return;
         }
 
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) {
             this.clearCurrentBarNearestClusterWinner();
             return;
