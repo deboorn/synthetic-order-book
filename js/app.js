@@ -3837,8 +3837,11 @@ class OrderBookApp {
         // Update Order Flow indicators (BPR, LD, OBIC, Alpha Score, Regime Engine)
         // VWMP/IFV fair value is ALWAYS computed from the full order book for accuracy
         // (independent of the analytics toggle).
+        // Pass clustered levels (this.levels) for level-based signals (nearest S/R, level counts)
+        // so they match what's visually displayed on the chart.
         const fairValueLevels = this.fullBookLevels.length ? this.fullBookLevels : analyticsLevels;
-        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels);
+        const clusteredLevels = this.levels;  // Clustered levels matching chart display
+        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels, clusteredLevels);
         
         // Update Price Forecast (directional analysis)
         if (typeof directionAnalysis !== 'undefined') {
@@ -3999,9 +4002,8 @@ class OrderBookApp {
         // Only compute when enabled
         if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
         if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
 
         const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
@@ -4077,9 +4079,8 @@ class OrderBookApp {
         if (!this.chart || !this.chart.localCandles || this.chart.localCandles.size === 0) return;
         if (!this.chart.upsertNearestClusterWinnerMarker) return;
 
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
 
         const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
@@ -4176,9 +4177,8 @@ class OrderBookApp {
             return;
         }
 
-        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
-            ? this.fullBookLevels
-            : this.levels;
+        // Use clustered levels (this.levels) to match what's visually displayed on the chart
+        const sourceLevels = this.levels;
         if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) {
             this.clearCurrentBarNearestClusterWinner();
             return;
