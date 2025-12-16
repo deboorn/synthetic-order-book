@@ -2805,6 +2805,7 @@ class OrderBookApp {
             if (chk) chk.checked = false;
             if (btn) btn.disabled = true;
             dm?.classList.add('open');
+            this.syncModalBodyLock();
             return;
         }
 
@@ -2827,6 +2828,7 @@ class OrderBookApp {
 
         // Close editor
         document.getElementById('alertEditModal')?.classList.remove('open');
+        this.syncModalBodyLock();
 
         // Refresh modal if open
         if (document.getElementById('alertsModal')?.classList.contains('open')) {
@@ -2839,6 +2841,7 @@ class OrderBookApp {
     confirmAlertsDisclaimer() {
         localStorage.setItem('alertsDisclaimerSeen', 'true');
         document.getElementById('alertsDisclaimerModal')?.classList.remove('open');
+        this.syncModalBodyLock();
 
         const pending = this._pendingAlertSave;
         this._pendingAlertSave = null;

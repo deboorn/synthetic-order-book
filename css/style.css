@@ -3511,8 +3511,8 @@ body.modal-open {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
-    overflow-y: auto;
-    max-height: 65vh;
+    overflow: visible;
+    max-height: none;
     padding-right: var(--spacing-sm);
 }
 
