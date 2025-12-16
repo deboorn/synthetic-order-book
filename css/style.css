@@ -3490,7 +3490,9 @@ body.modal-open {
 .fullscreen-modal .modal-content.fullscreen-content {
     max-width: 95vw;
     width: 95vw;
+    /* Use dynamic viewport units to avoid mobile landscape clipping (Fold/Android URL bar) */
     max-height: 90vh;
+    max-height: 90dvh;
     height: auto;
     display: flex;
     flex-direction: column;
@@ -3751,6 +3753,21 @@ body.modal-open {
     
     .fullscreen-modal .settings-toggle .toggle-label {
         font-size: 0.85rem;
+    }
+}
+
+/* Short viewports (foldables / landscape): keep actions reachable even on wide screens */
+@media (max-height: 700px) {
+    .fullscreen-modal .modal-body.settings-grid {
+        padding: var(--spacing-md);
+        gap: var(--spacing-md);
+    }
+
+    .fullscreen-modal .modal-footer {
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-secondary);
+        padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom));
     }
 }
 

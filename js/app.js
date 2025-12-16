@@ -3979,7 +3979,10 @@ class OrderBookApp {
         // Only compute when enabled
         if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
         if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
-        if (!Array.isArray(this.levels) || this.levels.length === 0) return;
+        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
+            ? this.fullBookLevels
+            : this.levels;
+        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
 
         const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
         let closedTime = detail?.closedTime;
@@ -4002,7 +4005,7 @@ class OrderBookApp {
         let below = null;
         let belowDist = Infinity;
 
-        for (const lvl of this.levels) {
+        for (const lvl of sourceLevels) {
             const p = parseFloat(lvl?.price);
             const v = parseFloat(lvl?.volume);
             if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;

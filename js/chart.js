@@ -714,6 +714,13 @@ class OrderBookChart {
         } else if (!savedRange) {
             this.chart.timeScale().fitContent();
         }
+
+        // Re-apply signal markers after data refresh (setData/repaint can drop markers on some browsers)
+        try {
+            this.updateAllSignalMarkers();
+        } catch (e) {
+            // Non-fatal: markers will be re-applied on next throttled repaint
+        }
     }
 
     // Update with new candle (real-time)
