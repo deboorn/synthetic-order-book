@@ -4161,12 +4161,18 @@ class OrderBookApp {
         if (!currentBarTime || currentBarTime <= 0) return;
 
         const currentPrice = this.currentPrice || (this.chart.lastCandle?.close);
-        if (!currentPrice || currentPrice <= 0) return;
+        if (!currentPrice || currentPrice <= 0) {
+            this.clearCurrentBarNearestClusterWinner();
+            return;
+        }
 
         const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
             ? this.fullBookLevels
             : this.levels;
-        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
+        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) {
+            this.clearCurrentBarNearestClusterWinner();
+            return;
+        }
 
         // Find closest resistance above and support below current price
         let above = null;
@@ -4194,14 +4200,24 @@ class OrderBookApp {
             }
         }
 
-        if (!above || !below) return;
+        if (!above || !below) {
+            this.clearCurrentBarNearestClusterWinner();
+            return;
+        }
         const sum = above.volume + below.volume;
-        if (!sum || sum <= 0) return;
+        if (!sum || sum <= 0) {
+            this.clearCurrentBarNearestClusterWinner();
+            return;
+        }
 
         // Calculate winner's share of total volume (more intuitive than difference)
         const winnerVolume = Math.max(above.volume, below.volume);
         const pct = Math.round((winnerVolume / sum) * 100);
-        if (!Number.isFinite(pct) || pct <= 50) return; // Only show if there's meaningful imbalance (>50%)
+        if (!Number.isFinite(pct) || pct <= 50) {
+            // No meaningful imbalance - clear any stale marker
+            this.clearCurrentBarNearestClusterWinner();
+            return;
+        }
 
         const highWins = above.volume > below.volume;
         const marker = {
@@ -4214,6 +4230,18 @@ class OrderBookApp {
 
         // Pass isCurrentBar=true to update the live marker
         this.chart.upsertNearestClusterWinnerMarker(marker, true);
+    }
+
+    /**
+     * Clear the current bar's nearest cluster winner marker.
+     * Called when there's no valid signal to display.
+     */
+    clearCurrentBarNearestClusterWinner() {
+        if (!this.chart || !this.chart.nearestClusterWinner) return;
+        if (this.chart.nearestClusterWinner.currentBarMarker) {
+            this.chart.nearestClusterWinner.currentBarMarker = null;
+            this.chart.updateAllSignalMarkers();
+        }
     }
 
     togglePriceVisibility() {

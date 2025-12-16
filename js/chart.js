@@ -255,6 +255,7 @@ class OrderBookChart {
         if (this.nearestClusterWinner) {
             this.nearestClusterWinner.markerByTime = new Map();
             this.nearestClusterWinner.markers = [];
+            this.nearestClusterWinner.currentBarMarker = null;
         }
         this.loadNearestClusterWinner();
         
@@ -418,6 +419,7 @@ class OrderBookChart {
             // Clear interval-scoped markers (will be reloaded from storage below)
             this.nearestClusterWinner.markerByTime = new Map();
             this.nearestClusterWinner.markers = [];
+            this.nearestClusterWinner.currentBarMarker = null;
         }
         this.currentInterval = interval;
 
@@ -2898,6 +2900,7 @@ class OrderBookChart {
         if (!this.nearestClusterWinner) return;
         this.nearestClusterWinner.markerByTime = new Map();
         this.nearestClusterWinner.markers = [];
+        this.nearestClusterWinner.currentBarMarker = null;
         this.updateAllSignalMarkers();
     }
 
