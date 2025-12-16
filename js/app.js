@@ -1476,6 +1476,9 @@ class OrderBookApp {
         this.levels = processed.levels;
         this.chart.setLevels(this.levels);
         
+        // Update real-time nearest cluster winner for current bar
+        this.updateCurrentBarNearestClusterWinner();
+        
         // Update depth chart (medium frequency - 1 second)
         if (shouldUpdateDepth && this.depthChart) {
             this._lastDepthUpdate = now;
@@ -4038,8 +4041,10 @@ class OrderBookApp {
         const sum = above.volume + below.volume;
         if (!sum || sum <= 0) return;
 
-        const pct = Math.round((Math.abs(above.volume - below.volume) / sum) * 100);
-        if (!Number.isFinite(pct) || pct <= 0) return;
+        // Calculate winner's share of total volume (more intuitive than difference)
+        const winnerVolume = Math.max(above.volume, below.volume);
+        const pct = Math.round((winnerVolume / sum) * 100);
+        if (!Number.isFinite(pct) || pct <= 50) return; // Only show if there's meaningful imbalance (>50%)
 
         const highWins = above.volume > below.volume;
         const marker = {
@@ -4120,8 +4125,10 @@ class OrderBookApp {
             const sum = above.volume + below.volume;
             if (!sum || sum <= 0) continue;
 
-            const pct = Math.round((Math.abs(above.volume - below.volume) / sum) * 100);
-            if (!Number.isFinite(pct) || pct <= 0) continue;
+            // Calculate winner's share of total volume (more intuitive than difference)
+            const winnerVolume = Math.max(above.volume, below.volume);
+            const pct = Math.round((winnerVolume / sum) * 100);
+            if (!Number.isFinite(pct) || pct <= 50) continue; // Only show if there's meaningful imbalance (>50%)
 
             const highWins = above.volume > below.volume;
             const marker = {
@@ -4139,6 +4146,74 @@ class OrderBookApp {
         if (computedCount > 0) {
             console.log(`[NCW] Computed ${computedCount} markers for historical bars`);
         }
+    }
+
+    /**
+     * Update the current (live) bar's nearest cluster winner marker in real-time.
+     * Called on every level update so the indicator shows instantly without waiting for bar close.
+     */
+    updateCurrentBarNearestClusterWinner() {
+        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
+        if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
+        if (!this.chart.getCurrentCandleTime) return;
+
+        const currentBarTime = this.chart.getCurrentCandleTime();
+        if (!currentBarTime || currentBarTime <= 0) return;
+
+        const currentPrice = this.currentPrice || (this.chart.lastCandle?.close);
+        if (!currentPrice || currentPrice <= 0) return;
+
+        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
+            ? this.fullBookLevels
+            : this.levels;
+        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
+
+        // Find closest resistance above and support below current price
+        let above = null;
+        let aboveDist = Infinity;
+        let below = null;
+        let belowDist = Infinity;
+
+        for (const lvl of sourceLevels) {
+            const p = parseFloat(lvl?.price);
+            const v = parseFloat(lvl?.volume);
+            if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
+
+            if (lvl.type === 'resistance' && p > currentPrice) {
+                const d = p - currentPrice;
+                if (d < aboveDist) {
+                    aboveDist = d;
+                    above = { price: p, volume: v };
+                }
+            } else if (lvl.type === 'support' && p < currentPrice) {
+                const d = currentPrice - p;
+                if (d < belowDist) {
+                    belowDist = d;
+                    below = { price: p, volume: v };
+                }
+            }
+        }
+
+        if (!above || !below) return;
+        const sum = above.volume + below.volume;
+        if (!sum || sum <= 0) return;
+
+        // Calculate winner's share of total volume (more intuitive than difference)
+        const winnerVolume = Math.max(above.volume, below.volume);
+        const pct = Math.round((winnerVolume / sum) * 100);
+        if (!Number.isFinite(pct) || pct <= 50) return; // Only show if there's meaningful imbalance (>50%)
+
+        const highWins = above.volume > below.volume;
+        const marker = {
+            time: currentBarTime,
+            position: highWins ? 'aboveBar' : 'belowBar',
+            color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+            shape: highWins ? 'arrowDown' : 'arrowUp',
+            text: pct + '%'
+        };
+
+        // Pass isCurrentBar=true to update the live marker
+        this.chart.upsertNearestClusterWinnerMarker(marker, true);
     }
 
     togglePriceVisibility() {
