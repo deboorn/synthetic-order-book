@@ -3024,6 +3024,11 @@ body {
     display: flex;
 }
 
+/* Prevent background scroll when any modal is open */
+body.modal-open {
+    overflow: hidden !important;
+}
+
 .modal-backdrop {
     position: absolute;
     top: 0;
@@ -3487,14 +3492,19 @@ body {
     width: 95vw;
     max-height: 90vh;
     height: auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .fullscreen-modal .modal-body.settings-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--spacing-xl);
-    max-height: 70vh;
     padding: var(--spacing-lg) var(--spacing-xl);
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .settings-column {
@@ -3620,6 +3630,12 @@ body {
     justify-content: flex-end;
 }
 
+.modal-footer .settings-actions {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
 .settings-btn {
     display: flex;
     align-items: center;
@@ -3642,6 +3658,20 @@ body {
 @media (max-width: 1200px) {
     .fullscreen-modal .modal-body.settings-grid {
         grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+/* Small tablets: avoid cramped multi-column settings */
+@media (max-width: 900px) {
+    .fullscreen-modal .modal-body.settings-grid {
+        grid-template-columns: 1fr !important;
+        gap: var(--spacing-md);
+    }
+
+    .fullscreen-modal .settings-column {
+        max-height: none;
+        overflow: visible;
+        padding-right: 0;
     }
 }
 
@@ -3671,6 +3701,7 @@ body {
     
     .fullscreen-modal .modal-header {
         flex-shrink: 0;
+        padding-top: calc(var(--spacing-md) + env(safe-area-inset-top));
     }
     
     .fullscreen-modal .modal-header h2 {
@@ -3684,14 +3715,58 @@ body {
         background: var(--bg-secondary);
         border-top: 1px solid var(--border-color);
         padding: var(--spacing-md);
+        padding-bottom: calc(var(--spacing-md) + env(safe-area-inset-bottom));
     }
     
     .fullscreen-modal .settings-toggles-group {
         padding: var(--spacing-sm);
     }
+
+    .fullscreen-modal .modal-close {
+        width: 44px;
+        height: 44px;
+        font-size: 2rem;
+    }
+
+    .fullscreen-modal .settings-toggle {
+        padding: 10px 0;
+    }
+
+    .fullscreen-modal .settings-toggle .toggle-slider {
+        width: 44px;
+        height: 24px;
+        border-radius: 12px;
+    }
+
+    .fullscreen-modal .settings-toggle .toggle-slider::before {
+        width: 20px;
+        height: 20px;
+        top: 2px;
+        left: 2px;
+    }
+
+    .fullscreen-modal .settings-toggle input:checked + .toggle-slider::before {
+        transform: translateX(20px);
+    }
     
     .fullscreen-modal .settings-toggle .toggle-label {
         font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .setting-input {
+        flex-wrap: wrap;
+        gap: var(--spacing-sm);
+    }
+
+    .setting-value {
+        min-width: auto;
+        text-align: left;
+    }
+
+    .setting-input input.number-input {
+        width: 100%;
     }
 }
 

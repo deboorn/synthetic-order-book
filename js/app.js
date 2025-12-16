@@ -1957,14 +1957,17 @@ class OrderBookApp {
         // Legend modal
         document.getElementById('btnLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.add('open');
+            this.syncModalBodyLock();
         });
         
         document.getElementById('closeLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
         
         document.querySelector('#legendModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
 
         // Alerts modal (TradingView-style)
@@ -1992,8 +1995,14 @@ class OrderBookApp {
         // Alerts modal wiring
         const alertsModal = document.getElementById('alertsModal');
         if (alertsModal) {
-            document.getElementById('closeAlerts')?.addEventListener('click', () => alertsModal.classList.remove('open'));
-            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertsModal.classList.remove('open'));
+            document.getElementById('closeAlerts')?.addEventListener('click', () => {
+                alertsModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+                alertsModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
             document.getElementById('btnCreateAlertFromModal')?.addEventListener('click', () => {
                 if (typeof this.openAddAlertModal === 'function') {
                     this.openAddAlertModal(null);
@@ -2039,9 +2048,18 @@ class OrderBookApp {
 
         const alertEditModal = document.getElementById('alertEditModal');
         if (alertEditModal) {
-            document.getElementById('closeAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
-            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
-            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            document.getElementById('closeAlertEdit')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
             document.getElementById('alertForm')?.addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (typeof this.handleAlertFormSubmit === 'function') {
@@ -2081,14 +2099,17 @@ class OrderBookApp {
             document.getElementById('closeAlertsDisclaimer')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerCancel')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             alertsDisclaimerModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerContinue')?.addEventListener('click', () => {
                 if (!chk?.checked) return;
@@ -2096,6 +2117,7 @@ class OrderBookApp {
                     this.confirmAlertsDisclaimer();
                 } else {
                     alertsDisclaimerModal.classList.remove('open');
+                    this.syncModalBodyLock();
                 }
             });
         }
@@ -2115,10 +2137,12 @@ class OrderBookApp {
         
         document.getElementById('closeSettings').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
         
         document.querySelector('#settingsModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
 
         // Panel alert buttons (prevent panel collapse toggle)
@@ -2201,8 +2225,14 @@ class OrderBookApp {
                     this._pendingAlertSave = null;
                 }
                 dm?.classList.remove('open');
+                this.syncModalBodyLock();
             }
         });
+    }
+
+    syncModalBodyLock() {
+        const anyOpen = !!document.querySelector('.modal.open');
+        document.body.classList.toggle('modal-open', anyOpen);
     }
 
     openSettingsModal() {
@@ -2278,6 +2308,7 @@ class OrderBookApp {
         document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
+        this.syncModalBodyLock();
     }
 
     // ==============================
@@ -2287,6 +2318,7 @@ class OrderBookApp {
         const modal = document.getElementById('alertsModal');
         if (!modal) return;
         modal.classList.add('open');
+        this.syncModalBodyLock();
         this.switchAlertsTab('active');
         if (typeof this.renderAlertsModal === 'function') {
             this.renderAlertsModal();
@@ -2370,6 +2402,7 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
+        this.syncModalBodyLock();
 
         // Prime audio on user gesture (enables sound alerts later)
         this.alertsManager?.ensureAudioUnlocked?.();
@@ -2978,6 +3011,7 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
+        this.syncModalBodyLock();
         this.alertsManager?.ensureAudioUnlocked?.();
     }
 
@@ -3119,6 +3153,7 @@ class OrderBookApp {
         }
         
         document.getElementById('settingsModal').classList.remove('open');
+        this.syncModalBodyLock();
         this.loadData(); // Refresh with new settings
     }
     
