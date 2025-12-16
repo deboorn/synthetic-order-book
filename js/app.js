@@ -3837,8 +3837,11 @@ class OrderBookApp {
         // Update Order Flow indicators (BPR, LD, OBIC, Alpha Score, Regime Engine)
         // VWMP/IFV fair value is ALWAYS computed from the full order book for accuracy
         // (independent of the analytics toggle).
+        // Pass clustered levels (this.levels) for level-based signals (nearest S/R, level counts)
+        // so they match what's visually displayed on the chart.
         const fairValueLevels = this.fullBookLevels.length ? this.fullBookLevels : analyticsLevels;
-        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels);
+        const clusteredLevels = this.levels;  // Clustered levels matching chart display
+        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels, clusteredLevels);
         
         // Update Price Forecast (directional analysis)
         if (typeof directionAnalysis !== 'undefined') {
