@@ -250,8 +250,12 @@ class OrderBookChart {
         this.symbol = symbol;
         this._viewRestored = false; // Reset so new symbol gets its own saved view
 
-        // Clear interval/symbol-scoped markers
-        this.resetNearestClusterWinnerMarkers();
+        // Clear interval/symbol-scoped markers, then load saved ones for new symbol
+        if (this.nearestClusterWinner) {
+            this.nearestClusterWinner.markerByTime = new Map();
+            this.nearestClusterWinner.markers = [];
+        }
+        this.loadNearestClusterWinner();
         
         // Reset regime engine to prevent cross-symbol contamination
         // Different coins have vastly different LD scales (BTC ~100 vs DOGE ~100,000)
@@ -410,8 +414,9 @@ class OrderBookChart {
             
             console.log(`[Chart] Interval changed to ${interval}, cleared local candles and historical data`);
 
-            // Clear interval-scoped markers
-            this.resetNearestClusterWinnerMarkers();
+            // Clear interval-scoped markers (will be reloaded from storage below)
+            this.nearestClusterWinner.markerByTime = new Map();
+            this.nearestClusterWinner.markers = [];
         }
         this.currentInterval = interval;
 
@@ -419,6 +424,9 @@ class OrderBookChart {
         if (this.historicalFairValue.enabled) {
             this.loadHistoricalFairValue();
         }
+        
+        // Load saved nearest cluster winner markers for this interval
+        this.loadNearestClusterWinner();
     }
 
     init() {
@@ -2906,7 +2914,91 @@ class OrderBookChart {
         all.sort((a, b) => a.time - b.time);
         const max = this.nearestClusterWinner.maxMarkers || 600;
         this.nearestClusterWinner.markers = all.length > max ? all.slice(-max) : all;
+        
+        // Persist to localStorage
+        this.saveNearestClusterWinnerToStorage();
+        
         this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Save nearest cluster winner markers to localStorage
+     * Storage key is scoped by symbol and interval
+     */
+    saveNearestClusterWinnerToStorage() {
+        try {
+            if (!this.nearestClusterWinner || !this.nearestClusterWinner.markers) return;
+            
+            const storageKey = `ncw_${this.symbol}_${this.currentInterval}`;
+            const max = this.nearestClusterWinner.maxMarkers || 600;
+            
+            // Store only essential marker data
+            let stored = this.nearestClusterWinner.markers.map(m => ({
+                time: m.time,
+                position: m.position,
+                color: m.color,
+                shape: m.shape,
+                text: m.text
+            }));
+            
+            if (stored.length > max) {
+                stored = stored.slice(-max);
+            }
+            
+            localStorage.setItem(storageKey, JSON.stringify(stored));
+        } catch (e) {
+            // localStorage might be full, silently fail
+        }
+    }
+    
+    /**
+     * Load nearest cluster winner markers from localStorage
+     * Called after interval is set
+     */
+    loadNearestClusterWinner() {
+        if (!this.nearestClusterWinner) {
+            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600 };
+        }
+        if (!this.currentInterval) return; // Wait for interval to be set
+        
+        try {
+            const storageKey = `ncw_${this.symbol}_${this.currentInterval}`;
+            const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            
+            if (!Array.isArray(stored) || stored.length === 0) {
+                console.log(`[NCW] No saved markers for ${this.symbol} ${this.currentInterval}`);
+                return;
+            }
+            
+            // Populate cache
+            this.nearestClusterWinner.markerByTime.clear();
+            for (const m of stored) {
+                const t = parseInt(m?.time, 10);
+                if (!t || isNaN(t)) continue;
+                
+                this.nearestClusterWinner.markerByTime.set(t, {
+                    time: t,
+                    position: m.position,
+                    color: m.color,
+                    shape: m.shape,
+                    text: m.text
+                });
+            }
+            
+            // Rebuild markers array from map
+            const all = Array.from(this.nearestClusterWinner.markerByTime.values());
+            all.sort((a, b) => a.time - b.time);
+            const max = this.nearestClusterWinner.maxMarkers || 600;
+            this.nearestClusterWinner.markers = all.length > max ? all.slice(-max) : all;
+            
+            console.log(`[NCW] Loaded ${this.nearestClusterWinner.markers.length} markers for ${this.symbol} ${this.currentInterval}`);
+            
+            if (this.nearestClusterWinner.enabled) {
+                this.updateAllSignalMarkers();
+            }
+        } catch (e) {
+            console.warn('[NCW] Failed to load from storage:', e);
+        }
     }
     
     // ==========================================

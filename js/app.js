@@ -1257,6 +1257,9 @@ class OrderBookApp {
         this.currentTimeframe = localStorage.getItem('selectedTimeframe') || '4h';
         this.lastDirectionUpdate = 0;
         
+        // Track if we've computed NCW markers for historical bars
+        this._ncwHistoryComputed = false;
+        
         // Alerts (per-symbol)
         this.alertsManager = new AlertsManager(this);
         this._alertsEvalInterval = null;
@@ -1519,6 +1522,13 @@ class OrderBookApp {
             // Update last update time
             const nowDate = new Date();
             this.elements.lastUpdate.textContent = `Last update: ${nowDate.toLocaleTimeString()}`;
+            
+            // Compute nearest cluster winner markers for historical bars (once per session)
+            if (!this._ncwHistoryComputed && this.chart && this.chart.localCandles && this.chart.localCandles.size > 0) {
+                this._ncwHistoryComputed = true;
+                // Defer to avoid blocking the main loop
+                setTimeout(() => this.computeNearestClusterWinnerForHistory(), 100);
+            }
         }
     }
     
@@ -1692,13 +1702,9 @@ class OrderBookApp {
                 }
                 localStorage.setItem('showNearestClusterWinner', e.target.checked);
 
-                // If enabling, immediately compute for the most recently closed bar
+                // If enabling, compute markers for ALL historical closed bars
                 if (e.target.checked && this.chart) {
-                    const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
-                    const currentTime = (typeof this.chart.getCurrentCandleTime === 'function') ? this.chart.getCurrentCandleTime() : 0;
-                    const closedTime = (intervalSec && currentTime) ? (currentTime - intervalSec) : 0;
-                    const closedClose = (closedTime && this.chart.localCandles?.get) ? this.chart.localCandles.get(closedTime)?.close : null;
-                    this.onNearestClusterWinnerBarClosed({ time: currentTime, closedTime, closedClose });
+                    this.computeNearestClusterWinnerForHistory();
                 }
             });
         }
@@ -3439,6 +3445,9 @@ class OrderBookApp {
             this.chart.setInterval(timeframe);
             this.currentTimeframe = timeframe;
             
+            // Reset NCW history computation flag for new timeframe
+            this._ncwHistoryComputed = false;
+            
             // Save timeframe to localStorage
             localStorage.setItem('selectedTimeframe', timeframe);
             
@@ -4042,6 +4051,94 @@ class OrderBookApp {
         };
 
         this.chart.upsertNearestClusterWinnerMarker(marker);
+    }
+
+    /**
+     * Compute nearest cluster winner markers for all historical closed bars.
+     * Called when levels first become available or when feature is toggled on.
+     * Uses current levels data to compute markers for bars that don't already have one.
+     */
+    computeNearestClusterWinnerForHistory() {
+        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
+        if (!this.chart || !this.chart.localCandles || this.chart.localCandles.size === 0) return;
+        if (!this.chart.upsertNearestClusterWinnerMarker) return;
+
+        const sourceLevels = (Array.isArray(this.fullBookLevels) && this.fullBookLevels.length > 0)
+            ? this.fullBookLevels
+            : this.levels;
+        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
+
+        const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
+        if (!intervalSec) return;
+
+        // Get current bar time to exclude it (not closed yet)
+        const currentBarTime = (typeof this.chart.getCurrentCandleTime === 'function') ? this.chart.getCurrentCandleTime() : 0;
+        
+        // Get all candle times
+        const candleTimes = Array.from(this.chart.localCandles.keys()).sort((a, b) => a - b);
+        
+        let computedCount = 0;
+        for (const candleTime of candleTimes) {
+            // Skip current bar (not closed yet)
+            if (currentBarTime && candleTime >= currentBarTime) continue;
+            
+            // Skip if marker already exists
+            if (this.chart.nearestClusterWinner?.markerByTime?.has(candleTime)) continue;
+            
+            const candle = this.chart.localCandles.get(candleTime);
+            if (!candle || !candle.close || candle.close <= 0) continue;
+            
+            const closePrice = candle.close;
+            
+            // Find closest resistance above and support below
+            let above = null;
+            let aboveDist = Infinity;
+            let below = null;
+            let belowDist = Infinity;
+
+            for (const lvl of sourceLevels) {
+                const p = parseFloat(lvl?.price);
+                const v = parseFloat(lvl?.volume);
+                if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
+
+                if (lvl.type === 'resistance' && p > closePrice) {
+                    const d = p - closePrice;
+                    if (d < aboveDist) {
+                        aboveDist = d;
+                        above = { price: p, volume: v };
+                    }
+                } else if (lvl.type === 'support' && p < closePrice) {
+                    const d = closePrice - p;
+                    if (d < belowDist) {
+                        belowDist = d;
+                        below = { price: p, volume: v };
+                    }
+                }
+            }
+
+            if (!above || !below) continue;
+            const sum = above.volume + below.volume;
+            if (!sum || sum <= 0) continue;
+
+            const pct = Math.round((Math.abs(above.volume - below.volume) / sum) * 100);
+            if (!Number.isFinite(pct) || pct <= 0) continue;
+
+            const highWins = above.volume > below.volume;
+            const marker = {
+                time: candleTime,
+                position: highWins ? 'aboveBar' : 'belowBar',
+                color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+                shape: highWins ? 'arrowDown' : 'arrowUp',
+                text: pct + '%'
+            };
+
+            this.chart.upsertNearestClusterWinnerMarker(marker);
+            computedCount++;
+        }
+        
+        if (computedCount > 0) {
+            console.log(`[NCW] Computed ${computedCount} markers for historical bars`);
+        }
     }
 
     togglePriceVisibility() {
