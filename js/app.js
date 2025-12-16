@@ -1691,6 +1691,15 @@ class OrderBookApp {
                     this.chart.toggleNearestClusterWinner(e.target.checked);
                 }
                 localStorage.setItem('showNearestClusterWinner', e.target.checked);
+
+                // If enabling, immediately compute for the most recently closed bar
+                if (e.target.checked && this.chart) {
+                    const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
+                    const currentTime = (typeof this.chart.getCurrentCandleTime === 'function') ? this.chart.getCurrentCandleTime() : 0;
+                    const closedTime = (intervalSec && currentTime) ? (currentTime - intervalSec) : 0;
+                    const closedClose = (closedTime && this.chart.localCandles?.get) ? this.chart.localCandles.get(closedTime)?.close : null;
+                    this.onNearestClusterWinnerBarClosed({ time: currentTime, closedTime, closedClose });
+                }
             });
         }
 
