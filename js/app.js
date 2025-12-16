@@ -2252,6 +2252,14 @@ class OrderBookApp {
             this.applyLevelSettings();
         });
 
+        // Clear Signals Cache button
+        document.getElementById('clearSignalsCache')?.addEventListener('click', () => {
+            if (this.chart && typeof this.chart.clearSignalsCache === 'function') {
+                const cleared = this.chart.clearSignalsCache();
+                this.showToast(`Signals cache cleared (${cleared} intervals)`, 'success');
+            }
+        });
+
         // Close modals on Escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
