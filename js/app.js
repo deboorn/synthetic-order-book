@@ -1613,6 +1613,7 @@ class OrderBookApp {
             symbolInput: document.getElementById('symbolInput'),
             exchangeStatus: document.getElementById('exchangeStatus'),
             showLevels: document.getElementById('showLevels'),
+            showNearestClusterWinner: document.getElementById('showNearestClusterWinner'),
             showVolume: document.getElementById('showVolume'),
             showTargets: document.getElementById('showTargets'),
             showRays: document.getElementById('showRays'),
@@ -1657,6 +1658,9 @@ class OrderBookApp {
             
             // Reset countdown timer
             this.updateBarCountdown();
+
+            // Freeze nearest-cluster winner marker for the bar that just closed
+            this.onNearestClusterWinnerBarClosed(e.detail);
             
             // Only fetch API data periodically, not on every OHLC update
             // OHLC stream provides accurate real-time data
@@ -1679,6 +1683,25 @@ class OrderBookApp {
                 this.chart.setLevels(this.levels);
             }
         });
+
+        // Nearest cluster winner marker toggle (per-bar arrow + %)
+        if (this.elements.showNearestClusterWinner) {
+            this.elements.showNearestClusterWinner.addEventListener('change', (e) => {
+                if (this.chart && this.chart.toggleNearestClusterWinner) {
+                    this.chart.toggleNearestClusterWinner(e.target.checked);
+                }
+                localStorage.setItem('showNearestClusterWinner', e.target.checked);
+
+                // If enabling, immediately compute for the most recently closed bar
+                if (e.target.checked && this.chart) {
+                    const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
+                    const currentTime = (typeof this.chart.getCurrentCandleTime === 'function') ? this.chart.getCurrentCandleTime() : 0;
+                    const closedTime = (intervalSec && currentTime) ? (currentTime - intervalSec) : 0;
+                    const closedClose = (closedTime && this.chart.localCandles?.get) ? this.chart.localCandles.get(closedTime)?.close : null;
+                    this.onNearestClusterWinnerBarClosed({ time: currentTime, closedTime, closedClose });
+                }
+            });
+        }
 
         this.elements.showVolume.addEventListener('change', (e) => {
             this.chart.toggleVolume(e.target.checked);
@@ -1826,6 +1849,7 @@ class OrderBookApp {
         const savedShowMid = localStorage.getItem('showMid') === 'true';
         const savedShowIFV = localStorage.getItem('showIFV') === 'true';
         const savedShowVWMP = localStorage.getItem('showVWMP') === 'true';
+        const savedShowNearestClusterWinner = localStorage.getItem('showNearestClusterWinner') === 'true';
         // Historical features disabled - no longer loading these settings
         const savedShowLDFlowZones = localStorage.getItem('showLDFlowZones') !== 'false'; // Default true
         const savedUseFullBook = localStorage.getItem('useFullBook') !== 'false'; // Default true
@@ -1843,6 +1867,12 @@ class OrderBookApp {
         }
         if (this.elements.showBBPulse) {
             this.elements.showBBPulse.checked = savedShowBBPulse;
+        }
+        if (this.elements.showNearestClusterWinner) {
+            this.elements.showNearestClusterWinner.checked = savedShowNearestClusterWinner;
+            if (this.chart && this.chart.toggleNearestClusterWinner) {
+                this.chart.toggleNearestClusterWinner(savedShowNearestClusterWinner);
+            }
         }
         this.elements.showMid.checked = savedShowMid;
         this.elements.showIFV.checked = savedShowIFV;
@@ -1957,14 +1987,17 @@ class OrderBookApp {
         // Legend modal
         document.getElementById('btnLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.add('open');
+            this.syncModalBodyLock();
         });
         
         document.getElementById('closeLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
         
         document.querySelector('#legendModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
 
         // Alerts modal (TradingView-style)
@@ -1992,8 +2025,14 @@ class OrderBookApp {
         // Alerts modal wiring
         const alertsModal = document.getElementById('alertsModal');
         if (alertsModal) {
-            document.getElementById('closeAlerts')?.addEventListener('click', () => alertsModal.classList.remove('open'));
-            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertsModal.classList.remove('open'));
+            document.getElementById('closeAlerts')?.addEventListener('click', () => {
+                alertsModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+                alertsModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
             document.getElementById('btnCreateAlertFromModal')?.addEventListener('click', () => {
                 if (typeof this.openAddAlertModal === 'function') {
                     this.openAddAlertModal(null);
@@ -2039,9 +2078,18 @@ class OrderBookApp {
 
         const alertEditModal = document.getElementById('alertEditModal');
         if (alertEditModal) {
-            document.getElementById('closeAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
-            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
-            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            document.getElementById('closeAlertEdit')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
+            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
+                alertEditModal.classList.remove('open');
+                this.syncModalBodyLock();
+            });
             document.getElementById('alertForm')?.addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (typeof this.handleAlertFormSubmit === 'function') {
@@ -2081,14 +2129,17 @@ class OrderBookApp {
             document.getElementById('closeAlertsDisclaimer')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerCancel')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             alertsDisclaimerModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
+                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerContinue')?.addEventListener('click', () => {
                 if (!chk?.checked) return;
@@ -2096,6 +2147,7 @@ class OrderBookApp {
                     this.confirmAlertsDisclaimer();
                 } else {
                     alertsDisclaimerModal.classList.remove('open');
+                    this.syncModalBodyLock();
                 }
             });
         }
@@ -2115,10 +2167,12 @@ class OrderBookApp {
         
         document.getElementById('closeSettings').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
         
         document.querySelector('#settingsModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
+            this.syncModalBodyLock();
         });
 
         // Panel alert buttons (prevent panel collapse toggle)
@@ -2201,8 +2255,14 @@ class OrderBookApp {
                     this._pendingAlertSave = null;
                 }
                 dm?.classList.remove('open');
+                this.syncModalBodyLock();
             }
         });
+    }
+
+    syncModalBodyLock() {
+        const anyOpen = !!document.querySelector('.modal.open');
+        document.body.classList.toggle('modal-open', anyOpen);
     }
 
     openSettingsModal() {
@@ -2278,6 +2338,7 @@ class OrderBookApp {
         document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
+        this.syncModalBodyLock();
     }
 
     // ==============================
@@ -2287,6 +2348,7 @@ class OrderBookApp {
         const modal = document.getElementById('alertsModal');
         if (!modal) return;
         modal.classList.add('open');
+        this.syncModalBodyLock();
         this.switchAlertsTab('active');
         if (typeof this.renderAlertsModal === 'function') {
             this.renderAlertsModal();
@@ -2370,6 +2432,7 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
+        this.syncModalBodyLock();
 
         // Prime audio on user gesture (enables sound alerts later)
         this.alertsManager?.ensureAudioUnlocked?.();
@@ -2772,6 +2835,7 @@ class OrderBookApp {
             if (chk) chk.checked = false;
             if (btn) btn.disabled = true;
             dm?.classList.add('open');
+            this.syncModalBodyLock();
             return;
         }
 
@@ -2794,6 +2858,7 @@ class OrderBookApp {
 
         // Close editor
         document.getElementById('alertEditModal')?.classList.remove('open');
+        this.syncModalBodyLock();
 
         // Refresh modal if open
         if (document.getElementById('alertsModal')?.classList.contains('open')) {
@@ -2806,6 +2871,7 @@ class OrderBookApp {
     confirmAlertsDisclaimer() {
         localStorage.setItem('alertsDisclaimerSeen', 'true');
         document.getElementById('alertsDisclaimerModal')?.classList.remove('open');
+        this.syncModalBodyLock();
 
         const pending = this._pendingAlertSave;
         this._pendingAlertSave = null;
@@ -2978,6 +3044,7 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
+        this.syncModalBodyLock();
         this.alertsManager?.ensureAudioUnlocked?.();
     }
 
@@ -3119,6 +3186,7 @@ class OrderBookApp {
         }
         
         document.getElementById('settingsModal').classList.remove('open');
+        this.syncModalBodyLock();
         this.loadData(); // Refresh with new settings
     }
     
@@ -3806,6 +3874,7 @@ class OrderBookApp {
         const showMid = localStorage.getItem('showMid') === 'true';
         const showIFV = localStorage.getItem('showIFV') === 'true';
         const showVWMP = localStorage.getItem('showVWMP') === 'true';
+        const showNearestClusterWinner = localStorage.getItem('showNearestClusterWinner') === 'true';
         const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
         
         // Load showLevels setting (default TRUE if never set, but honor if disabled)
@@ -3896,6 +3965,80 @@ class OrderBookApp {
         if (showVWMP) {
             this.chart.toggleVWMP(true);
         }
+
+        // Apply nearest cluster winner markers toggle
+        if (this.elements.showNearestClusterWinner) {
+            this.elements.showNearestClusterWinner.checked = showNearestClusterWinner;
+        }
+        if (this.chart && this.chart.toggleNearestClusterWinner) {
+            this.chart.toggleNearestClusterWinner(showNearestClusterWinner);
+        }
+    }
+
+    onNearestClusterWinnerBarClosed(detail) {
+        // Only compute when enabled
+        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
+        if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
+        if (!Array.isArray(this.levels) || this.levels.length === 0) return;
+
+        const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
+        let closedTime = detail?.closedTime;
+        if (!closedTime && detail?.time && intervalSec) {
+            closedTime = detail.time - intervalSec;
+        }
+        if (!closedTime || closedTime <= 0) return;
+
+        let closePrice = detail?.closedClose;
+        if ((!closePrice || closePrice <= 0) && this.chart.localCandles && typeof this.chart.localCandles.get === 'function') {
+            const c = this.chart.localCandles.get(closedTime);
+            closePrice = c?.close;
+        }
+        if (!closePrice || closePrice <= 0) return;
+
+        // Closest resistance above close
+        let above = null;
+        let aboveDist = Infinity;
+        // Closest support below close
+        let below = null;
+        let belowDist = Infinity;
+
+        for (const lvl of this.levels) {
+            const p = parseFloat(lvl?.price);
+            const v = parseFloat(lvl?.volume);
+            if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
+
+            if (lvl.type === 'resistance' && p > closePrice) {
+                const d = p - closePrice;
+                if (d < aboveDist) {
+                    aboveDist = d;
+                    above = { price: p, volume: v };
+                }
+            } else if (lvl.type === 'support' && p < closePrice) {
+                const d = closePrice - p;
+                if (d < belowDist) {
+                    belowDist = d;
+                    below = { price: p, volume: v };
+                }
+            }
+        }
+
+        if (!above || !below) return;
+        const sum = above.volume + below.volume;
+        if (!sum || sum <= 0) return;
+
+        const pct = Math.round((Math.abs(above.volume - below.volume) / sum) * 100);
+        if (!Number.isFinite(pct) || pct <= 0) return;
+
+        const highWins = above.volume > below.volume;
+        const marker = {
+            time: closedTime,
+            position: highWins ? 'aboveBar' : 'belowBar',
+            color: highWins ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
+            shape: highWins ? 'arrowDown' : 'arrowUp',
+            text: pct + '%'
+        };
+
+        this.chart.upsertNearestClusterWinnerMarker(marker);
     }
 
     togglePriceVisibility() {

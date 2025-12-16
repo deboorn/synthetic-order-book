@@ -144,6 +144,14 @@ class OrderBookChart {
         // Alert markers (plotted when alerts fire)
         this.alertMarkers = [];
         this.alertMarkersMax = 200;
+
+        // Nearest cluster winner (closest resistance vs support) markers
+        this.nearestClusterWinner = {
+            enabled: localStorage.getItem('showNearestClusterWinner') === 'true',
+            markers: [],
+            markerByTime: new Map(),
+            maxMarkers: 600
+        };
         
         // Signal marker caches (for alerts)
         this.emaSignalMarkers = [];
@@ -241,6 +249,9 @@ class OrderBookChart {
     setSymbol(symbol) {
         this.symbol = symbol;
         this._viewRestored = false; // Reset so new symbol gets its own saved view
+
+        // Clear interval/symbol-scoped markers
+        this.resetNearestClusterWinnerMarkers();
         
         // Reset regime engine to prevent cross-symbol contamination
         // Different coins have vastly different LD scales (BTC ~100 vs DOGE ~100,000)
@@ -398,6 +409,9 @@ class OrderBookChart {
             this.clearHistoricalFairValueSeries();
             
             console.log(`[Chart] Interval changed to ${interval}, cleared local candles and historical data`);
+
+            // Clear interval-scoped markers
+            this.resetNearestClusterWinnerMarkers();
         }
         this.currentInterval = interval;
 
@@ -780,7 +794,12 @@ class OrderBookChart {
             
             // Emit event so app can refresh historical data
             window.dispatchEvent(new CustomEvent('newBarOpened', {
-                detail: { time: currentBarTime, interval: this.currentInterval }
+                detail: {
+                    time: currentBarTime,
+                    interval: this.currentInterval,
+                    closedTime: this.previousCandle?.time || null,
+                    closedClose: this.previousCandle?.close || null
+                }
             }));
         } else {
             // Same bar period - update existing bar's OHLC
@@ -909,7 +928,13 @@ class OrderBookChart {
             
             // Emit new bar event (for UI countdown reset, etc.)
             window.dispatchEvent(new CustomEvent('newBarOpened', {
-                detail: { time: candleTime, interval: this.currentInterval, source: 'ohlc_stream' }
+                detail: {
+                    time: candleTime,
+                    interval: this.currentInterval,
+                    source: 'ohlc_stream',
+                    closedTime: this.lastCandle?.time || null,
+                    closedClose: this.lastCandle?.close || null
+                }
             }));
             
             // Force immediate signal update on new bar (bypass throttle)
@@ -2806,6 +2831,11 @@ class OrderBookChart {
         if (this.projections && this.projections.markers && this.projections.markers.length > 0) {
             allMarkers = allMarkers.concat(this.projections.markers);
         }
+
+        // Add nearest cluster winner markers (if enabled)
+        if (this.nearestClusterWinner && this.nearestClusterWinner.enabled && this.nearestClusterWinner.markers) {
+            allMarkers = allMarkers.concat(this.nearestClusterWinner.markers);
+        }
         
         // Add BB Pulse signals if enabled
         if (this.bbPulse && this.bbPulse.enabled && this.bbPulse.markers) {
@@ -2833,6 +2863,43 @@ class OrderBookChart {
         
         // Apply all markers
         this.candleSeries.setMarkers(allMarkers);
+    }
+
+    toggleNearestClusterWinner(show) {
+        if (!this.nearestClusterWinner) {
+            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600 };
+        }
+        this.nearestClusterWinner.enabled = !!show;
+        localStorage.setItem('showNearestClusterWinner', this.nearestClusterWinner.enabled);
+        this.updateAllSignalMarkers();
+    }
+
+    resetNearestClusterWinnerMarkers() {
+        if (!this.nearestClusterWinner) return;
+        this.nearestClusterWinner.markerByTime = new Map();
+        this.nearestClusterWinner.markers = [];
+        this.updateAllSignalMarkers();
+    }
+
+    upsertNearestClusterWinnerMarker(marker) {
+        if (!marker || !marker.time) return;
+        if (!this.nearestClusterWinner) {
+            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600 };
+        }
+        if (!this.nearestClusterWinner.markerByTime) {
+            this.nearestClusterWinner.markerByTime = new Map();
+        }
+
+        const t = marker.time;
+        // Keep existing marker for closed bars (don't overwrite)
+        if (this.nearestClusterWinner.markerByTime.has(t)) return;
+
+        this.nearestClusterWinner.markerByTime.set(t, marker);
+        const all = Array.from(this.nearestClusterWinner.markerByTime.values());
+        all.sort((a, b) => a.time - b.time);
+        const max = this.nearestClusterWinner.maxMarkers || 600;
+        this.nearestClusterWinner.markers = all.length > max ? all.slice(-max) : all;
+        this.updateAllSignalMarkers();
     }
     
     // ==========================================
