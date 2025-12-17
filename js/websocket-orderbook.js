@@ -37,8 +37,12 @@ class OrderBookWebSocket {
             onUpdate: null,
             onConnect: null,
             onDisconnect: null,
-            onError: null
+            onError: null,
+            onTrade: null  // Trade data callback
         };
+        
+        // Trade tracking - always enabled to cache data in background
+        this.tradesEnabled = true; // Always cache trades regardless of UI setting
         
         // Symbol mappings for each exchange
         this.symbolMap = {
@@ -111,6 +115,15 @@ class OrderBookWebSocket {
         } else if (enabled && !this.connections[exchange]) {
             this.connectExchange(exchange);
         }
+    }
+    
+    /**
+     * Enable/disable trade tracking display (caching always runs in background)
+     */
+    setTradesEnabled(enabled) {
+        // Note: this.tradesEnabled is always true for background caching
+        // This only controls localStorage for UI checkbox state
+        localStorage.setItem('showTradeFootprint', enabled);
     }
     
     /**
@@ -212,6 +225,15 @@ class OrderBookWebSocket {
                         depth: 100
                     }
                 }));
+                
+                // Subscribe to trades (always subscribe, filter on receive)
+                ws.send(JSON.stringify({
+                    event: 'subscribe',
+                    pair: [symbol],
+                    subscription: {
+                        name: 'trade'
+                    }
+                }));
             };
             
             ws.onmessage = (event) => {
@@ -245,14 +267,25 @@ class OrderBookWebSocket {
         if (data.event === 'subscriptionStatus') {
             if (data.status === 'subscribed') {
                 console.warn(`[Kraken Book] Subscribed to ${data.channelName}`);
-                this.orderBooks.kraken.connected = true;
-                this.emitConnect('kraken');
+                if (data.channelName && data.channelName.startsWith('book')) {
+                    this.orderBooks.kraken.connected = true;
+                    this.emitConnect('kraken');
+                }
             }
             return;
         }
         
-        // Handle order book data (array format)
+        // Handle array format messages (book or trade data)
         if (Array.isArray(data) && data.length >= 4) {
+            const channelName = data[data.length - 2];
+            
+            // Handle trade data
+            if (channelName === 'trade') {
+                this.handleKrakenTrades(data[1]);
+                return;
+            }
+            
+            // Handle order book data
             const bookData = data[1];
             const isSnapshot = bookData.as !== undefined || bookData.bs !== undefined;
             
@@ -308,6 +341,29 @@ class OrderBookWebSocket {
         }
     }
     
+    /**
+     * Handle Kraken trade messages
+     * Format: [[price, volume, time, side, orderType, misc], ...]
+     * side: 'b' = buy, 's' = sell
+     */
+    handleKrakenTrades(trades) {
+        if (!Array.isArray(trades)) return;
+        
+        for (const trade of trades) {
+            if (!Array.isArray(trade) || trade.length < 4) continue;
+            
+            const [price, volume, time, side] = trade;
+            
+            this.emitTrade({
+                price: parseFloat(price),
+                volume: parseFloat(volume),
+                side: side === 'b' ? 'buy' : 'sell',
+                exchange: 'kraken',
+                timestamp: Math.floor(parseFloat(time))
+            });
+        }
+    }
+    
     // ==========================================
     // COINBASE WebSocket
     // ==========================================
@@ -320,11 +376,11 @@ class OrderBookWebSocket {
             ws.onopen = () => {
                 console.warn(`[Coinbase Book] Connected, subscribing to ${symbol}`);
                 
-                // Subscribe to level2 order book
+                // Subscribe to level2 order book and matches (trades)
                 ws.send(JSON.stringify({
                     type: 'subscribe',
                     product_ids: [symbol],
-                    channels: ['level2_batch']
+                    channels: ['level2_batch', 'matches']
                 }));
             };
             
@@ -357,6 +413,12 @@ class OrderBookWebSocket {
     handleCoinbaseMessage(data) {
         if (data.type === 'subscriptions') {
             console.warn('[Coinbase Book] Subscription confirmed');
+            return;
+        }
+        
+        // Handle trade/match messages
+        if (data.type === 'match' || data.type === 'last_match') {
+            this.handleCoinbaseTrade(data);
             return;
         }
         
@@ -403,6 +465,24 @@ class OrderBookWebSocket {
         }
     }
     
+    /**
+     * Handle Coinbase match (trade) messages
+     * Format: { type: 'match', price, size, side, time }
+     * side: 'buy' or 'sell' (taker side)
+     */
+    handleCoinbaseTrade(data) {
+        
+        const timestamp = data.time ? Math.floor(new Date(data.time).getTime() / 1000) : Math.floor(Date.now() / 1000);
+        
+        this.emitTrade({
+            price: parseFloat(data.price),
+            volume: parseFloat(data.size),
+            side: data.side,  // Already 'buy' or 'sell'
+            exchange: 'coinbase',
+            timestamp: timestamp
+        });
+    }
+    
     // ==========================================
     // BITSTAMP WebSocket
     // ==========================================
@@ -420,6 +500,14 @@ class OrderBookWebSocket {
                     event: 'bts:subscribe',
                     data: {
                         channel: `order_book_${symbol}`
+                    }
+                }));
+                
+                // Subscribe to trades
+                ws.send(JSON.stringify({
+                    event: 'bts:subscribe',
+                    data: {
+                        channel: `live_trades_${symbol}`
                     }
                 }));
             };
@@ -453,8 +541,16 @@ class OrderBookWebSocket {
     handleBitstampMessage(data) {
         if (data.event === 'bts:subscription_succeeded') {
             console.warn(`[Bitstamp Book] Subscribed to ${data.channel}`);
-            this.orderBooks.bitstamp.connected = true;
-            this.emitConnect('bitstamp');
+            if (data.channel && data.channel.startsWith('order_book_')) {
+                this.orderBooks.bitstamp.connected = true;
+                this.emitConnect('bitstamp');
+            }
+            return;
+        }
+        
+        // Handle trade messages (live_trades channel)
+        if (data.event === 'trade' && data.channel && data.channel.startsWith('live_trades_')) {
+            this.handleBitstampTrade(data.data);
             return;
         }
         
@@ -482,6 +578,25 @@ class OrderBookWebSocket {
             this.orderBooks.bitstamp.lastUpdate = Date.now();
             this.scheduleUpdate();
         }
+    }
+    
+    /**
+     * Handle Bitstamp trade messages
+     * Format: { type: 0|1, amount, price, timestamp, ... }
+     * type: 0 = buy, 1 = sell
+     */
+    handleBitstampTrade(data) {
+        if (!data) return;
+        
+        const timestamp = data.timestamp ? parseInt(data.timestamp) : Math.floor(Date.now() / 1000);
+        
+        this.emitTrade({
+            price: parseFloat(data.price),
+            volume: parseFloat(data.amount),
+            side: data.type === 0 ? 'buy' : 'sell',
+            exchange: 'bitstamp',
+            timestamp: timestamp
+        });
     }
     
     // ==========================================
@@ -522,6 +637,26 @@ class OrderBookWebSocket {
         
         window.dispatchEvent(new CustomEvent('orderBookWSConnect', {
             detail: { exchange, status: this.getConnectionStatus() }
+        }));
+    }
+    
+    /**
+     * Emit trade data to callback and global aggregator
+     */
+    emitTrade(trade) {
+        // Call callback if set
+        if (this.callbacks.onTrade) {
+            this.callbacks.onTrade(trade);
+        }
+        
+        // Also send to global trade aggregator if available
+        if (typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.addTrade(trade);
+        }
+        
+        // Dispatch DOM event for other listeners
+        window.dispatchEvent(new CustomEvent('orderBookWSTrade', {
+            detail: trade
         }));
     }
     

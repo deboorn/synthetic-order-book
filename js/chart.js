@@ -111,8 +111,9 @@ class OrderBookChart {
         };
         
         // Historical Fair Value tracking - VWMP/IFV history plot (per-candle)
+        // DEPRECATED: Now handled by unified levelHistory system
         this.historicalFairValue = {
-            enabled: localStorage.getItem('showHistoricalFairValue') !== 'false', // Default ON
+            enabled: false, // Disabled - levelHistory now handles FV tracking
             maxCandles: 500,              // Cap history (lowest timeframe-friendly)
             cachedData: new Map(),        // candleTime => { vwmp, ifv, upsideTarget, downsideTarget }
             series: [],                   // Line series for rendering (managed)
@@ -140,19 +141,62 @@ class OrderBookChart {
             series: {},     // Store all plot series
             markers: []     // Store signal markers
         };
+        
+        // Bulls vs Bears Signal - order book pressure direction
+        this.bullsBears = {
+            enabled: localStorage.getItem('showBullsBears') === 'true',
+            method: localStorage.getItem('bullsBearsMethod') || 'firstLevel', // 'firstLevel' | 'percentRange'
+            percentRange: 20,         // For percentRange method (20% above/below)
+            markers: [],              // Historical frozen markers
+            liveMarker: null,         // Current bar's live marker  
+            lastRatio: null,          // For display/debugging
+            lastBarTime: null,        // Track which bar we're on
+            // Level lines (for First Level method)
+            resistanceSeries: null,   // Line series for resistance levels
+            supportSeries: null,      // Line series for support levels
+            resistanceData: [],       // Historical resistance level points {time, value}
+            supportData: [],          // Historical support level points {time, value}
+            liveResistance: null,     // Current bar's resistance level
+            liveSupport: null         // Current bar's support level
+        };
+        
+        // Trade Footprint Heatmap - shows delta at each price level per bar
+        this.tradeFootprint = {
+            enabled: localStorage.getItem('showTradeFootprint') !== 'false', // Default ON
+            bucketSize: parseInt(localStorage.getItem('tradeFootprintBucketSize') || '10'),
+            canvas: null,             // Canvas overlay element
+            ctx: null,                // Canvas 2D context
+            maxBars: 200              // Max bars to render
+        };
+        
+        // Level History - unified tracking of all order book levels + fair value indicators
+        // Heatmap for clusters, lines for Mid/IFV/VWMP - always on by default
+        this.levelHistory = {
+            enabled: true,                    // Always enabled for background caching
+            showHeatmap: localStorage.getItem('showLevelHistoryHeatmap') !== 'false', // Display toggle (default ON)
+            maxBars: 500,                     // History limit
+            data: new Map(),                  // barTime => { clusters, mid, ifv, vwmp }
+            // Heatmap canvas for order book clusters
+            canvas: null,
+            ctx: null,
+            // Line series for fair value indicators
+            midSeries: null,
+            ifvSeries: null,
+            vwmpSeries: null,
+            // Data arrays for line series
+            midData: [],
+            ifvData: [],
+            vwmpData: [],
+            // Tracking
+            lastBarTime: null,
+            symbol: 'BTC',
+            interval: '1m',
+            initialized: false
+        };
 
         // Alert markers (plotted when alerts fire)
         this.alertMarkers = [];
         this.alertMarkersMax = 200;
-
-        // Nearest cluster winner (closest resistance vs support) markers
-        this.nearestClusterWinner = {
-            enabled: localStorage.getItem('showNearestClusterWinner') === 'true',
-            markers: [],
-            markerByTime: new Map(),
-            maxMarkers: 600,
-            currentBarMarker: null
-        };
         
         // Signal marker caches (for alerts)
         this.emaSignalMarkers = [];
@@ -250,14 +294,6 @@ class OrderBookChart {
     setSymbol(symbol) {
         this.symbol = symbol;
         this._viewRestored = false; // Reset so new symbol gets its own saved view
-
-        // Clear interval/symbol-scoped markers, then load saved ones for new symbol
-        if (this.nearestClusterWinner) {
-            this.nearestClusterWinner.markerByTime = new Map();
-            this.nearestClusterWinner.markers = [];
-            this.nearestClusterWinner.currentBarMarker = null;
-        }
-        this.loadNearestClusterWinner();
         
         // Reset regime engine to prevent cross-symbol contamination
         // Different coins have vastly different LD scales (BTC ~100 vs DOGE ~100,000)
@@ -297,6 +333,65 @@ class OrderBookChart {
         const ldUnit = document.getElementById('ldUnit');
         if (ldUnit) {
             ldUnit.textContent = symbol;
+        }
+        
+        // Sync trade aggregator with new symbol
+        if (this.tradeFootprint.enabled && typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.setSymbol(symbol);
+            this.renderTradeFootprint();
+        }
+        
+        // Sync level history with new symbol
+        if (this.levelHistory && this.levelHistory.enabled) {
+            this.onLevelHistorySymbolChange(symbol);
+        }
+    }
+
+    /**
+     * Scroll chart to show the latest bar
+     */
+    scrollToLatest() {
+        if (!this.chart) return;
+        this.chart.timeScale().scrollToRealTime();
+    }
+    
+    /**
+     * Zoom chart to show recent bars and frame price nicely
+     * @param {number} barsToShow - Number of bars to display (default 50)
+     * @param {number} barsForPriceRange - Number of bars to use for price range (default 6)
+     */
+    zoomToRecent(barsToShow = 50, barsForPriceRange = 6) {
+        if (!this.chart || !this.candleData || this.candleData.length === 0) return;
+        
+        const dataLength = this.candleData.length;
+        
+        // Set visible logical range to show last N bars
+        const fromBar = Math.max(0, dataLength - barsToShow);
+        this.chart.timeScale().setVisibleLogicalRange({
+            from: fromBar,
+            to: dataLength + 5 // Add some padding on the right
+        });
+        
+        // Calculate price range from last N bars for proper framing
+        const recentBars = this.candleData.slice(-barsForPriceRange);
+        if (recentBars.length > 0) {
+            let minPrice = Infinity;
+            let maxPrice = -Infinity;
+            
+            recentBars.forEach(bar => {
+                if (bar.low < minPrice) minPrice = bar.low;
+                if (bar.high > maxPrice) maxPrice = bar.high;
+            });
+            
+            // Add 1% padding to the price range
+            const padding = (maxPrice - minPrice) * 0.01;
+            minPrice -= padding;
+            maxPrice += padding;
+            
+            // Apply the price range to auto-scale
+            this.candleSeries.priceScale().applyOptions({
+                autoScale: true
+            });
         }
     }
 
@@ -415,11 +510,6 @@ class OrderBookChart {
             this.clearHistoricalFairValueSeries();
             
             console.log(`[Chart] Interval changed to ${interval}, cleared local candles and historical data`);
-
-            // Clear interval-scoped markers (will be reloaded from storage below)
-            this.nearestClusterWinner.markerByTime = new Map();
-            this.nearestClusterWinner.markers = [];
-            this.nearestClusterWinner.currentBarMarker = null;
         }
         this.currentInterval = interval;
 
@@ -428,8 +518,16 @@ class OrderBookChart {
             this.loadHistoricalFairValue();
         }
         
-        // Load saved nearest cluster winner markers for this interval
-        this.loadNearestClusterWinner();
+        // Sync trade aggregator with new interval
+        if (this.tradeFootprint.enabled && typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.setInterval(interval);
+            this.renderTradeFootprint();
+        }
+        
+        // Sync level history with new interval
+        if (this.levelHistory && this.levelHistory.enabled) {
+            this.onLevelHistoryIntervalChange(interval);
+        }
     }
 
     init() {
@@ -513,14 +611,34 @@ class OrderBookChart {
             }
         });
         
-        // Subscribe to time scale changes to persist zoom/pan
-        this.setupViewPersistence();
+        // View persistence disabled - chart always shows current price on load
+        // this.setupViewPersistence();
         
         // Load historical levels (async, non-blocking)
         this.loadHistoricalLevels();
         
         // Load historical fair values (VWMP, IFV, targets)
         this.loadHistoricalFairValue();
+        
+        // Initialize Level History (always-on unified tracking)
+        this.initLevelHistory();
+        
+        // Listen for new bar events to finalize signals
+        window.addEventListener('newBarOpened', (e) => {
+            if (this.bullsBears && this.bullsBears.enabled) {
+                this.finalizeBullsBearsSignal();
+            }
+            // Notify trade aggregator of new bar
+            if (this.tradeFootprint && this.tradeFootprint.enabled && typeof tradeAggregator !== 'undefined') {
+                tradeAggregator.onNewBarOpened(e.detail?.time);
+                this.renderTradeFootprint();
+            }
+            // Snapshot level history on bar close (capture previous bar's data)
+            // Always cache data regardless of display setting
+            if (this.levelHistory) {
+                this.snapshotLevelHistory(e.detail?.time);
+            }
+        });
 
         return this;
     }
@@ -637,6 +755,30 @@ class OrderBookChart {
                         this.bbPulse.chart.applyOptions({ width, height });
                     }
                 }
+                
+                // Resize trade footprint canvas
+                if (this.tradeFootprint.canvas && this.container) {
+                    const rect = this.container.getBoundingClientRect();
+                    this.tradeFootprint.canvas.width = rect.width * window.devicePixelRatio;
+                    this.tradeFootprint.canvas.height = rect.height * window.devicePixelRatio;
+                    this.tradeFootprint.ctx = this.tradeFootprint.canvas.getContext('2d');
+                    this.tradeFootprint.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                    if (this.tradeFootprint.enabled) {
+                        this.renderTradeFootprint();
+                    }
+                }
+                
+                // Resize level history canvas
+                if (this.levelHistory.canvas && this.container) {
+                    const rect = this.container.getBoundingClientRect();
+                    this.levelHistory.canvas.width = rect.width * window.devicePixelRatio;
+                    this.levelHistory.canvas.height = rect.height * window.devicePixelRatio;
+                    this.levelHistory.ctx = this.levelHistory.canvas.getContext('2d');
+                    this.levelHistory.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                    if (this.levelHistory.enabled) {
+                        this.renderLevelHistoryHeatmap();
+                    }
+                }
             }, 50);
         };
         
@@ -719,19 +861,9 @@ class OrderBookChart {
             }
         }
 
-        // Restore view position or fit content on first load
-        if (savedRange && preserveView) {
-            this.chart.timeScale().setVisibleLogicalRange(savedRange);
-        } else if (!savedRange) {
-            this.chart.timeScale().fitContent();
-        }
-
-        // Re-apply signal markers after data refresh (setData/repaint can drop markers on some browsers)
-        try {
-            this.updateAllSignalMarkers();
-        } catch (e) {
-            // Non-fatal: markers will be re-applied on next throttled repaint
-        }
+        // Zoom to recent bars on first load (shows last 50 bars, frames last 6 bars' price range)
+        // We no longer restore saved views - always start fresh at the latest data
+        this.zoomToRecent(50, 6);
     }
 
     // Update with new candle (real-time)
@@ -812,12 +944,7 @@ class OrderBookChart {
             
             // Emit event so app can refresh historical data
             window.dispatchEvent(new CustomEvent('newBarOpened', {
-                detail: {
-                    time: currentBarTime,
-                    interval: this.currentInterval,
-                    closedTime: this.previousCandle?.time || null,
-                    closedClose: this.previousCandle?.close || null
-                }
+                detail: { time: currentBarTime, interval: this.currentInterval }
             }));
         } else {
             // Same bar period - update existing bar's OHLC
@@ -946,13 +1073,7 @@ class OrderBookChart {
             
             // Emit new bar event (for UI countdown reset, etc.)
             window.dispatchEvent(new CustomEvent('newBarOpened', {
-                detail: {
-                    time: candleTime,
-                    interval: this.currentInterval,
-                    source: 'ohlc_stream',
-                    closedTime: this.lastCandle?.time || null,
-                    closedClose: this.lastCandle?.close || null
-                }
+                detail: { time: candleTime, interval: this.currentInterval, source: 'ohlc_stream' }
             }));
             
             // Force immediate signal update on new bar (bypass throttle)
@@ -1089,11 +1210,11 @@ class OrderBookChart {
         
         console.log(`[Chart] Initialized ${this.localCandles.size} candles from API`);
         
-        // Restore saved zoom/pan position on first load
-        if (!this._viewRestored) {
-            this._viewRestored = true;
-            this.restoreSavedView();
-        }
+        // View restoration disabled - chart always shows current price on load
+        // if (!this._viewRestored) {
+        //     this._viewRestored = true;
+        //     this.restoreSavedView();
+        // }
     }
 
     // Draw support/resistance levels from order book
@@ -1146,6 +1267,11 @@ class OrderBookChart {
         
         // Store signature for next comparison
         this._lastLevelSignature = newSignature;
+        
+        // Store levels for fair value and level history calculations
+        if (levels && levels.length > 0) {
+            this.fairValueIndicators.currentLevels = levels;
+        }
 
         // Remove existing price lines
         this.clearLevels();
@@ -2849,19 +2975,22 @@ class OrderBookChart {
         if (this.projections && this.projections.markers && this.projections.markers.length > 0) {
             allMarkers = allMarkers.concat(this.projections.markers);
         }
-
-        // Add nearest cluster winner markers (if enabled)
-        if (this.nearestClusterWinner && this.nearestClusterWinner.enabled && this.nearestClusterWinner.markers) {
-            allMarkers = allMarkers.concat(this.nearestClusterWinner.markers);
-            // Add current bar real-time marker (not yet persisted)
-            if (this.nearestClusterWinner.currentBarMarker) {
-                allMarkers.push(this.nearestClusterWinner.currentBarMarker);
-            }
-        }
         
         // Add BB Pulse signals if enabled
         if (this.bbPulse && this.bbPulse.enabled && this.bbPulse.markers) {
             allMarkers = allMarkers.concat(this.bbPulse.markers);
+        }
+        
+        // Add Bulls vs Bears signals if enabled
+        if (this.bullsBears && this.bullsBears.enabled) {
+            // Add historical frozen markers
+            if (this.bullsBears.markers && this.bullsBears.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.bullsBears.markers);
+            }
+            // Add live marker for current bar
+            if (this.bullsBears.liveMarker) {
+                allMarkers.push(this.bullsBears.liveMarker);
+            }
         }
         
         // Add EMA grid signals if enabled
@@ -2885,188 +3014,6 @@ class OrderBookChart {
         
         // Apply all markers
         this.candleSeries.setMarkers(allMarkers);
-    }
-
-    toggleNearestClusterWinner(show) {
-        if (!this.nearestClusterWinner) {
-            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600, currentBarMarker: null };
-        }
-        this.nearestClusterWinner.enabled = !!show;
-        localStorage.setItem('showNearestClusterWinner', this.nearestClusterWinner.enabled);
-        this.updateAllSignalMarkers();
-    }
-
-    resetNearestClusterWinnerMarkers() {
-        if (!this.nearestClusterWinner) return;
-        this.nearestClusterWinner.markerByTime = new Map();
-        this.nearestClusterWinner.markers = [];
-        this.nearestClusterWinner.currentBarMarker = null;
-        this.updateAllSignalMarkers();
-    }
-
-    /**
-     * Clear all signals cache (memory + localStorage) for all intervals
-     */
-    clearSignalsCache() {
-        // Clear in-memory markers
-        if (this.nearestClusterWinner) {
-            this.nearestClusterWinner.markerByTime = new Map();
-            this.nearestClusterWinner.markers = [];
-            this.nearestClusterWinner.currentBarMarker = null;
-        }
-        
-        // Clear localStorage for all intervals and all symbols
-        const intervals = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'];
-        const symbols = ['BTC', 'ETH', 'SOL', 'XRP', 'SUI', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT'];
-        let cleared = 0;
-        
-        // Clear for current symbol
-        for (const interval of intervals) {
-            const key = `ncw_${this.symbol}_${interval}`;
-            if (localStorage.getItem(key)) {
-                localStorage.removeItem(key);
-                cleared++;
-            }
-        }
-        
-        // Also clear for all other symbols
-        for (const sym of symbols) {
-            if (sym === this.symbol) continue;
-            for (const interval of intervals) {
-                const key = `ncw_${sym}_${interval}`;
-                if (localStorage.getItem(key)) {
-                    localStorage.removeItem(key);
-                    cleared++;
-                }
-            }
-        }
-        
-        console.log(`[NCW] Cleared signals cache for all symbols (${cleared} intervals)`);
-        
-        // Force visual refresh by explicitly setting empty markers on series
-        if (this.candleSeries) {
-            this.candleSeries.setMarkers([]);
-        }
-        
-        // Then update with remaining markers (non-NCW markers)
-        this.updateAllSignalMarkers();
-        return cleared;
-    }
-
-    upsertNearestClusterWinnerMarker(marker, isCurrentBar = false) {
-        if (!marker || !marker.time) return;
-        if (!this.nearestClusterWinner) {
-            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600, currentBarMarker: null };
-        }
-        if (!this.nearestClusterWinner.markerByTime) {
-            this.nearestClusterWinner.markerByTime = new Map();
-        }
-
-        const t = marker.time;
-        
-        // For current bar: update the live marker (not persisted until bar closes)
-        if (isCurrentBar) {
-            this.nearestClusterWinner.currentBarMarker = marker;
-            this.updateAllSignalMarkers();
-            return;
-        }
-        
-        // Keep existing marker for closed bars (don't overwrite)
-        if (this.nearestClusterWinner.markerByTime.has(t)) return;
-
-        this.nearestClusterWinner.markerByTime.set(t, marker);
-        const all = Array.from(this.nearestClusterWinner.markerByTime.values());
-        all.sort((a, b) => a.time - b.time);
-        const max = this.nearestClusterWinner.maxMarkers || 600;
-        this.nearestClusterWinner.markers = all.length > max ? all.slice(-max) : all;
-        
-        // Clear current bar marker since it's now persisted
-        this.nearestClusterWinner.currentBarMarker = null;
-        
-        // Persist to localStorage
-        this.saveNearestClusterWinnerToStorage();
-        
-        this.updateAllSignalMarkers();
-    }
-    
-    /**
-     * Save nearest cluster winner markers to localStorage
-     * Storage key is scoped by symbol and interval
-     */
-    saveNearestClusterWinnerToStorage() {
-        try {
-            if (!this.nearestClusterWinner || !this.nearestClusterWinner.markers) return;
-            
-            const storageKey = `ncw_${this.symbol}_${this.currentInterval}`;
-            const max = this.nearestClusterWinner.maxMarkers || 600;
-            
-            // Store only essential marker data
-            let stored = this.nearestClusterWinner.markers.map(m => ({
-                time: m.time,
-                position: m.position,
-                color: m.color,
-                shape: m.shape,
-                text: m.text
-            }));
-            
-            if (stored.length > max) {
-                stored = stored.slice(-max);
-            }
-            
-            localStorage.setItem(storageKey, JSON.stringify(stored));
-        } catch (e) {
-            // localStorage might be full, silently fail
-        }
-    }
-    
-    /**
-     * Load nearest cluster winner markers from localStorage
-     * Called after interval is set
-     */
-    loadNearestClusterWinner() {
-        if (!this.nearestClusterWinner) {
-            this.nearestClusterWinner = { enabled: false, markers: [], markerByTime: new Map(), maxMarkers: 600, currentBarMarker: null };
-        }
-        if (!this.currentInterval) return; // Wait for interval to be set
-        
-        try {
-            const storageKey = `ncw_${this.symbol}_${this.currentInterval}`;
-            const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            
-            if (!Array.isArray(stored) || stored.length === 0) {
-                console.log(`[NCW] No saved markers for ${this.symbol} ${this.currentInterval}`);
-                return;
-            }
-            
-            // Populate cache
-            this.nearestClusterWinner.markerByTime.clear();
-            for (const m of stored) {
-                const t = parseInt(m?.time, 10);
-                if (!t || isNaN(t)) continue;
-                
-                this.nearestClusterWinner.markerByTime.set(t, {
-                    time: t,
-                    position: m.position,
-                    color: m.color,
-                    shape: m.shape,
-                    text: m.text
-                });
-            }
-            
-            // Rebuild markers array from map
-            const all = Array.from(this.nearestClusterWinner.markerByTime.values());
-            all.sort((a, b) => a.time - b.time);
-            const max = this.nearestClusterWinner.maxMarkers || 600;
-            this.nearestClusterWinner.markers = all.length > max ? all.slice(-max) : all;
-            
-            console.log(`[NCW] Loaded ${this.nearestClusterWinner.markers.length} markers for ${this.symbol} ${this.currentInterval}`);
-            
-            if (this.nearestClusterWinner.enabled) {
-                this.updateAllSignalMarkers();
-            }
-        } catch (e) {
-            console.warn('[NCW] Failed to load from storage:', e);
-        }
     }
     
     // ==========================================
@@ -3111,6 +3058,16 @@ class OrderBookChart {
         const data = bbPulseLighting.calculate(candles);
         if (!data || !data.signals) {
             return;
+        }
+        
+        // Store latest BB Pulse signal state for Alpha Strike panel
+        const signals = data.signals;
+        const lastIdx = signals.lBuySignal1.length - 1;
+        if (lastIdx >= 0) {
+            this.lastBBPulseSignal = {
+                buySignal: signals.lBuySignal1[lastIdx] || signals.lBuySignal2[lastIdx] || signals.lBuySignal3[lastIdx],
+                sellSignal: signals.lSellSignal1[lastIdx] || signals.lSellSignal2[lastIdx]
+            };
         }
         
         console.log('[Chart] Drawing BB Pulse signals');
@@ -3183,6 +3140,1103 @@ class OrderBookChart {
     }
     
     // ==========================================
+    // Bulls vs Bears Signal (Order Book Pressure)
+    // ==========================================
+    
+    /**
+     * Toggle Bulls vs Bears Signal
+     */
+    toggleBullsBears(show) {
+        this.bullsBears.enabled = show;
+        console.log('[Chart] toggleBullsBears signals:', show);
+        
+        if (show) {
+            // NOTE: Level tracking now handled by unified levelHistory system
+            // Bulls vs Bears now only provides signal arrows (not level lines)
+            // Load saved markers history from localStorage
+            this.loadBullsBearsHistory();
+        } else {
+            this.clearBullsBearsSignals();
+        }
+        
+        localStorage.setItem('showBullsBears', show);
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Create line series for Bulls vs Bears level tracking
+     */
+    createBullsBearsLineSeries() {
+        if (!this.chart) return;
+        
+        // Remove existing series first
+        this.removeBullsBearsLineSeries();
+        
+        // Resistance line (above price) - magenta
+        this.bullsBears.resistanceSeries = this.chart.addLineSeries({
+            color: 'rgba(255, 0, 110, 0.7)',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+        
+        // Support line (below price) - cyan
+        this.bullsBears.supportSeries = this.chart.addLineSeries({
+            color: 'rgba(0, 217, 255, 0.7)',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+    }
+    
+    /**
+     * Remove Bulls vs Bears line series
+     */
+    removeBullsBearsLineSeries() {
+        if (this.bullsBears.resistanceSeries && this.chart) {
+            try {
+                this.chart.removeSeries(this.bullsBears.resistanceSeries);
+            } catch (e) { /* ignore */ }
+            this.bullsBears.resistanceSeries = null;
+        }
+        if (this.bullsBears.supportSeries && this.chart) {
+            try {
+                this.chart.removeSeries(this.bullsBears.supportSeries);
+            } catch (e) { /* ignore */ }
+            this.bullsBears.supportSeries = null;
+        }
+    }
+    
+    /**
+     * Load Bulls vs Bears history from localStorage
+     * NOTE: Level tracking now handled by levelHistory system - only loading markers here
+     */
+    loadBullsBearsHistory() {
+        try {
+            // Load markers only (level tracking now handled by levelHistory)
+            const savedMarkers = localStorage.getItem('bullsBearsMarkers');
+            if (savedMarkers) {
+                this.bullsBears.markers = JSON.parse(savedMarkers);
+                console.log('[Chart] Loaded', this.bullsBears.markers.length, 'Bulls vs Bears markers from localStorage');
+            }
+        } catch (e) {
+            console.warn('[Chart] Error loading Bulls vs Bears history:', e);
+        }
+    }
+    
+    /**
+     * Save Bulls vs Bears history to localStorage
+     * NOTE: Level tracking now handled by levelHistory system - only saving markers here
+     */
+    saveBullsBearsHistory() {
+        try {
+            localStorage.setItem('bullsBearsMarkers', JSON.stringify(this.bullsBears.markers));
+        } catch (e) {
+            console.warn('[Chart] Error saving Bulls vs Bears history:', e);
+        }
+    }
+    
+    /**
+     * Set Bulls vs Bears calculation method
+     * @param {string} method - 'firstLevel' or 'percentRange'
+     */
+    setBullsBearsMethod(method) {
+        this.bullsBears.method = method;
+        localStorage.setItem('bullsBearsMethod', method);
+        console.log('[Chart] Bulls vs Bears method set to:', method);
+    }
+    
+    /**
+     * Calculate Bulls vs Bears signal from order book levels
+     * @param {Array} levels - Array of {price, volume, type: 'support'|'resistance'}
+     * @param {number} currentPrice - Current market price
+     * @returns {Object} {ratio, direction: 'bull'|'bear'|'neutral', resistanceVol, supportVol}
+     */
+    calculateBullsBearsSignal(levels, currentPrice) {
+        if (!levels || levels.length === 0 || !currentPrice) {
+            return { ratio: 1, direction: 'neutral', resistanceVol: 0, supportVol: 0, resistancePrice: null, supportPrice: null };
+        }
+        
+        const method = this.bullsBears.method;
+        let resistanceVol = 0;
+        let supportVol = 0;
+        let resistancePrice = null;
+        let supportPrice = null;
+        
+        if (method === 'firstLevel') {
+            // First Level Method: Compare closest levels on each side
+            const resistanceLevels = levels
+                .filter(l => l.type === 'resistance' && l.price > currentPrice)
+                .sort((a, b) => a.price - b.price); // Closest first
+                
+            const supportLevels = levels
+                .filter(l => l.type === 'support' && l.price < currentPrice)
+                .sort((a, b) => b.price - a.price); // Closest first
+            
+            if (resistanceLevels.length > 0) {
+                resistanceVol = resistanceLevels[0].volume;
+                resistancePrice = resistanceLevels[0].price;
+            }
+            if (supportLevels.length > 0) {
+                supportVol = supportLevels[0].volume;
+                supportPrice = supportLevels[0].price;
+            }
+            
+        } else {
+            // Percent Range Method: Sum all levels within X% of price
+            const rangePct = this.bullsBears.percentRange / 100;
+            const upperBound = currentPrice * (1 + rangePct);
+            const lowerBound = currentPrice * (1 - rangePct);
+            
+            for (const level of levels) {
+                if (level.type === 'resistance' && level.price > currentPrice && level.price <= upperBound) {
+                    resistanceVol += level.volume;
+                } else if (level.type === 'support' && level.price < currentPrice && level.price >= lowerBound) {
+                    supportVol += level.volume;
+                }
+            }
+            // For percent range method, no single price level to track
+        }
+        
+        // Calculate ratio
+        if (supportVol === 0 && resistanceVol === 0) {
+            return { ratio: 1, direction: 'neutral', resistanceVol: 0, supportVol: 0, resistancePrice: null, supportPrice: null };
+        }
+        
+        // Avoid division by zero
+        // Ratio = support/resistance (bids/asks): >1 = more bids = bullish
+        const ratio = resistanceVol > 0 ? supportVol / resistanceVol : (supportVol > 0 ? Infinity : 1);
+        
+        // Determine direction
+        let direction = 'neutral';
+        if (ratio > 1) {
+            direction = 'bull'; // More support than resistance = bulls winning
+        } else if (ratio < 1) {
+            direction = 'bear'; // More resistance than support = bears winning
+        }
+        
+        return { ratio, direction, resistanceVol, supportVol, resistancePrice, supportPrice };
+    }
+    
+    /**
+     * Update Bulls vs Bears marker on current bar
+     * Called when order book levels update
+     * @param {Array} levels - Current order book levels
+     * @param {number} currentPrice - Current market price
+     */
+    updateBullsBearsMarker(levels, currentPrice) {
+        if (!this.bullsBears.enabled || !this.lastCandle) {
+            return;
+        }
+        
+        const signal = this.calculateBullsBearsSignal(levels, currentPrice);
+        this.bullsBears.lastRatio = signal.ratio;
+        
+        const currentBarTime = this.lastCandle.time;
+        
+        // Check if bar changed - finalize previous bar's signal
+        if (this.bullsBears.lastBarTime && this.bullsBears.lastBarTime !== currentBarTime) {
+            this.finalizeBullsBearsSignal();
+        }
+        
+        this.bullsBears.lastBarTime = currentBarTime;
+        
+        // Create live marker for current bar - numbers only, positioned above high / below low
+        if (signal.direction === 'neutral') {
+            this.bullsBears.liveMarker = null;
+        } else {
+            const ratioText = signal.ratio === Infinity ? '∞' : signal.ratio.toFixed(2);
+            this.bullsBears.liveMarker = {
+                time: currentBarTime,
+                position: signal.direction === 'bull' ? 'belowBar' : 'aboveBar',
+                color: signal.direction === 'bull' ? '#10b981' : '#ef4444',
+                shape: 'square',
+                text: ratioText,
+                size: 0
+            };
+        }
+        
+        // NOTE: Level tracking now handled by unified levelHistory system
+        // Bulls vs Bears now only provides signal arrows
+        
+        // Update chart markers
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Update Bulls vs Bears line series with live data point
+     */
+    updateBullsBearsLiveLines(time) {
+        if (!this.bullsBears.resistanceSeries || !this.bullsBears.supportSeries) {
+            return;
+        }
+        
+        // Update resistance line with live point
+        if (this.bullsBears.liveResistance !== null) {
+            const resistanceData = [...this.bullsBears.resistanceData];
+            // Remove any existing point at this time
+            const existingIdx = resistanceData.findIndex(p => p.time === time);
+            if (existingIdx >= 0) {
+                resistanceData[existingIdx] = { time, value: this.bullsBears.liveResistance };
+            } else {
+                resistanceData.push({ time, value: this.bullsBears.liveResistance });
+            }
+            resistanceData.sort((a, b) => a.time - b.time);
+            try {
+                this.bullsBears.resistanceSeries.setData(resistanceData);
+            } catch (e) { /* ignore */ }
+        }
+        
+        // Update support line with live point
+        if (this.bullsBears.liveSupport !== null) {
+            const supportData = [...this.bullsBears.supportData];
+            // Remove any existing point at this time
+            const existingIdx = supportData.findIndex(p => p.time === time);
+            if (existingIdx >= 0) {
+                supportData[existingIdx] = { time, value: this.bullsBears.liveSupport };
+            } else {
+                supportData.push({ time, value: this.bullsBears.liveSupport });
+            }
+            supportData.sort((a, b) => a.time - b.time);
+            try {
+                this.bullsBears.supportSeries.setData(supportData);
+            } catch (e) { /* ignore */ }
+        }
+    }
+    
+    /**
+     * Finalize Bulls vs Bears signal when bar closes
+     * Freezes the current signal as a historical marker
+     */
+    finalizeBullsBearsSignal() {
+        if (this.bullsBears.liveMarker) {
+            // Add to historical markers
+            this.bullsBears.markers.push({ ...this.bullsBears.liveMarker });
+            
+            // Cap historical markers (keep last 500)
+            if (this.bullsBears.markers.length > 500) {
+                this.bullsBears.markers = this.bullsBears.markers.slice(-500);
+            }
+            
+            console.log('[Chart] Bulls vs Bears signal finalized:', this.bullsBears.liveMarker);
+        }
+        
+        // NOTE: Level tracking now handled by unified levelHistory system
+        
+        // Save markers to localStorage
+        this.saveBullsBearsHistory();
+        
+        // Clear live data for next bar
+        this.bullsBears.liveMarker = null;
+        this.bullsBears.liveResistance = null;
+        this.bullsBears.liveSupport = null;
+    }
+    
+    /**
+     * Clear all Bulls vs Bears signals
+     */
+    clearBullsBearsSignals() {
+        this.bullsBears.markers = [];
+        this.bullsBears.liveMarker = null;
+        this.bullsBears.lastRatio = null;
+        this.bullsBears.lastBarTime = null;
+        this.bullsBears.resistanceData = [];
+        this.bullsBears.supportData = [];
+        this.bullsBears.liveResistance = null;
+        this.bullsBears.liveSupport = null;
+        
+        // Clear localStorage
+        localStorage.removeItem('bullsBearsMarkers');
+        localStorage.removeItem('bullsBearsResistanceData');
+        localStorage.removeItem('bullsBearsSupportData');
+        
+        // Clear line series data
+        if (this.bullsBears.resistanceSeries) {
+            try { this.bullsBears.resistanceSeries.setData([]); } catch (e) { /* ignore */ }
+        }
+        if (this.bullsBears.supportSeries) {
+            try { this.bullsBears.supportSeries.setData([]); } catch (e) { /* ignore */ }
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Trade Footprint Heatmap
+    // ==========================================
+    
+    /**
+     * Toggle Trade Footprint heatmap overlay
+     */
+    toggleTradeFootprint(show) {
+        this.tradeFootprint.enabled = show;
+        console.log('[Chart] toggleTradeFootprint:', show);
+        
+        if (show) {
+            this.initTradeFootprintCanvas();
+            // Sync with trade aggregator
+            if (typeof tradeAggregator !== 'undefined') {
+                tradeAggregator.setSymbol(this.symbol);
+                tradeAggregator.setInterval(this.currentInterval);
+                tradeAggregator.loadFromStorage();
+            }
+            this.renderTradeFootprint();
+        } else {
+            this.clearTradeFootprintCanvas();
+        }
+        
+        localStorage.setItem('showTradeFootprint', show);
+        
+        // Sync with WebSocket
+        if (typeof orderBookWS !== 'undefined') {
+            orderBookWS.setTradesEnabled(show);
+        }
+    }
+    
+    /**
+     * Set trade footprint bucket size
+     */
+    setTradeFootprintBucketSize(size) {
+        this.tradeFootprint.bucketSize = parseInt(size) || 10;
+        localStorage.setItem('tradeFootprintBucketSize', this.tradeFootprint.bucketSize);
+        
+        if (typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.setBucketSize(this.tradeFootprint.bucketSize);
+        }
+        
+        // Re-render with new bucket size
+        if (this.tradeFootprint.enabled) {
+            this.renderTradeFootprint();
+        }
+    }
+    
+    /**
+     * Initialize trade footprint canvas overlay
+     */
+    initTradeFootprintCanvas() {
+        if (this.tradeFootprint.canvas) return;
+        
+        // Create canvas element
+        const canvas = document.createElement('canvas');
+        canvas.id = 'tradeFootprintCanvas';
+        canvas.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        `;
+        
+        // Insert canvas into chart container
+        if (this.container) {
+            this.container.style.position = 'relative';
+            this.container.appendChild(canvas);
+            
+            // Size canvas to match container
+            const rect = this.container.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            
+            this.tradeFootprint.canvas = canvas;
+            this.tradeFootprint.ctx = canvas.getContext('2d');
+            this.tradeFootprint.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            
+            // Subscribe to chart crosshair/time scale changes for re-render
+            if (this.chart) {
+                this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                    if (this.tradeFootprint.enabled) {
+                        this.renderTradeFootprint();
+                    }
+                });
+            }
+        }
+    }
+    
+    /**
+     * Clear trade footprint canvas
+     */
+    clearTradeFootprintCanvas() {
+        if (this.tradeFootprint.canvas && this.tradeFootprint.ctx) {
+            const rect = this.container.getBoundingClientRect();
+            this.tradeFootprint.ctx.clearRect(0, 0, rect.width, rect.height);
+        }
+    }
+    
+    /**
+     * Remove trade footprint canvas from DOM
+     */
+    removeTradeFootprintCanvas() {
+        if (this.tradeFootprint.canvas) {
+            this.tradeFootprint.canvas.remove();
+            this.tradeFootprint.canvas = null;
+            this.tradeFootprint.ctx = null;
+        }
+    }
+    
+    /**
+     * Render trade footprint heatmap
+     */
+    renderTradeFootprint() {
+        if (!this.tradeFootprint.enabled || !this.chart || !this.tradeFootprint.ctx) {
+            return;
+        }
+        
+        // Get trade data from aggregator
+        if (typeof tradeAggregator === 'undefined') return;
+        
+        const allData = tradeAggregator.getAllFootprintData();
+        if (allData.size === 0) return;
+        
+        const ctx = this.tradeFootprint.ctx;
+        const rect = this.container.getBoundingClientRect();
+        const timeScale = this.chart.timeScale();
+        const priceScale = this.candleSeries.priceScale();
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        
+        // Get visible time range
+        const visibleRange = timeScale.getVisibleLogicalRange();
+        if (!visibleRange) return;
+        
+        // Calculate bar width in pixels
+        const candles = this.getCandles();
+        if (!candles || candles.length < 2) return;
+        
+        // Get interval in seconds for bar width calculation
+        const intervalMap = {
+            '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+            '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
+            '1d': 86400, '3d': 259200, '1w': 604800
+        };
+        const intervalSec = intervalMap[this.currentInterval] || 60;
+        
+        // Find max delta across all visible bars for normalization
+        let maxDelta = 0;
+        let maxVolume = 0;
+        allData.forEach((footprint, barTime) => {
+            footprint.forEach(level => {
+                maxDelta = Math.max(maxDelta, Math.abs(level.delta));
+                maxVolume = Math.max(maxVolume, level.totalVol);
+            });
+        });
+        
+        if (maxDelta === 0) return;
+        
+        // Draw footprint for each bar
+        allData.forEach((footprint, barTime) => {
+            // Convert bar time to x coordinate
+            const x = timeScale.timeToCoordinate(barTime);
+            if (x === null || x < 0 || x > rect.width) return;
+            
+            // Calculate bar width (approximately 80% of time slot)
+            const nextX = timeScale.timeToCoordinate(barTime + intervalSec);
+            const barWidth = nextX !== null ? Math.max(2, (nextX - x) * 0.8) : 8;
+            
+            // Draw each price level
+            footprint.forEach(level => {
+                // Convert price to y coordinate
+                const y = this.candleSeries.priceToCoordinate(level.price);
+                if (y === null || y < 0 || y > rect.height) return;
+                
+                // Calculate color based on delta
+                const delta = level.delta;
+                const intensity = Math.min(1, Math.abs(delta) / maxDelta);
+                const volumeScale = Math.min(1, level.totalVol / maxVolume);
+                
+                // Determine color (green for buying, red for selling)
+                let color;
+                if (delta > 0) {
+                    // Buying pressure - green
+                    const alpha = 0.3 + intensity * 0.6;
+                    color = `rgba(16, 185, 129, ${alpha})`;
+                } else if (delta < 0) {
+                    // Selling pressure - red
+                    const alpha = 0.3 + intensity * 0.6;
+                    color = `rgba(239, 68, 68, ${alpha})`;
+                } else {
+                    // Neutral - dim
+                    color = 'rgba(148, 163, 184, 0.2)';
+                }
+                
+                // Calculate rectangle height (based on bucket size relative to price scale)
+                const bucketSize = this.tradeFootprint.bucketSize;
+                const yTop = this.candleSeries.priceToCoordinate(level.price + bucketSize);
+                const rectHeight = yTop !== null ? Math.max(2, Math.abs(y - yTop)) : 4;
+                
+                // Draw rectangle
+                ctx.fillStyle = color;
+                ctx.fillRect(
+                    x - barWidth / 2,
+                    y - rectHeight / 2,
+                    barWidth,
+                    rectHeight
+                );
+                
+                // For high-volume levels, add a border
+                if (volumeScale > 0.5) {
+                    ctx.strokeStyle = delta > 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(
+                        x - barWidth / 2,
+                        y - rectHeight / 2,
+                        barWidth,
+                        rectHeight
+                    );
+                }
+            });
+        });
+    }
+    
+    /**
+     * Update trade footprint on new trade data
+     */
+    onTradeFootprintUpdate(barTime, footprint) {
+        if (this.tradeFootprint.enabled) {
+            // Debounce rendering to avoid excessive redraws
+            if (this._footprintRenderTimeout) {
+                clearTimeout(this._footprintRenderTimeout);
+            }
+            this._footprintRenderTimeout = setTimeout(() => {
+                this.renderTradeFootprint();
+            }, 100);
+        }
+    }
+    
+    /**
+     * Clear all trade footprint data
+     */
+    clearTradeFootprint() {
+        if (typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.clear();
+        }
+        this.clearTradeFootprintCanvas();
+        
+        // Clear from localStorage
+        const key = `tradeFootprint_${this.symbol}_${this.currentInterval}`;
+        localStorage.removeItem(key);
+    }
+    
+    // ==========================================
+    // Level History - Unified Order Book + Fair Value Tracking
+    // Heatmap for clusters, Lines for Mid/IFV/VWMP
+    // ==========================================
+    
+    /**
+     * Initialize Level History system
+     * Creates canvas for cluster heatmap + line series for fair value indicators
+     */
+    initLevelHistory() {
+        if (!this.chart || !this.container || this.levelHistory.initialized) return;
+        
+        // Set tracking info
+        this.levelHistory.symbol = this.symbol;
+        this.levelHistory.interval = this.currentInterval;
+        
+        // Create canvas for cluster heatmap
+        this.initLevelHistoryCanvas();
+        
+        // Create line series for fair value indicators
+        this.initLevelHistoryLineSeries();
+        
+        // Load saved history from localStorage
+        this.loadLevelHistory();
+        
+        // Subscribe to time scale changes for re-render
+        if (this.chart) {
+            this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                if (this.levelHistory.showHeatmap) {
+                    this.renderLevelHistoryHeatmap();
+                }
+            });
+        }
+        
+        this.levelHistory.initialized = true;
+        console.log('[Chart] Level History initialized');
+    }
+    
+    /**
+     * Initialize canvas for Level History heatmap
+     */
+    initLevelHistoryCanvas() {
+        if (this.levelHistory.canvas) return;
+        
+        const canvas = document.createElement('canvas');
+        canvas.id = 'levelHistoryCanvas';
+        canvas.style.cssText = `
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+        `;
+        
+        this.container.style.position = 'relative';
+        this.container.appendChild(canvas);
+        
+        const rect = this.container.getBoundingClientRect();
+        canvas.width = rect.width * window.devicePixelRatio;
+        canvas.height = rect.height * window.devicePixelRatio;
+        
+        this.levelHistory.canvas = canvas;
+        this.levelHistory.ctx = canvas.getContext('2d');
+        this.levelHistory.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    }
+    
+    /**
+     * Initialize line series for Fair Value indicators
+     */
+    initLevelHistoryLineSeries() {
+        if (!this.chart) return;
+        
+        // Mid line - gray, dotted
+        this.levelHistory.midSeries = this.chart.addLineSeries({
+            color: 'rgba(148, 163, 184, 0.5)',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+        
+        // IFV line - gold, solid
+        this.levelHistory.ifvSeries = this.chart.addLineSeries({
+            color: 'rgba(251, 191, 36, 0.7)',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+        
+        // VWMP line - green, solid
+        this.levelHistory.vwmpSeries = this.chart.addLineSeries({
+            color: 'rgba(16, 185, 129, 0.7)',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false
+        });
+    }
+    
+    /**
+     * Toggle Level History Heatmap display
+     * Note: Data is always cached in background regardless of display setting
+     */
+    toggleLevelHistoryHeatmap(show) {
+        this.levelHistory.showHeatmap = show;
+        localStorage.setItem('showLevelHistoryHeatmap', show);
+        console.log('[Chart] toggleLevelHistoryHeatmap:', show);
+        
+        if (show) {
+            // Initialize canvas if needed
+            this.initLevelHistoryCanvas();
+            // Re-render with existing cached data
+            this.renderLevelHistoryHeatmap();
+        } else {
+            // Clear canvas when disabled
+            if (this.levelHistory.ctx) {
+                const rect = this.container.getBoundingClientRect();
+                this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
+            }
+        }
+    }
+    
+    /**
+     * Snapshot current levels and fair values on bar close
+     * Always caches data regardless of display setting so data is ready when enabled
+     * @param {number} newBarTime - The time of the NEW bar that just opened
+     */
+    snapshotLevelHistory(newBarTime) {
+        if (!newBarTime) return;
+        
+        // Get interval in seconds
+        const intervalMap = {
+            '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+            '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
+            '1d': 86400, '3d': 259200, '1w': 604800
+        };
+        const intervalSec = intervalMap[this.currentInterval] || 60;
+        
+        // Calculate the bar time that just CLOSED (previous bar)
+        const closedBarTime = newBarTime - intervalSec;
+        
+        // Skip if already have this bar
+        if (this.levelHistory.data.has(closedBarTime)) return;
+        
+        // Get current order book levels (clusters)
+        const levels = this.fairValueIndicators.currentLevels;
+        if (!levels || levels.length === 0) {
+            console.warn('[LevelHistory] No levels available for snapshot');
+            return;
+        }
+        
+        // Extract clusters (top levels by volume)
+        const clusters = this.extractClustersForHistory(levels);
+        
+        // Get current price for filtering fair value calculations
+        const currentPrice = this.lastCandle?.close || this.currentPrice;
+        
+        // Calculate fair value indicators (with price filtering)
+        const mid = this.calculateMidPrice(levels);
+        const ifv = this.calculateIFV(levels, currentPrice);
+        const vwmp = this.calculateVWMP(levels, currentPrice);
+        
+        console.log(`[LevelHistory] Snapshot bar ${closedBarTime}: ${clusters.length} clusters, price=${currentPrice}, mid=${mid}, ifv=${ifv}, vwmp=${vwmp}`);
+        
+        // Store snapshot
+        const snapshot = {
+            clusters: clusters,
+            mid: mid,
+            ifv: ifv,
+            vwmp: vwmp
+        };
+        
+        this.levelHistory.data.set(closedBarTime, snapshot);
+        this.levelHistory.lastBarTime = closedBarTime;
+        
+        // Add to line series data arrays
+        if (mid) this.levelHistory.midData.push({ time: closedBarTime, value: mid });
+        if (ifv) this.levelHistory.ifvData.push({ time: closedBarTime, value: ifv });
+        if (vwmp) this.levelHistory.vwmpData.push({ time: closedBarTime, value: vwmp });
+        
+        // Trim old data if exceeds max
+        this.trimLevelHistoryData();
+        
+        // Render updates
+        this.renderLevelHistoryHeatmap();
+        this.renderLevelHistoryLines();
+        
+        // Save to localStorage (throttled)
+        this.saveLevelHistory();
+    }
+    
+    /**
+     * Extract significant clusters from levels for history
+     */
+    extractClustersForHistory(levels) {
+        if (!levels || levels.length === 0) return [];
+        
+        // Filter to only valid price levels (must be > 100 for BTC, reasonable range)
+        // and must have type 'support' or 'resistance'
+        const validLevels = levels.filter(level => {
+            const price = parseFloat(level.price);
+            return price > 100 && // Filter out garbage prices
+                   price < 10000000 && // And unrealistically high prices
+                   (level.type === 'support' || level.type === 'resistance') &&
+                   level.volume > 0;
+        });
+        
+        // Sort by volume and take top clusters (limit to prevent bloat)
+        const maxClusters = 30;
+        const sorted = [...validLevels].sort((a, b) => b.volume - a.volume);
+        
+        return sorted.slice(0, maxClusters).map(level => ({
+            price: parseFloat(level.price),
+            type: level.type, // 'support' or 'resistance'
+            volume: Math.round(level.volume * 1000) / 1000 // Round for storage
+        }));
+    }
+    
+    /**
+     * Trim level history data to max bars
+     */
+    trimLevelHistoryData() {
+        const max = this.levelHistory.maxBars;
+        
+        if (this.levelHistory.data.size > max) {
+            const sortedTimes = Array.from(this.levelHistory.data.keys()).sort((a, b) => a - b);
+            const toRemove = sortedTimes.slice(0, this.levelHistory.data.size - max);
+            toRemove.forEach(time => this.levelHistory.data.delete(time));
+        }
+        
+        // Trim line data arrays
+        if (this.levelHistory.midData.length > max) {
+            this.levelHistory.midData = this.levelHistory.midData.slice(-max);
+        }
+        if (this.levelHistory.ifvData.length > max) {
+            this.levelHistory.ifvData = this.levelHistory.ifvData.slice(-max);
+        }
+        if (this.levelHistory.vwmpData.length > max) {
+            this.levelHistory.vwmpData = this.levelHistory.vwmpData.slice(-max);
+        }
+    }
+    
+    /**
+     * Render cluster heatmap on canvas
+     */
+    renderLevelHistoryHeatmap() {
+        if (!this.levelHistory.showHeatmap || !this.levelHistory.ctx || !this.chart) {
+            // Clear canvas if heatmap disabled but canvas exists
+            if (!this.levelHistory.showHeatmap && this.levelHistory.ctx) {
+                const rect = this.container.getBoundingClientRect();
+                this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
+            }
+            return;
+        }
+        
+        const ctx = this.levelHistory.ctx;
+        const rect = this.container.getBoundingClientRect();
+        const timeScale = this.chart.timeScale();
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        
+        if (this.levelHistory.data.size === 0) {
+            // No data yet - waiting for first bar to close
+            return;
+        }
+        
+        // Get interval in seconds
+        const intervalMap = {
+            '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+            '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
+            '1d': 86400, '3d': 259200, '1w': 604800
+        };
+        const intervalSec = intervalMap[this.currentInterval] || 60;
+        
+        // Find max volume across all data for normalization
+        let maxVolume = 0;
+        let totalClusters = 0;
+        this.levelHistory.data.forEach(snapshot => {
+            totalClusters += snapshot.clusters.length;
+            snapshot.clusters.forEach(cluster => {
+                maxVolume = Math.max(maxVolume, cluster.volume);
+            });
+        });
+        
+        if (maxVolume === 0) {
+            console.warn('[LevelHistory] Max volume is 0, skipping render');
+            return;
+        }
+        
+        console.log(`[LevelHistory] Rendering: ${this.levelHistory.data.size} bars, ${totalClusters} clusters, maxVol=${maxVolume}`);
+        
+        // Draw heatmap for each bar
+        let drawnBars = 0;
+        let drawnClusters = 0;
+        
+        this.levelHistory.data.forEach((snapshot, barTime) => {
+            const x = timeScale.timeToCoordinate(barTime);
+            if (x === null || x < -50 || x > rect.width + 50) return;
+            
+            drawnBars++;
+            const nextX = timeScale.timeToCoordinate(barTime + intervalSec);
+            const barWidth = nextX !== null ? Math.max(2, (nextX - x) * 0.8) : 6;
+            
+            // Draw each cluster
+            snapshot.clusters.forEach(cluster => {
+                const y = this.candleSeries.priceToCoordinate(cluster.price);
+                if (y === null || y < 0 || y > rect.height) return;
+                
+                drawnClusters++;
+                const intensity = Math.min(1, cluster.volume / maxVolume);
+                const alpha = 0.3 + intensity * 0.6; // More visible
+                
+                // Color by type: resistance = magenta, support = cyan
+                ctx.fillStyle = cluster.type === 'resistance'
+                    ? `rgba(255, 0, 110, ${alpha})`
+                    : `rgba(0, 217, 255, ${alpha})`;
+                
+                // Draw rectangle at price level - make them taller and more visible
+                const rectHeight = Math.max(4, 6 + intensity * 4);
+                ctx.fillRect(x - barWidth / 2, y - rectHeight / 2, barWidth, rectHeight);
+            });
+        });
+        
+        if (drawnBars > 0) {
+            console.log(`[LevelHistory] Drew ${drawnBars} bars, ${drawnClusters} clusters`);
+            
+            // Log first bar's cluster prices for debugging
+            if (drawnClusters < 10) {
+                const firstBarTime = Array.from(this.levelHistory.data.keys())[0];
+                const firstBar = this.levelHistory.data.get(firstBarTime);
+                if (firstBar && firstBar.clusters.length > 0) {
+                    const prices = firstBar.clusters.slice(0, 5).map(c => c.price);
+                    console.log(`[LevelHistory] First bar cluster prices: ${prices.join(', ')}`);
+                    console.log(`[LevelHistory] Canvas rect: ${rect.width}x${rect.height}`);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Render fair value indicator lines
+     */
+    renderLevelHistoryLines() {
+        if (!this.levelHistory.enabled) return;
+        
+        // Update Mid series
+        if (this.levelHistory.midSeries && this.levelHistory.midData.length > 0) {
+            try {
+                this.levelHistory.midSeries.setData(this.levelHistory.midData);
+            } catch (e) { /* ignore */ }
+        }
+        
+        // Update IFV series
+        if (this.levelHistory.ifvSeries && this.levelHistory.ifvData.length > 0) {
+            try {
+                this.levelHistory.ifvSeries.setData(this.levelHistory.ifvData);
+            } catch (e) { /* ignore */ }
+        }
+        
+        // Update VWMP series
+        if (this.levelHistory.vwmpSeries && this.levelHistory.vwmpData.length > 0) {
+            try {
+                this.levelHistory.vwmpSeries.setData(this.levelHistory.vwmpData);
+            } catch (e) { /* ignore */ }
+        }
+    }
+    
+    /**
+     * Get localStorage key for level history
+     */
+    getLevelHistoryStorageKey() {
+        return `levelHistory_${this.levelHistory.symbol}_${this.levelHistory.interval}`;
+    }
+    
+    /**
+     * Save level history to localStorage
+     */
+    saveLevelHistory() {
+        try {
+            const data = {};
+            this.levelHistory.data.forEach((snapshot, barTime) => {
+                data[barTime] = {
+                    c: snapshot.clusters.map(c => ({
+                        p: c.price,
+                        t: c.type === 'resistance' ? 'r' : 's',
+                        v: c.volume
+                    })),
+                    m: snapshot.mid,
+                    i: snapshot.ifv,
+                    w: snapshot.vwmp
+                };
+            });
+            
+            localStorage.setItem(this.getLevelHistoryStorageKey(), JSON.stringify(data));
+        } catch (e) {
+            console.warn('[Chart] Failed to save level history:', e);
+        }
+    }
+    
+    /**
+     * Load level history from localStorage
+     */
+    loadLevelHistory() {
+        try {
+            const key = this.getLevelHistoryStorageKey();
+            const saved = localStorage.getItem(key);
+            if (!saved) return;
+            
+            const data = JSON.parse(saved);
+            this.levelHistory.data.clear();
+            this.levelHistory.midData = [];
+            this.levelHistory.ifvData = [];
+            this.levelHistory.vwmpData = [];
+            
+            Object.entries(data).forEach(([barTime, snapshot]) => {
+                const time = parseInt(barTime);
+                const clusters = snapshot.c.map(c => ({
+                    price: c.p,
+                    type: c.t === 'r' ? 'resistance' : 'support',
+                    volume: c.v
+                }));
+                
+                this.levelHistory.data.set(time, {
+                    clusters: clusters,
+                    mid: snapshot.m,
+                    ifv: snapshot.i,
+                    vwmp: snapshot.w
+                });
+                
+                // Build line data arrays
+                if (snapshot.m) this.levelHistory.midData.push({ time: time, value: snapshot.m });
+                if (snapshot.i) this.levelHistory.ifvData.push({ time: time, value: snapshot.i });
+                if (snapshot.w) this.levelHistory.vwmpData.push({ time: time, value: snapshot.w });
+            });
+            
+            // Sort line data by time
+            this.levelHistory.midData.sort((a, b) => a.time - b.time);
+            this.levelHistory.ifvData.sort((a, b) => a.time - b.time);
+            this.levelHistory.vwmpData.sort((a, b) => a.time - b.time);
+            
+            // Render loaded data
+            this.renderLevelHistoryHeatmap();
+            this.renderLevelHistoryLines();
+            
+            console.log(`[Chart] Loaded ${this.levelHistory.data.size} bars of level history`);
+        } catch (e) {
+            console.warn('[Chart] Failed to load level history:', e);
+        }
+    }
+    
+    /**
+     * Clear level history (called on interval/symbol change)
+     */
+    clearLevelHistory() {
+        // Save current data first
+        this.saveLevelHistory();
+        
+        // Clear in-memory data
+        this.levelHistory.data.clear();
+        this.levelHistory.midData = [];
+        this.levelHistory.ifvData = [];
+        this.levelHistory.vwmpData = [];
+        this.levelHistory.lastBarTime = null;
+        
+        // Clear canvas
+        if (this.levelHistory.ctx && this.container) {
+            const rect = this.container.getBoundingClientRect();
+            this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
+        }
+        
+        // Clear line series
+        if (this.levelHistory.midSeries) {
+            try { this.levelHistory.midSeries.setData([]); } catch (e) { /* ignore */ }
+        }
+        if (this.levelHistory.ifvSeries) {
+            try { this.levelHistory.ifvSeries.setData([]); } catch (e) { /* ignore */ }
+        }
+        if (this.levelHistory.vwmpSeries) {
+            try { this.levelHistory.vwmpSeries.setData([]); } catch (e) { /* ignore */ }
+        }
+    }
+    
+    /**
+     * Handle symbol change for level history
+     */
+    onLevelHistorySymbolChange(newSymbol) {
+        if (this.levelHistory.symbol === newSymbol) return;
+        
+        // Save current, clear, update, load new
+        this.clearLevelHistory();
+        this.levelHistory.symbol = newSymbol;
+        this.loadLevelHistory();
+    }
+    
+    /**
+     * Handle interval change for level history
+     */
+    onLevelHistoryIntervalChange(newInterval) {
+        if (this.levelHistory.interval === newInterval) return;
+        
+        // Save current, clear, update, load new
+        this.clearLevelHistory();
+        this.levelHistory.interval = newInterval;
+        this.loadLevelHistory();
+    }
+    
+    // ==========================================
     // Fair Value Indicators (IFV & VWMP)
     // ==========================================
     
@@ -3222,6 +4276,28 @@ class OrderBookChart {
     setFairValueLevels(levels) {
         this.fairValueIndicators.currentLevels = levels;
         this.updateFairValueIndicators();
+    }
+    
+    /**
+     * Calculate Simple Mid Price
+     * Average of best bid and best ask
+     * @param {Array} levels - Order book levels
+     */
+    calculateMidPrice(levels) {
+        if (!levels || levels.length === 0) return null;
+        
+        // Find best bid (highest support price)
+        const supports = levels.filter(l => l.type === 'support');
+        const resistances = levels.filter(l => l.type === 'resistance');
+        
+        if (supports.length === 0 || resistances.length === 0) return null;
+        
+        const bestBid = Math.max(...supports.map(l => parseFloat(l.price)));
+        const bestAsk = Math.min(...resistances.map(l => parseFloat(l.price)));
+        
+        if (bestBid <= 0 || bestAsk <= 0 || bestBid >= bestAsk) return null;
+        
+        return (bestBid + bestAsk) / 2;
     }
     
     /**
@@ -3766,8 +4842,6 @@ class OrderBookChart {
             return;
         }
         
-        const intervalSeconds = this.getIntervalSeconds();
-        
         // Limit to recent candles for performance (cap = lowest timeframe-friendly)
         const maxCandles = this.historicalFairValue.maxCandles || 500;
         const sortedCandlesAsc = Array.from(cachedData.keys()).sort((a, b) => a - b);
@@ -3783,24 +4857,21 @@ class OrderBookChart {
             const record = cachedData.get(candleTime);
             if (!record) return;
             
+            // Single point per bar - creates flowing connected line (like Bulls vs Bears levels)
             if (record.vwmp) {
                 vwmpData.push({ time: candleTime, value: record.vwmp });
-                vwmpData.push({ time: candleTime + intervalSeconds - 1, value: record.vwmp });
             }
             
             if (record.ifv) {
                 ifvData.push({ time: candleTime, value: record.ifv });
-                ifvData.push({ time: candleTime + intervalSeconds - 1, value: record.ifv });
             }
             
             if (record.upsideTarget) {
                 upsideData.push({ time: candleTime, value: record.upsideTarget });
-                upsideData.push({ time: candleTime + intervalSeconds - 1, value: record.upsideTarget });
             }
             
             if (record.downsideTarget) {
                 downsideData.push({ time: candleTime, value: record.downsideTarget });
-                downsideData.push({ time: candleTime + intervalSeconds - 1, value: record.downsideTarget });
             }
         });
         
@@ -3813,8 +4884,8 @@ class OrderBookChart {
             try {
                 this.historicalFairValue.vwmpSeries = this.chart.addLineSeries({
                     color: `rgba(52, 211, 153, ${baseOpacity})`,  // VWMP green (history)
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
@@ -3829,8 +4900,8 @@ class OrderBookChart {
             try {
                 this.historicalFairValue.ifvSeries = this.chart.addLineSeries({
                     color: `rgba(167, 139, 250, ${baseOpacity})`,  // IFV purple (history)
-                    lineWidth: 2,
-                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
@@ -3848,7 +4919,7 @@ class OrderBookChart {
                 this.historicalFairValue.upsideSeries = this.chart.addLineSeries({
                     color: `rgba(0, 217, 255, ${targetOpacity})`,  // Cyan
                     lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
@@ -3865,7 +4936,7 @@ class OrderBookChart {
                 this.historicalFairValue.downsideSeries = this.chart.addLineSeries({
                     color: `rgba(255, 0, 110, ${targetOpacity})`,  // Pink
                     lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    lineStyle: LightweightCharts.LineStyle.Solid,
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false
@@ -4484,8 +5555,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
      */
     updateTradeSetup(currentPrice, mid, vwmp, ifv) {
         // Get DOM elements
-        const tradeDirection = document.getElementById('tradeDirection');
-        const tradeConfidence = document.getElementById('tradeConfidence');
+        const recommendedDirection = document.getElementById('recommendedDirection');
         const tradeEntry = document.getElementById('tradeEntry');
         const tradeStop = document.getElementById('tradeStop');
         const tradeTarget1 = document.getElementById('tradeTarget1');
@@ -4493,9 +5563,8 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const tradeRR = document.getElementById('tradeRR');
         const tradeReasoning = document.getElementById('tradeReasoning');
         const minGainInput = document.getElementById('minGainPercent');
-        const recommendedDirection = document.getElementById('recommendedDirection');
         
-        if (!tradeDirection || !currentPrice) return;
+        if (!recommendedDirection || !currentPrice) return;
         
         // Get user's selected position (LONG, SHORT, or null for auto)
         const userPosition = this.userSelectedPosition || null;
@@ -4747,34 +5816,28 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             riskReward = risk > 0 ? (reward / risk).toFixed(1) : '0';
         }
         
-        // Update DOM
+        // Update DOM - always show recommended direction
+        recommendedDirection.textContent = recommendedDir;
+        recommendedDirection.className = 'ts-rec-value ' + (recommendedDir === 'LONG' ? 'long' : recommendedDir === 'SHORT' ? 'short' : 'wait');
+        
         if (!userPosition) {
-            tradeDirection.textContent = 'SELECT';
-            tradeDirection.className = 'trade-direction select';
-            tradeConfidence.textContent = '--';
-            tradeConfidence.className = 'trade-confidence';
             tradeEntry.textContent = '$--';
             tradeStop.textContent = '$--';
             tradeTarget1.textContent = '$--';
             tradeTarget2.textContent = '$--';
             tradeRR.textContent = '--';
         } else {
-        tradeDirection.textContent = direction;
-        tradeDirection.className = 'trade-direction ' + directionClass;
-        
-        tradeConfidence.textContent = confidence;
-        tradeConfidence.className = 'trade-confidence ' + confidence.toLowerCase();
-        
-        tradeEntry.textContent = formatPrice(entry);
-        tradeStop.textContent = formatPrice(stop);
-        tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
-        tradeTarget2.textContent = formatPrice(target2);
-        
-        tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
+            tradeEntry.textContent = formatPrice(entry);
+            tradeStop.textContent = formatPrice(stop);
+            tradeTarget1.textContent = formatPrice(target1) + ` (${potentialGainPercent?.toFixed(1) || 0}%)`;
+            tradeTarget2.textContent = formatPrice(target2);
+            tradeRR.textContent = riskReward === '--' ? '--' : riskReward + ':1';
         }
+        
+        // Update R:R styling
         const rrEl = document.getElementById('tradeRR');
         if (rrEl) {
-            rrEl.className = 'rr-value ' + (parseFloat(riskReward) >= 2 ? 'good' : parseFloat(riskReward) >= 1 ? 'ok' : 'bad');
+            rrEl.className = 'ts-rr-value ' + (parseFloat(riskReward) >= 2 ? 'good' : parseFloat(riskReward) >= 1 ? 'ok' : 'bad');
         }
         
         // Build reasoning with timeframe info
@@ -4985,7 +6048,6 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     initOrderFlowPressure() {
         this.orderFlowPressure = {
             levels: null,
-            clusteredLevels: null,  // Clustered levels for level-based signals (nearest S/R, level counts)
             currentPrice: null,
             obicCanvas: null,
             obicCtx: null
@@ -4994,17 +6056,12 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     
     /**
      * Set levels for order flow calculations
-     * @param {Array} levels - Analytics levels (may be windowed/filtered)
-     * @param {number} currentPrice - Current price
-     * @param {Array} fairValueLevels - Full book levels for VWMP/IFV calculations
-     * @param {Array} clusteredLevels - Clustered levels matching chart display (for level-based signals)
      */
-    setOrderFlowLevels(levels, currentPrice, fairValueLevels = null, clusteredLevels = null) {
+    setOrderFlowLevels(levels, currentPrice, fairValueLevels = null) {
         if (!this.orderFlowPressure) {
             this.initOrderFlowPressure();
         }
         this.orderFlowPressure.levels = levels;
-        this.orderFlowPressure.clusteredLevels = clusteredLevels;  // Store clustered levels separately
         this.orderFlowPressure.currentPrice = currentPrice;
         this.updateOrderFlowPressure();
         
@@ -6817,6 +7874,9 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const ld = this.calculateLiquidityDelta(levels, currentPrice);
         const obic = this.calculateOBIC(levels, currentPrice);
         
+        // Store LD value for Alpha Strike panel
+        this.lastLdValue = ld?.delta || 0;
+        
         // Update DOM
         this.updateBPRDisplay(bpr);
         this.updateLDDisplay(ld, currentPrice);
@@ -8094,9 +9154,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         }
         
         // Calculate liquidity structure signals
-        // Pass clustered levels for level-based signals (nearest S/R, level counts)
-        const clusteredLevels = this.orderFlowPressure?.clusteredLevels || null;
-        const liquidityStructure = this.calculateLiquidityStructure(levels, currentPrice, clusteredLevels);
+        const liquidityStructure = this.calculateLiquidityStructure(levels, currentPrice);
         signals.support_gap = liquidityStructure.support_gap;
         signals.resist_gap = liquidityStructure.resist_gap;
         signals.support_share = liquidityStructure.support_share;
@@ -8152,13 +9210,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     
     /**
      * Calculate Liquidity Structure - gaps and volume shares
-     * Uses clusteredLevels (matching visual display) for level counts and nearest S/R
-     * Uses regular levels for volume-based calculations (gaps, shares)
      */
-    calculateLiquidityStructure(levels, currentPrice, clusteredLevels = null) {
+    calculateLiquidityStructure(levels, currentPrice) {
         const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
-        // Get supports and resistances from analytics levels (for volume calculations)
+        // Get supports and resistances
         const supports = validLevels
             .filter(l => l.type === 'support' && parseFloat(l.price) < currentPrice)
             .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
@@ -8169,31 +9225,15 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
             .sort((a, b) => a.price - b.price); // Nearest first
         
-        // Use CLUSTERED levels for level counts and nearest S/R (matches visual display)
-        // This ensures support_levels/resist_levels match what user sees on chart
-        const clusterSource = (clusteredLevels && clusteredLevels.length > 0) ? clusteredLevels : levels;
-        const validClusteredLevels = clusterSource.filter(l => parseFloat(l.price) > 0);
+        // Find nearest support and resistance
+        const nearestSupport = supports.length > 0 ? supports[0].price : currentPrice * 0.9;
+        const nearestResist = resistances.length > 0 ? resistances[0].price : currentPrice * 1.1;
         
-        const clusteredSupports = validClusteredLevels
-            .filter(l => l.type === 'support' && parseFloat(l.price) < currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => b.price - a.price); // Nearest first
-            
-        const clusteredResistances = validClusteredLevels
-            .filter(l => l.type === 'resistance' && parseFloat(l.price) > currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => a.price - b.price); // Nearest first
-        
-        // Find nearest support and resistance FROM CLUSTERED levels (first visible cluster)
-        const nearestSupport = clusteredSupports.length > 0 ? clusteredSupports[0].price : currentPrice * 0.9;
-        const nearestResist = clusteredResistances.length > 0 ? clusteredResistances[0].price : currentPrice * 1.1;
-        
-        // Calculate gaps (as percentage) - based on clustered nearest levels
+        // Calculate gaps (as percentage)
         const supportGap = (currentPrice - nearestSupport) / currentPrice;
         const resistGap = (nearestResist - currentPrice) / currentPrice;
         
         // Calculate volume shares within a dynamic range (tighter for large caps)
-        // Uses analytics levels (full granularity) for accurate volume calculation
         let rangePercent = 0.20;
         if (currentPrice > 10000) rangePercent = 0.08;
         else if (currentPrice > 1000) rangePercent = 0.10;
@@ -8222,8 +9262,8 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             resist_share: resistShare,
             nearest_support: nearestSupport,
             nearest_resist: nearestResist,
-            support_levels: clusteredSupports.length,   // Count of visible clustered levels
-            resist_levels: clusteredResistances.length  // Count of visible clustered levels
+            support_levels: supports.length,
+            resist_levels: resistances.length
         };
     }
     

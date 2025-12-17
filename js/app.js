@@ -669,7 +669,10 @@ class AlertMetricRegistry {
             { key: 'mcs', label: 'Market Consensus' },
             { key: 'alpha', label: 'Alpha Score' },
             { key: 'regime', label: 'Regime Engine' },
-            { key: 'levels', label: 'Key Levels' }
+            { key: 'levels', label: 'Key Levels' },
+            { key: 'alphastrike', label: 'Alpha Strike' },
+            { key: 'whaleflow', label: 'Whale Flow' },
+            { key: 'tradesetup', label: 'Trade Setup' }
         ];
 
         // Metric definitions per section
@@ -1081,6 +1084,172 @@ class AlertMetricRegistry {
                     getValue: (s) => this._nearestLevelDistancePct(s, 'resistance'),
                     format: (v) => Number(v).toFixed(2) + '%'
                 }
+            },
+            alphastrike: {
+                'direction': {
+                    key: 'direction',
+                    label: 'Signal Direction',
+                    type: 'enum',
+                    options: ['long', 'short', 'neutral'],
+                    getValue: (s) => s?.alphaStrike?.direction ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'strength': {
+                    key: 'strength',
+                    label: 'Signal Strength',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => s?.alphaStrike?.strength ?? null,
+                    format: (v) => Number(v).toFixed(0) + '%'
+                },
+                'action': {
+                    key: 'action',
+                    label: 'Action',
+                    type: 'enum',
+                    options: ['entry', 'exit', 'hold', 'wait'],
+                    getValue: (s) => s?.alphaStrike?.action ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'mode': {
+                    key: 'mode',
+                    label: 'Trading Mode',
+                    type: 'enum',
+                    options: ['mm', 'swing', 'htf'],
+                    getValue: (s) => s?.alphaStrike?.mode ?? null,
+                    format: (v) => {
+                        const labels = { mm: 'MM', swing: 'Swing', htf: 'HTF' };
+                        return labels[v] || String(v || '').toUpperCase();
+                    }
+                },
+                'confluenceCount': {
+                    key: 'confluenceCount',
+                    label: 'Confluence Count',
+                    type: 'number',
+                    getValue: (s) => {
+                        const conf = s?.alphaStrike?.confluence;
+                        if (!conf) return null;
+                        const dir = s?.alphaStrike?.direction;
+                        const target = dir === 'long' ? 'bullish' : dir === 'short' ? 'bearish' : null;
+                        if (!target) return 0;
+                        return Object.values(conf).filter(v => v === target).length;
+                    },
+                    format: (v) => `${Number(v).toFixed(0)}/5`
+                }
+            },
+            whaleflow: {
+                'cvd': {
+                    key: 'cvd',
+                    label: 'CVD (5m)',
+                    type: 'number',
+                    getValue: (s) => s?.whaleFlow?.cvd ?? null,
+                    format: (v) => {
+                        const n = Number(v);
+                        return (n >= 0 ? '+' : '') + n.toFixed(2);
+                    }
+                },
+                'buyVolume': {
+                    key: 'buyVolume',
+                    label: 'Buy Volume',
+                    type: 'number',
+                    unit: 'BTC',
+                    getValue: (s) => s?.whaleFlow?.stats?.buyVolume ?? null,
+                    format: (v) => Number(v).toFixed(2) + ' BTC'
+                },
+                'sellVolume': {
+                    key: 'sellVolume',
+                    label: 'Sell Volume',
+                    type: 'number',
+                    unit: 'BTC',
+                    getValue: (s) => s?.whaleFlow?.stats?.sellVolume ?? null,
+                    format: (v) => Number(v).toFixed(2) + ' BTC'
+                },
+                'dominantSide': {
+                    key: 'dominantSide',
+                    label: 'Dominant Side',
+                    type: 'enum',
+                    options: ['buyers', 'sellers', 'neutral'],
+                    getValue: (s) => {
+                        const stats = s?.whaleFlow?.stats;
+                        if (!stats) return null;
+                        const total = (stats.buyVolume || 0) + (stats.sellVolume || 0);
+                        if (total === 0) return 'neutral';
+                        const buyPct = (stats.buyVolume || 0) / total * 100;
+                        const sellPct = (stats.sellVolume || 0) / total * 100;
+                        if (buyPct > 55) return 'buyers';
+                        if (sellPct > 55) return 'sellers';
+                        return 'neutral';
+                    },
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'smartMoneyAlert': {
+                    key: 'smartMoneyAlert',
+                    label: 'Smart Money Alert',
+                    type: 'enum',
+                    options: ['buy', 'sell', 'none'],
+                    getValue: (s) => s?.whaleFlow?.smartMoneyAlert?.side ?? 'none',
+                    format: (v) => String(v || 'NONE').toUpperCase()
+                },
+                'whaleTradeCount': {
+                    key: 'whaleTradeCount',
+                    label: 'Whale Trade Count',
+                    type: 'number',
+                    getValue: (s) => {
+                        const trades = s?.whaleFlow?.recentTrades || [];
+                        return trades.filter(t => t.tag === 'whale').length;
+                    },
+                    format: (v) => Number(v).toFixed(0)
+                },
+                'largeTradeCount': {
+                    key: 'largeTradeCount',
+                    label: 'Large Trade Count',
+                    type: 'number',
+                    getValue: (s) => {
+                        const trades = s?.whaleFlow?.recentTrades || [];
+                        return trades.filter(t => t.tag === 'large' || t.tag === 'whale').length;
+                    },
+                    format: (v) => Number(v).toFixed(0)
+                }
+            },
+            tradesetup: {
+                'recommendedDirection': {
+                    key: 'recommendedDirection',
+                    label: 'Recommended Direction',
+                    type: 'enum',
+                    options: ['LONG', 'SHORT', 'WAIT'],
+                    getValue: (s) => s?.tradeSetup?.recommended ?? null,
+                    format: (v) => String(v || '').toUpperCase()
+                },
+                'userPosition': {
+                    key: 'userPosition',
+                    label: 'User Position',
+                    type: 'enum',
+                    options: ['LONG', 'SHORT', 'NONE'],
+                    getValue: (s) => s?.tradeSetup?.userPosition ?? 'NONE',
+                    format: (v) => String(v || 'NONE').toUpperCase()
+                },
+                'riskReward': {
+                    key: 'riskReward',
+                    label: 'Risk/Reward Ratio',
+                    type: 'number',
+                    getValue: (s) => s?.tradeSetup?.riskReward ?? null,
+                    format: (v) => `1:${Number(v).toFixed(2)}`
+                },
+                'potentialGain': {
+                    key: 'potentialGain',
+                    label: 'Potential Gain %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => s?.tradeSetup?.potentialGain ?? null,
+                    format: (v) => (Number(v) >= 0 ? '+' : '') + Number(v).toFixed(2) + '%'
+                },
+                'potentialLoss': {
+                    key: 'potentialLoss',
+                    label: 'Potential Loss %',
+                    type: 'number',
+                    unit: '%',
+                    getValue: (s) => s?.tradeSetup?.potentialLoss ?? null,
+                    format: (v) => '-' + Math.abs(Number(v)).toFixed(2) + '%'
+                }
             }
         };
     }
@@ -1257,9 +1426,6 @@ class OrderBookApp {
         this.currentTimeframe = localStorage.getItem('selectedTimeframe') || '4h';
         this.lastDirectionUpdate = 0;
         
-        // Track if we've computed NCW markers for historical bars
-        this._ncwHistoryComputed = false;
-        
         // Alerts (per-symbol)
         this.alertsManager = new AlertsManager(this);
         this._alertsEvalInterval = null;
@@ -1330,6 +1496,9 @@ class OrderBookApp {
         
         // Alerts heartbeat (ensures alerts check at least every N seconds)
         this.startAlertsScheduler(this._alertsEvalIntervalMs);
+        
+        // Initialize Alpha Strike panels with mode sync
+        this.initAlphaPanels();
         
         // Restore alert markers from log (persisted until log is cleared)
         this.restoreAlertMarkersFromLog();
@@ -1430,8 +1599,41 @@ class OrderBookApp {
             console.warn(`[App] Order Book WS disconnected: ${exchange}`);
         });
         
+        // Setup trade callback for footprint heatmap and whale flow
+        orderBookWS.on('trade', (trade) => {
+            // Trade aggregator already receives trades via emitTrade
+            // Just trigger chart re-render if footprint is enabled
+            if (this.chart.tradeFootprint && this.chart.tradeFootprint.enabled) {
+                this.chart.onTradeFootprintUpdate();
+            }
+            
+            // Send trade to whale flow panel for large trade detection
+            if (typeof whaleFlow !== 'undefined' && trade) {
+                whaleFlow.addTrade(trade);
+            }
+        });
+        
         // Connect
         orderBookWS.connect();
+        
+        // Initialize trade aggregator with current symbol/interval
+        if (typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.setSymbol(this.currentSymbol);
+            tradeAggregator.setInterval(this.chart.currentInterval || '1m');
+            
+            // Set up trade aggregator callbacks
+            tradeAggregator.onUpdate = (barTime, footprint) => {
+                if (this.chart.tradeFootprint && this.chart.tradeFootprint.enabled) {
+                    this.chart.onTradeFootprintUpdate(barTime, footprint);
+                }
+            };
+            
+            tradeAggregator.onBarFinalized = (barTime, footprint) => {
+                if (this.chart.tradeFootprint && this.chart.tradeFootprint.enabled) {
+                    this.chart.renderTradeFootprint();
+                }
+            };
+        }
     }
     
     /**
@@ -1476,8 +1678,10 @@ class OrderBookApp {
         this.levels = processed.levels;
         this.chart.setLevels(this.levels);
         
-        // Update real-time nearest cluster winner for current bar
-        this.updateCurrentBarNearestClusterWinner();
+        // Update Bulls vs Bears signal marker
+        if (this.chart.updateBullsBearsMarker) {
+            this.chart.updateBullsBearsMarker(this.levels, this.currentPrice);
+        }
         
         // Update depth chart (medium frequency - 1 second)
         if (shouldUpdateDepth && this.depthChart) {
@@ -1525,13 +1729,6 @@ class OrderBookApp {
             // Update last update time
             const nowDate = new Date();
             this.elements.lastUpdate.textContent = `Last update: ${nowDate.toLocaleTimeString()}`;
-            
-            // Compute nearest cluster winner markers for historical bars (once per session)
-            if (!this._ncwHistoryComputed && this.chart && this.chart.localCandles && this.chart.localCandles.size > 0) {
-                this._ncwHistoryComputed = true;
-                // Defer to avoid blocking the main loop
-                setTimeout(() => this.computeNearestClusterWinnerForHistory(), 100);
-            }
         }
     }
     
@@ -1626,7 +1823,6 @@ class OrderBookApp {
             symbolInput: document.getElementById('symbolInput'),
             exchangeStatus: document.getElementById('exchangeStatus'),
             showLevels: document.getElementById('showLevels'),
-            showNearestClusterWinner: document.getElementById('showNearestClusterWinner'),
             showVolume: document.getElementById('showVolume'),
             showTargets: document.getElementById('showTargets'),
             showRays: document.getElementById('showRays'),
@@ -1656,7 +1852,9 @@ class OrderBookApp {
         if (tfSelect) {
             tfSelect.value = this.currentTimeframe;
             tfSelect.addEventListener('change', (e) => {
-                this.loadKlines(e.target.value);
+                // Save new timeframe and refresh page for clean chart initialization
+                localStorage.setItem('selectedTimeframe', e.target.value);
+                window.location.reload();
             });
         }
 
@@ -1671,9 +1869,6 @@ class OrderBookApp {
             
             // Reset countdown timer
             this.updateBarCountdown();
-
-            // Freeze nearest-cluster winner marker for the bar that just closed
-            this.onNearestClusterWinnerBarClosed(e.detail);
             
             // Only fetch API data periodically, not on every OHLC update
             // OHLC stream provides accurate real-time data
@@ -1696,21 +1891,6 @@ class OrderBookApp {
                 this.chart.setLevels(this.levels);
             }
         });
-
-        // Nearest cluster winner marker toggle (per-bar arrow + %)
-        if (this.elements.showNearestClusterWinner) {
-            this.elements.showNearestClusterWinner.addEventListener('change', (e) => {
-                if (this.chart && this.chart.toggleNearestClusterWinner) {
-                    this.chart.toggleNearestClusterWinner(e.target.checked);
-                }
-                localStorage.setItem('showNearestClusterWinner', e.target.checked);
-
-                // If enabling, compute markers for ALL historical closed bars
-                if (e.target.checked && this.chart) {
-                    this.computeNearestClusterWinnerForHistory();
-                }
-            });
-        }
 
         this.elements.showVolume.addEventListener('change', (e) => {
             this.chart.toggleVolume(e.target.checked);
@@ -1822,6 +2002,46 @@ class OrderBookApp {
             });
         }
         
+        // Bulls vs Bears Signal toggle
+        const showBullsBearsEl = document.getElementById('showBullsBears');
+        if (showBullsBearsEl) {
+            showBullsBearsEl.addEventListener('change', (e) => {
+                this.chart.toggleBullsBears(e.target.checked);
+            });
+        }
+        
+        // Bulls vs Bears Method dropdown
+        const bullsBearsMethodEl = document.getElementById('bullsBearsMethod');
+        if (bullsBearsMethodEl) {
+            bullsBearsMethodEl.addEventListener('change', (e) => {
+                this.chart.setBullsBearsMethod(e.target.value);
+            });
+        }
+        
+        // Trade Footprint Heatmap toggle
+        const showTradeFootprintEl = document.getElementById('showTradeFootprint');
+        if (showTradeFootprintEl) {
+            showTradeFootprintEl.addEventListener('change', (e) => {
+                this.chart.toggleTradeFootprint(e.target.checked);
+            });
+        }
+        
+        // Trade Footprint Bucket Size dropdown
+        const tradeFootprintBucketSizeEl = document.getElementById('tradeFootprintBucketSize');
+        if (tradeFootprintBucketSizeEl) {
+            tradeFootprintBucketSizeEl.addEventListener('change', (e) => {
+                this.chart.setTradeFootprintBucketSize(e.target.value);
+            });
+        }
+        
+        // Level History Heatmap toggle
+        const showLevelHistoryHeatmapEl = document.getElementById('showLevelHistoryHeatmap');
+        if (showLevelHistoryHeatmapEl) {
+            showLevelHistoryHeatmapEl.addEventListener('change', (e) => {
+                this.chart.toggleLevelHistoryHeatmap(e.target.checked);
+            });
+        }
+        
         // Mid (Simple Mid Price) toggle
         this.elements.showMid.addEventListener('change', (e) => {
             this.chart.toggleMid(e.target.checked);
@@ -1855,10 +2075,14 @@ class OrderBookApp {
         const savedShowEmaGrid = localStorage.getItem('showEmaGrid') === 'true';
         const savedShowZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
         const savedShowBBPulse = localStorage.getItem('showBBPulse') === 'true';
+        const savedShowBullsBears = localStorage.getItem('showBullsBears') === 'true';
+        const savedBullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
+        const savedShowTradeFootprint = localStorage.getItem('showTradeFootprint') !== 'false'; // Default ON
+        const savedTradeFootprintBucketSize = localStorage.getItem('tradeFootprintBucketSize') || '10';
+        const savedShowLevelHistoryHeatmap = localStorage.getItem('showLevelHistoryHeatmap') !== 'false'; // Default ON
         const savedShowMid = localStorage.getItem('showMid') === 'true';
         const savedShowIFV = localStorage.getItem('showIFV') === 'true';
         const savedShowVWMP = localStorage.getItem('showVWMP') === 'true';
-        const savedShowNearestClusterWinner = localStorage.getItem('showNearestClusterWinner') === 'true';
         // Historical features disabled - no longer loading these settings
         const savedShowLDFlowZones = localStorage.getItem('showLDFlowZones') !== 'false'; // Default true
         const savedUseFullBook = localStorage.getItem('useFullBook') !== 'false'; // Default true
@@ -1877,11 +2101,25 @@ class OrderBookApp {
         if (this.elements.showBBPulse) {
             this.elements.showBBPulse.checked = savedShowBBPulse;
         }
-        if (this.elements.showNearestClusterWinner) {
-            this.elements.showNearestClusterWinner.checked = savedShowNearestClusterWinner;
-            if (this.chart && this.chart.toggleNearestClusterWinner) {
-                this.chart.toggleNearestClusterWinner(savedShowNearestClusterWinner);
-            }
+        const showBullsBearsCheckbox = document.getElementById('showBullsBears');
+        if (showBullsBearsCheckbox) {
+            showBullsBearsCheckbox.checked = savedShowBullsBears;
+        }
+        const bullsBearsMethodSelect = document.getElementById('bullsBearsMethod');
+        if (bullsBearsMethodSelect) {
+            bullsBearsMethodSelect.value = savedBullsBearsMethod;
+        }
+        const showTradeFootprintCheckbox = document.getElementById('showTradeFootprint');
+        if (showTradeFootprintCheckbox) {
+            showTradeFootprintCheckbox.checked = savedShowTradeFootprint;
+        }
+        const tradeFootprintBucketSizeSelect = document.getElementById('tradeFootprintBucketSize');
+        if (tradeFootprintBucketSizeSelect) {
+            tradeFootprintBucketSizeSelect.value = savedTradeFootprintBucketSize;
+        }
+        const showLevelHistoryHeatmapCheckbox = document.getElementById('showLevelHistoryHeatmap');
+        if (showLevelHistoryHeatmapCheckbox) {
+            showLevelHistoryHeatmapCheckbox.checked = savedShowLevelHistoryHeatmap;
         }
         this.elements.showMid.checked = savedShowMid;
         this.elements.showIFV.checked = savedShowIFV;
@@ -1996,17 +2234,14 @@ class OrderBookApp {
         // Legend modal
         document.getElementById('btnLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.add('open');
-            this.syncModalBodyLock();
         });
         
         document.getElementById('closeLegend').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
-            this.syncModalBodyLock();
         });
         
         document.querySelector('#legendModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('legendModal').classList.remove('open');
-            this.syncModalBodyLock();
         });
 
         // Alerts modal (TradingView-style)
@@ -2034,14 +2269,8 @@ class OrderBookApp {
         // Alerts modal wiring
         const alertsModal = document.getElementById('alertsModal');
         if (alertsModal) {
-            document.getElementById('closeAlerts')?.addEventListener('click', () => {
-                alertsModal.classList.remove('open');
-                this.syncModalBodyLock();
-            });
-            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
-                alertsModal.classList.remove('open');
-                this.syncModalBodyLock();
-            });
+            document.getElementById('closeAlerts')?.addEventListener('click', () => alertsModal.classList.remove('open'));
+            alertsModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertsModal.classList.remove('open'));
             document.getElementById('btnCreateAlertFromModal')?.addEventListener('click', () => {
                 if (typeof this.openAddAlertModal === 'function') {
                     this.openAddAlertModal(null);
@@ -2087,18 +2316,9 @@ class OrderBookApp {
 
         const alertEditModal = document.getElementById('alertEditModal');
         if (alertEditModal) {
-            document.getElementById('closeAlertEdit')?.addEventListener('click', () => {
-                alertEditModal.classList.remove('open');
-                this.syncModalBodyLock();
-            });
-            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => {
-                alertEditModal.classList.remove('open');
-                this.syncModalBodyLock();
-            });
-            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
-                alertEditModal.classList.remove('open');
-                this.syncModalBodyLock();
-            });
+            document.getElementById('closeAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            document.getElementById('cancelAlertEdit')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
+            alertEditModal.querySelector('.modal-backdrop')?.addEventListener('click', () => alertEditModal.classList.remove('open'));
             document.getElementById('alertForm')?.addEventListener('submit', (e) => {
                 e.preventDefault();
                 if (typeof this.handleAlertFormSubmit === 'function') {
@@ -2138,17 +2358,14 @@ class OrderBookApp {
             document.getElementById('closeAlertsDisclaimer')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
-                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerCancel')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
-                this.syncModalBodyLock();
             });
             alertsDisclaimerModal.querySelector('.modal-backdrop')?.addEventListener('click', () => {
                 this._pendingAlertSave = null;
                 alertsDisclaimerModal.classList.remove('open');
-                this.syncModalBodyLock();
             });
             document.getElementById('alertsDisclaimerContinue')?.addEventListener('click', () => {
                 if (!chk?.checked) return;
@@ -2156,7 +2373,6 @@ class OrderBookApp {
                     this.confirmAlertsDisclaimer();
                 } else {
                     alertsDisclaimerModal.classList.remove('open');
-                    this.syncModalBodyLock();
                 }
             });
         }
@@ -2176,12 +2392,10 @@ class OrderBookApp {
         
         document.getElementById('closeSettings').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
-            this.syncModalBodyLock();
         });
         
         document.querySelector('#settingsModal .modal-backdrop').addEventListener('click', () => {
             document.getElementById('settingsModal').classList.remove('open');
-            this.syncModalBodyLock();
         });
 
         // Panel alert buttons (prevent panel collapse toggle)
@@ -2251,13 +2465,31 @@ class OrderBookApp {
         document.getElementById('applySettings').addEventListener('click', () => {
             this.applyLevelSettings();
         });
-
-        // Clear Signals Cache button
-        document.getElementById('clearSignalsCache')?.addEventListener('click', () => {
-            if (this.chart && typeof this.chart.clearSignalsCache === 'function') {
-                const cleared = this.chart.clearSignalsCache();
-                this.showToast(`Signals cache cleared (${cleared} intervals)`, 'success');
+        
+        // Clear cache button
+        document.getElementById('clearCacheBtn')?.addEventListener('click', async () => {
+            if (confirm('Clear all cached data? This will reset all saved settings and historical data.')) {
+                try {
+                    // Clear localStorage
+                    localStorage.clear();
+                    
+                    // Clear IndexedDB
+                    if (typeof db !== 'undefined' && db.clearAll) {
+                        await db.clearAll();
+                    }
+                    
+                    console.log('[App] Cache cleared, reloading...');
+                    window.location.reload();
+                } catch (e) {
+                    console.error('[App] Error clearing cache:', e);
+                    alert('Error clearing cache. Please try again.');
+                }
             }
+        });
+        
+        // Go to latest bar button
+        document.getElementById('goToLatestBtn')?.addEventListener('click', () => {
+            this.chart.scrollToLatest();
         });
 
         // Close modals on Escape key
@@ -2272,14 +2504,8 @@ class OrderBookApp {
                     this._pendingAlertSave = null;
                 }
                 dm?.classList.remove('open');
-                this.syncModalBodyLock();
             }
         });
-    }
-
-    syncModalBodyLock() {
-        const anyOpen = !!document.querySelector('.modal.open');
-        document.body.classList.toggle('modal-open', anyOpen);
     }
 
     openSettingsModal() {
@@ -2355,7 +2581,6 @@ class OrderBookApp {
         document.getElementById('settingZemaGridSpacing').value = zemaGridSpacing;
         
         document.getElementById('settingsModal').classList.add('open');
-        this.syncModalBodyLock();
     }
 
     // ==============================
@@ -2365,7 +2590,6 @@ class OrderBookApp {
         const modal = document.getElementById('alertsModal');
         if (!modal) return;
         modal.classList.add('open');
-        this.syncModalBodyLock();
         this.switchAlertsTab('active');
         if (typeof this.renderAlertsModal === 'function') {
             this.renderAlertsModal();
@@ -2449,7 +2673,6 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
-        this.syncModalBodyLock();
 
         // Prime audio on user gesture (enables sound alerts later)
         this.alertsManager?.ensureAudioUnlocked?.();
@@ -2852,7 +3075,6 @@ class OrderBookApp {
             if (chk) chk.checked = false;
             if (btn) btn.disabled = true;
             dm?.classList.add('open');
-            this.syncModalBodyLock();
             return;
         }
 
@@ -2875,7 +3097,6 @@ class OrderBookApp {
 
         // Close editor
         document.getElementById('alertEditModal')?.classList.remove('open');
-        this.syncModalBodyLock();
 
         // Refresh modal if open
         if (document.getElementById('alertsModal')?.classList.contains('open')) {
@@ -2888,7 +3109,6 @@ class OrderBookApp {
     confirmAlertsDisclaimer() {
         localStorage.setItem('alertsDisclaimerSeen', 'true');
         document.getElementById('alertsDisclaimerModal')?.classList.remove('open');
-        this.syncModalBodyLock();
 
         const pending = this._pendingAlertSave;
         this._pendingAlertSave = null;
@@ -3061,7 +3281,6 @@ class OrderBookApp {
         this.populateAlertEditorUI();
 
         modal.classList.add('open');
-        this.syncModalBodyLock();
         this.alertsManager?.ensureAudioUnlocked?.();
     }
 
@@ -3203,7 +3422,6 @@ class OrderBookApp {
         }
         
         document.getElementById('settingsModal').classList.remove('open');
-        this.syncModalBodyLock();
         this.loadData(); // Refresh with new settings
     }
     
@@ -3455,9 +3673,6 @@ class OrderBookApp {
             // Set the interval on chart for live bar updates
             this.chart.setInterval(timeframe);
             this.currentTimeframe = timeframe;
-            
-            // Reset NCW history computation flag for new timeframe
-            this._ncwHistoryComputed = false;
             
             // Save timeframe to localStorage
             localStorage.setItem('selectedTimeframe', timeframe);
@@ -3769,7 +3984,7 @@ class OrderBookApp {
      * Setup MCS (Market Consensus Signal) mode selector buttons
      */
     setupMCSModeSelector() {
-        const modeButtons = document.querySelectorAll('.mcs-mode-btn');
+        const modeButtons = document.querySelectorAll('#mcsModeSelector .mode-btn');
         
         // Load saved mode
         const savedMode = localStorage.getItem('mcsMode') || 'conservative';
@@ -3837,11 +4052,8 @@ class OrderBookApp {
         // Update Order Flow indicators (BPR, LD, OBIC, Alpha Score, Regime Engine)
         // VWMP/IFV fair value is ALWAYS computed from the full order book for accuracy
         // (independent of the analytics toggle).
-        // Pass clustered levels (this.levels) for level-based signals (nearest S/R, level counts)
-        // so they match what's visually displayed on the chart.
         const fairValueLevels = this.fullBookLevels.length ? this.fullBookLevels : analyticsLevels;
-        const clusteredLevels = this.levels;  // Clustered levels matching chart display
-        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels, clusteredLevels);
+        this.chart.setOrderFlowLevels(analyticsLevels, this.currentPrice, fairValueLevels);
         
         // Update Price Forecast (directional analysis)
         if (typeof directionAnalysis !== 'undefined') {
@@ -3858,6 +4070,32 @@ class OrderBookApp {
             this.alertsManager.evaluate(snapshot);
         }
         
+        // Update Alpha Strike panel with synthesized indicator data
+        if (typeof alphaStrike !== 'undefined') {
+            const alphaStrikeData = {
+                mcs: this.chart?.marketConsensus || null,
+                alpha: this.chart?.alphaScore ?? null,
+                ld: this.chart?.lastLdValue ?? null,
+                bbPulse: this.chart?.lastBBPulseSignal || null,
+                forecast: (typeof directionAnalysis !== 'undefined') ? directionAnalysis.lastAnalysis : null,
+                currentPrice: this.currentPrice,
+                symbol: this.currentSymbol
+            };
+            alphaStrike.update(alphaStrikeData);
+        }
+        
+        // Update Strike Zones panel
+        if (typeof strikeZones !== 'undefined') {
+            const strikeZonesData = {
+                currentPrice: this.currentPrice,
+                symbol: this.currentSymbol,
+                levels: analyticsLevels,
+                forecast: (typeof directionAnalysis !== 'undefined') ? directionAnalysis.lastAnalysis : null,
+                signal: (typeof alphaStrike !== 'undefined') ? alphaStrike.getSignal() : null
+            };
+            strikeZones.update(strikeZonesData);
+        }
+        
         // Log data source for debugging
         const source = this.useFullBookForAnalytics ? 'Full Book' : 'Visible Only';
         const levelCount = analyticsLevels.length;
@@ -3869,6 +4107,46 @@ class OrderBookApp {
      * (Metric registry determines what to read from this.)
      */
     getAlertsSnapshot(analyticsLevels) {
+        // Alpha Strike data
+        const alphaStrikeData = (typeof alphaStrike !== 'undefined' && alphaStrike.getSignal)
+            ? {
+                ...alphaStrike.getSignal(),
+                mode: alphaStrike.getMode?.() ?? null
+            }
+            : null;
+        
+        // Whale Flow data
+        const whaleFlowData = (typeof whaleFlow !== 'undefined' && whaleFlow.getStats)
+            ? whaleFlow.getStats()
+            : null;
+        
+        // Trade Setup data
+        const tradeSetupData = {
+            recommended: this.chart?.tradeSetupRecommendation ?? 'WAIT',
+            userPosition: this.chart?.userSelectedPosition ?? null,
+            entry: this.chart?.tradeSetupLastValues?.entry ?? null,
+            stop: this.chart?.tradeSetupLastValues?.stop ?? null,
+            target1: this.chart?.tradeSetupLastValues?.target1 ?? null,
+            target2: this.chart?.tradeSetupLastValues?.target2 ?? null,
+            riskReward: null,
+            potentialGain: null,
+            potentialLoss: null
+        };
+        
+        // Calculate R:R and potential gain/loss from stored values
+        if (tradeSetupData.entry && tradeSetupData.stop && tradeSetupData.target1) {
+            const entry = tradeSetupData.entry;
+            const stop = tradeSetupData.stop;
+            const target = tradeSetupData.target1;
+            const risk = Math.abs(entry - stop);
+            const reward = Math.abs(target - entry);
+            if (risk > 0) {
+                tradeSetupData.riskReward = reward / risk;
+            }
+            tradeSetupData.potentialGain = ((target - entry) / entry) * 100;
+            tradeSetupData.potentialLoss = ((stop - entry) / entry) * 100;
+        }
+        
         return {
             ts: Date.now(),
             symbol: (this.currentSymbol || 'BTC').toUpperCase(),
@@ -3882,7 +4160,10 @@ class OrderBookApp {
             regime: this.chart?.regimeEngine?.currentRegime || null,
             regimeSignals: this.chart?.regimeEngine?.signals || null,
             marketConsensus: this.chart?.marketConsensus || null,
-            direction: (typeof directionAnalysis !== 'undefined') ? directionAnalysis.lastAnalysis : null
+            direction: (typeof directionAnalysis !== 'undefined') ? directionAnalysis.lastAnalysis : null,
+            alphaStrike: alphaStrikeData,
+            whaleFlow: whaleFlowData,
+            tradeSetup: tradeSetupData
         };
     }
     
@@ -3897,7 +4178,6 @@ class OrderBookApp {
         const showMid = localStorage.getItem('showMid') === 'true';
         const showIFV = localStorage.getItem('showIFV') === 'true';
         const showVWMP = localStorage.getItem('showVWMP') === 'true';
-        const showNearestClusterWinner = localStorage.getItem('showNearestClusterWinner') === 'true';
         const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
         
         // Load showLevels setting (default TRUE if never set, but honor if disabled)
@@ -3962,6 +4242,37 @@ class OrderBookApp {
             }
         }
         
+        // Apply Bulls vs Bears signal settings
+        const showBullsBears = localStorage.getItem('showBullsBears') === 'true';
+        const bullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
+        if (this.chart.setBullsBearsMethod) {
+            this.chart.setBullsBearsMethod(bullsBearsMethod);
+        }
+        if (showBullsBears && this.chart.toggleBullsBears) {
+            this.chart.toggleBullsBears(true);
+        }
+        
+        // Apply Trade Footprint Heatmap settings (default ON)
+        const showTradeFootprint = localStorage.getItem('showTradeFootprint') !== 'false';
+        const tradeFootprintBucketSize = localStorage.getItem('tradeFootprintBucketSize') || '10';
+        if (this.chart.setTradeFootprintBucketSize) {
+            this.chart.setTradeFootprintBucketSize(tradeFootprintBucketSize);
+        }
+        if (showTradeFootprint && this.chart.toggleTradeFootprint) {
+            // Initialize trade aggregator with current symbol/interval
+            if (typeof tradeAggregator !== 'undefined') {
+                tradeAggregator.setSymbol(this.currentSymbol);
+                tradeAggregator.setInterval(this.chart.currentInterval);
+            }
+            this.chart.toggleTradeFootprint(true);
+        }
+        
+        // Apply Level History Heatmap settings (default ON)
+        const showLevelHistoryHeatmap = localStorage.getItem('showLevelHistoryHeatmap') !== 'false';
+        if (this.chart.toggleLevelHistoryHeatmap) {
+            this.chart.toggleLevelHistoryHeatmap(showLevelHistoryHeatmap);
+        }
+        
         // Apply EMA/ZEMA signal settings
         const showEmaSignals = localStorage.getItem('showEmaSignals') === 'true';
         const showZemaSignals = localStorage.getItem('showZemaSignals') === 'true';
@@ -3987,271 +4298,6 @@ class OrderBookApp {
         }
         if (showVWMP) {
             this.chart.toggleVWMP(true);
-        }
-
-        // Apply nearest cluster winner markers toggle
-        if (this.elements.showNearestClusterWinner) {
-            this.elements.showNearestClusterWinner.checked = showNearestClusterWinner;
-        }
-        if (this.chart && this.chart.toggleNearestClusterWinner) {
-            this.chart.toggleNearestClusterWinner(showNearestClusterWinner);
-        }
-    }
-
-    onNearestClusterWinnerBarClosed(detail) {
-        // Only compute when enabled
-        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
-        if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
-        // Use clustered levels (this.levels) to match what's visually displayed on the chart
-        const sourceLevels = this.levels;
-        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
-
-        const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
-        let closedTime = detail?.closedTime;
-        if (!closedTime && detail?.time && intervalSec) {
-            closedTime = detail.time - intervalSec;
-        }
-        if (!closedTime || closedTime <= 0) return;
-
-        let closePrice = detail?.closedClose;
-        if ((!closePrice || closePrice <= 0) && this.chart.localCandles && typeof this.chart.localCandles.get === 'function') {
-            const c = this.chart.localCandles.get(closedTime);
-            closePrice = c?.close;
-        }
-        if (!closePrice || closePrice <= 0) return;
-
-        // Closest resistance above close
-        let above = null;
-        let aboveDist = Infinity;
-        // Closest support below close
-        let below = null;
-        let belowDist = Infinity;
-
-        for (const lvl of sourceLevels) {
-            const p = parseFloat(lvl?.price);
-            const v = parseFloat(lvl?.volume);
-            if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
-
-            if (lvl.type === 'resistance' && p > closePrice) {
-                const d = p - closePrice;
-                if (d < aboveDist) {
-                    aboveDist = d;
-                    above = { price: p, volume: v };
-                }
-            } else if (lvl.type === 'support' && p < closePrice) {
-                const d = closePrice - p;
-                if (d < belowDist) {
-                    belowDist = d;
-                    below = { price: p, volume: v };
-                }
-            }
-        }
-
-        if (!above || !below) return;
-        if (above.volume <= 0 || below.volume <= 0) return;
-
-        // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
-        const smallerVolume = Math.min(above.volume, below.volume);
-        const largerVolume = Math.max(above.volume, below.volume);
-        const pct = Math.round((smallerVolume / largerVolume) * 100);
-        if (!Number.isFinite(pct) || pct >= 95) return; // Only show if there's meaningful imbalance (<95% ratio)
-
-        // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
-        const moreAbove = above.volume > below.volume;
-        const marker = {
-            time: closedTime,
-            position: moreAbove ? 'aboveBar' : 'belowBar',
-            color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-            shape: moreAbove ? 'arrowDown' : 'arrowUp',
-            text: pct + '%'
-        };
-
-        this.chart.upsertNearestClusterWinnerMarker(marker);
-    }
-
-    /**
-     * Compute nearest cluster winner markers for all historical closed bars.
-     * Called when levels first become available or when feature is toggled on.
-     * Uses current levels data to compute markers for bars that don't already have one.
-     */
-    computeNearestClusterWinnerForHistory() {
-        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
-        if (!this.chart || !this.chart.localCandles || this.chart.localCandles.size === 0) return;
-        if (!this.chart.upsertNearestClusterWinnerMarker) return;
-
-        // Use clustered levels (this.levels) to match what's visually displayed on the chart
-        const sourceLevels = this.levels;
-        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) return;
-
-        const intervalSec = (typeof this.chart.getIntervalSeconds === 'function') ? this.chart.getIntervalSeconds() : 0;
-        if (!intervalSec) return;
-
-        // Get current bar time to exclude it (not closed yet)
-        const currentBarTime = (typeof this.chart.getCurrentCandleTime === 'function') ? this.chart.getCurrentCandleTime() : 0;
-        
-        // Get all candle times
-        const candleTimes = Array.from(this.chart.localCandles.keys()).sort((a, b) => a - b);
-        
-        let computedCount = 0;
-        for (const candleTime of candleTimes) {
-            // Skip current bar (not closed yet)
-            if (currentBarTime && candleTime >= currentBarTime) continue;
-            
-            // Skip if marker already exists
-            if (this.chart.nearestClusterWinner?.markerByTime?.has(candleTime)) continue;
-            
-            const candle = this.chart.localCandles.get(candleTime);
-            if (!candle || !candle.close || candle.close <= 0) continue;
-            
-            const closePrice = candle.close;
-            
-            // Find closest resistance above and support below
-            let above = null;
-            let aboveDist = Infinity;
-            let below = null;
-            let belowDist = Infinity;
-
-            for (const lvl of sourceLevels) {
-                const p = parseFloat(lvl?.price);
-                const v = parseFloat(lvl?.volume);
-                if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
-
-                if (lvl.type === 'resistance' && p > closePrice) {
-                    const d = p - closePrice;
-                    if (d < aboveDist) {
-                        aboveDist = d;
-                        above = { price: p, volume: v };
-                    }
-                } else if (lvl.type === 'support' && p < closePrice) {
-                    const d = closePrice - p;
-                    if (d < belowDist) {
-                        belowDist = d;
-                        below = { price: p, volume: v };
-                    }
-                }
-            }
-
-            if (!above || !below) continue;
-            if (above.volume <= 0 || below.volume <= 0) continue;
-
-            // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
-            const smallerVolume = Math.min(above.volume, below.volume);
-            const largerVolume = Math.max(above.volume, below.volume);
-            const pct = Math.round((smallerVolume / largerVolume) * 100);
-            if (!Number.isFinite(pct) || pct >= 95) continue; // Only show if there's meaningful imbalance (<95% ratio)
-
-            // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
-            const moreAbove = above.volume > below.volume;
-            const marker = {
-                time: candleTime,
-                position: moreAbove ? 'aboveBar' : 'belowBar',
-                color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-                shape: moreAbove ? 'arrowDown' : 'arrowUp',
-                text: pct + '%'
-            };
-
-            this.chart.upsertNearestClusterWinnerMarker(marker);
-            computedCount++;
-        }
-        
-        if (computedCount > 0) {
-            console.log(`[NCW] Computed ${computedCount} markers for historical bars`);
-        }
-    }
-
-    /**
-     * Update the current (live) bar's nearest cluster winner marker in real-time.
-     * Called on every level update so the indicator shows instantly without waiting for bar close.
-     */
-    updateCurrentBarNearestClusterWinner() {
-        if (localStorage.getItem('showNearestClusterWinner') !== 'true') return;
-        if (!this.chart || typeof this.chart.upsertNearestClusterWinnerMarker !== 'function') return;
-        if (!this.chart.getCurrentCandleTime) return;
-
-        const currentBarTime = this.chart.getCurrentCandleTime();
-        if (!currentBarTime || currentBarTime <= 0) return;
-
-        const currentPrice = this.currentPrice || (this.chart.lastCandle?.close);
-        if (!currentPrice || currentPrice <= 0) {
-            this.clearCurrentBarNearestClusterWinner();
-            return;
-        }
-
-        // Use clustered levels (this.levels) to match what's visually displayed on the chart
-        const sourceLevels = this.levels;
-        if (!Array.isArray(sourceLevels) || sourceLevels.length === 0) {
-            this.clearCurrentBarNearestClusterWinner();
-            return;
-        }
-
-        // Find closest resistance above and support below current price
-        let above = null;
-        let aboveDist = Infinity;
-        let below = null;
-        let belowDist = Infinity;
-
-        for (const lvl of sourceLevels) {
-            const p = parseFloat(lvl?.price);
-            const v = parseFloat(lvl?.volume);
-            if (!p || !Number.isFinite(p) || !v || !Number.isFinite(v)) continue;
-
-            if (lvl.type === 'resistance' && p > currentPrice) {
-                const d = p - currentPrice;
-                if (d < aboveDist) {
-                    aboveDist = d;
-                    above = { price: p, volume: v };
-                }
-            } else if (lvl.type === 'support' && p < currentPrice) {
-                const d = currentPrice - p;
-                if (d < belowDist) {
-                    belowDist = d;
-                    below = { price: p, volume: v };
-                }
-            }
-        }
-
-        if (!above || !below) {
-            this.clearCurrentBarNearestClusterWinner();
-            return;
-        }
-        if (above.volume <= 0 || below.volume <= 0) {
-            this.clearCurrentBarNearestClusterWinner();
-            return;
-        }
-
-        // Calculate ratio: smaller / larger (shows how close the smaller cluster is to the larger)
-        const smallerVolume = Math.min(above.volume, below.volume);
-        const largerVolume = Math.max(above.volume, below.volume);
-        const pct = Math.round((smallerVolume / largerVolume) * 100);
-        if (!Number.isFinite(pct) || pct >= 95) {
-            // No meaningful imbalance - clear any stale marker
-            this.clearCurrentBarNearestClusterWinner();
-            return;
-        }
-
-        // More BTC above = arrow down (resistance), more BTC below = arrow up (support)
-        const moreAbove = above.volume > below.volume;
-        const marker = {
-            time: currentBarTime,
-            position: moreAbove ? 'aboveBar' : 'belowBar',
-            color: moreAbove ? (this.levelSettings?.barDownColor || '#ef4444') : (this.levelSettings?.barUpColor || '#10b981'),
-            shape: moreAbove ? 'arrowDown' : 'arrowUp',
-            text: pct + '%'
-        };
-
-        // Pass isCurrentBar=true to update the live marker
-        this.chart.upsertNearestClusterWinnerMarker(marker, true);
-    }
-
-    /**
-     * Clear the current bar's nearest cluster winner marker.
-     * Called when there's no valid signal to display.
-     */
-    clearCurrentBarNearestClusterWinner() {
-        if (!this.chart || !this.chart.nearestClusterWinner) return;
-        if (this.chart.nearestClusterWinner.currentBarMarker) {
-            this.chart.nearestClusterWinner.currentBarMarker = null;
-            this.chart.updateAllSignalMarkers();
         }
     }
 
@@ -4622,9 +4668,53 @@ class OrderBookApp {
         }
     }
 
+    /**
+     * Initialize Alpha Strike, Whale Flow, and Strike Zones panels
+     */
+    initAlphaPanels() {
+        // Sync mode across all alpha panels
+        const savedMode = localStorage.getItem('alphaStrikeMode') || 'htf';
+        
+        if (typeof alphaStrike !== 'undefined') {
+            alphaStrike.setMode(savedMode);
+            
+            // Listen for signal changes
+            alphaStrike.onSignalChange = (signal) => {
+                console.log('[Alpha Strike] Signal changed:', signal.direction, signal.strength + '%');
+            };
+        }
+        
+        if (typeof whaleFlow !== 'undefined') {
+            whaleFlow.setMode(savedMode);
+            
+            // Start periodic time update for whale flow tape
+            this._whaleFlowTimeInterval = setInterval(() => {
+                whaleFlow.updateTimes();
+            }, 10000); // Update every 10 seconds
+            
+            // Listen for whale detections
+            whaleFlow.onWhaleDetected = (trade) => {
+                console.log('[Whale Flow] Whale detected:', trade.side, trade.size, 'BTC at', trade.price);
+            };
+            
+            whaleFlow.onSmartMoneyAlert = (alert) => {
+                console.log('[Whale Flow] Smart money alert:', alert.message);
+            };
+        }
+        
+        if (typeof strikeZones !== 'undefined') {
+            strikeZones.setMode(savedMode);
+        }
+        
+        console.log('[Alpha Panels] Initialized with mode:', savedMode);
+    }
+
     destroy() {
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
+        }
+        if (this._whaleFlowTimeInterval) {
+            clearInterval(this._whaleFlowTimeInterval);
         }
         if (this.chart) {
             this.chart.destroy();

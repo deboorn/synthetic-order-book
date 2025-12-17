@@ -4751,7 +4751,6 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     initOrderFlowPressure() {
         this.orderFlowPressure = {
             levels: null,
-            clusteredLevels: null,  // Clustered levels for level-based signals (nearest S/R, level counts)
             currentPrice: null,
             obicCanvas: null,
             obicCtx: null
@@ -4760,17 +4759,12 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     
     /**
      * Set levels for order flow calculations
-     * @param {Array} levels - Analytics levels (may be windowed/filtered)
-     * @param {number} currentPrice - Current price
-     * @param {Array} fairValueLevels - Full book levels for VWMP/IFV calculations
-     * @param {Array} clusteredLevels - Clustered levels matching chart display (for level-based signals)
      */
-    setOrderFlowLevels(levels, currentPrice, fairValueLevels = null, clusteredLevels = null) {
+    setOrderFlowLevels(levels, currentPrice, fairValueLevels = null) {
         if (!this.orderFlowPressure) {
             this.initOrderFlowPressure();
         }
         this.orderFlowPressure.levels = levels;
-        this.orderFlowPressure.clusteredLevels = clusteredLevels;  // Store clustered levels separately
         this.orderFlowPressure.currentPrice = currentPrice;
         this.updateOrderFlowPressure();
         
@@ -7859,9 +7853,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         }
         
         // Calculate liquidity structure signals
-        // Pass clustered levels for level-based signals (nearest S/R, level counts)
-        const clusteredLevels = this.orderFlowPressure?.clusteredLevels || null;
-        const liquidityStructure = this.calculateLiquidityStructure(levels, currentPrice, clusteredLevels);
+        const liquidityStructure = this.calculateLiquidityStructure(levels, currentPrice);
         signals.support_gap = liquidityStructure.support_gap;
         signals.resist_gap = liquidityStructure.resist_gap;
         signals.support_share = liquidityStructure.support_share;
@@ -7917,13 +7909,11 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     
     /**
      * Calculate Liquidity Structure - gaps and volume shares
-     * Uses clusteredLevels (matching visual display) for level counts and nearest S/R
-     * Uses regular levels for volume-based calculations (gaps, shares)
      */
-    calculateLiquidityStructure(levels, currentPrice, clusteredLevels = null) {
+    calculateLiquidityStructure(levels, currentPrice) {
         const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
-        // Get supports and resistances from analytics levels (for volume calculations)
+        // Get supports and resistances
         const supports = validLevels
             .filter(l => l.type === 'support' && parseFloat(l.price) < currentPrice)
             .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
@@ -7934,31 +7924,15 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
             .sort((a, b) => a.price - b.price); // Nearest first
         
-        // Use CLUSTERED levels for level counts and nearest S/R (matches visual display)
-        // This ensures support_levels/resist_levels match what user sees on chart
-        const clusterSource = (clusteredLevels && clusteredLevels.length > 0) ? clusteredLevels : levels;
-        const validClusteredLevels = clusterSource.filter(l => parseFloat(l.price) > 0);
+        // Find nearest support and resistance
+        const nearestSupport = supports.length > 0 ? supports[0].price : currentPrice * 0.9;
+        const nearestResist = resistances.length > 0 ? resistances[0].price : currentPrice * 1.1;
         
-        const clusteredSupports = validClusteredLevels
-            .filter(l => l.type === 'support' && parseFloat(l.price) < currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => b.price - a.price); // Nearest first
-            
-        const clusteredResistances = validClusteredLevels
-            .filter(l => l.type === 'resistance' && parseFloat(l.price) > currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => a.price - b.price); // Nearest first
-        
-        // Find nearest support and resistance FROM CLUSTERED levels (first visible cluster)
-        const nearestSupport = clusteredSupports.length > 0 ? clusteredSupports[0].price : currentPrice * 0.9;
-        const nearestResist = clusteredResistances.length > 0 ? clusteredResistances[0].price : currentPrice * 1.1;
-        
-        // Calculate gaps (as percentage) - based on clustered nearest levels
+        // Calculate gaps (as percentage)
         const supportGap = (currentPrice - nearestSupport) / currentPrice;
         const resistGap = (nearestResist - currentPrice) / currentPrice;
         
         // Calculate volume shares within a dynamic range (tighter for large caps)
-        // Uses analytics levels (full granularity) for accurate volume calculation
         let rangePercent = 0.20;
         if (currentPrice > 10000) rangePercent = 0.08;
         else if (currentPrice > 1000) rangePercent = 0.10;
@@ -7987,8 +7961,8 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             resist_share: resistShare,
             nearest_support: nearestSupport,
             nearest_resist: nearestResist,
-            support_levels: clusteredSupports.length,   // Count of visible clustered levels
-            resist_levels: clusteredResistances.length  // Count of visible clustered levels
+            support_levels: supports.length,
+            resist_levels: resistances.length
         };
     }
     

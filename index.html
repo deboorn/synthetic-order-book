@@ -41,7 +41,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%230a0e17'/%3E%3C/linearGradient%3E%3ClinearGradient id='glow' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3ClinearGradient id='green' x1='0%25' y1='100%25' x2='0%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%23059669'/%3E%3Cstop offset='100%25' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3ClinearGradient id='red' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dc2626'/%3E%3Cstop offset='100%25' stop-color='%23ef4444'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23bg)' width='180' height='180' rx='36'/%3E%3Crect x='6' y='6' width='168' height='168' rx='32' fill='none' stroke='url(%23glow)' stroke-width='1.5' opacity='0.4'/%3E%3Crect x='28' y='90' width='15' height='48' rx='3' fill='url(%23green)'/%3E%3Crect x='31' y='76' width='9' height='14' fill='%2310b981'/%3E%3Crect x='31' y='138' width='9' height='11' fill='%2310b981'/%3E%3Crect x='50' y='52' width='15' height='66' rx='3' fill='url(%23red)'/%3E%3Crect x='53' y='42' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='53' y='118' width='9' height='14' fill='%23ef4444'/%3E%3Crect x='72' y='66' width='15' height='52' rx='3' fill='url(%23green)'/%3E%3Crect x='75' y='52' width='9' height='14' fill='%2310b981'/%3E%3Crect x='75' y='118' width='9' height='10' fill='%2310b981'/%3E%3Crect x='94' y='48' width='15' height='62' rx='3' fill='url(%23green)'/%3E%3Crect x='97' y='34' width='9' height='14' fill='%2310b981'/%3E%3Crect x='97' y='110' width='9' height='11' fill='%2310b981'/%3E%3Crect x='116' y='58' width='15' height='48' rx='3' fill='url(%23red)'/%3E%3Crect x='119' y='48' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='119' y='106' width='9' height='16' fill='%23ef4444'/%3E%3Crect x='138' y='44' width='15' height='56' rx='3' fill='url(%23green)'/%3E%3Crect x='141' y='30' width='9' height='14' fill='%2310b981'/%3E%3Crect x='141' y='100' width='9' height='10' fill='%2310b981'/%3E%3Cpath d='M24 142 Q54 124 82 118 T138 90 T160 76' stroke='url(%23glow)' stroke-width='2.5' fill='none' stroke-linecap='round' opacity='0.8'/%3E%3Ccircle cx='160' cy='76' r='4' fill='%233b82f6'/%3E%3C/svg%3E">
     
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251216.3">
+    <link rel="stylesheet" href="css/style.css?v=20251217.16">
 </head>
 <body>
     <div class="app">
@@ -176,6 +176,7 @@
                     </div>
                 </div>
                 <div class="chart-container" id="chartContainer"></div>
+                <button id="goToLatestBtn" class="chart-nav-btn" title="Go to latest bar">»</button>
                 <!-- BB Pulse container removed - drawn on main chart -->
             </div>
 
@@ -462,6 +463,66 @@
                     </div>
                 </div>
 
+                <!-- Whale Flow Tape Panel - Large Trade Detection -->
+                <div class="panel whale-flow-panel collapsible expanded" data-panel="whale-flow" id="whaleFlowPanel">
+                    <div class="panel-header">
+                        <h3>Whale Flow
+                            <span class="info-icon">?
+                                <span class="info-tooltip">
+                                    <strong>Large Trade Detector</strong>
+                                    Tracks significant trades from "whales" (big players).<br><br>
+                                    <span class="tip-bullish">🟢 BUY = Large buyers accumulating</span><br>
+                                    <span class="tip-bearish">🔴 SELL = Large sellers distributing</span><br><br>
+                                    <strong>CVD:</strong> Cumulative Volume Delta<br>
+                                    Positive = More buying, Negative = More selling<br><br>
+                                    <strong>Smart Money Alert:</strong> Whales trading against retail!
+                                </span>
+                            </span>
+                        </h3>
+                        <div class="panel-header-actions">
+                            <span class="whale-threshold-badge" id="whaleThreshold" title="Minimum trade size">>0.5 BTC</span>
+                            <span class="panel-badge live" id="whaleFlowStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="whaleflow" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <!-- CVD Summary Bar -->
+                        <div class="whale-cvd-bar">
+                            <div class="cvd-label">CVD (5m)</div>
+                            <div class="cvd-gauge">
+                                <div class="cvd-gauge-fill buy" id="whaleCvdBuy" style="width:50%"></div>
+                                <div class="cvd-gauge-fill sell" id="whaleCvdSell" style="width:50%"></div>
+                            </div>
+                            <div class="cvd-value positive" id="whaleCvdValue">0.00</div>
+                        </div>
+                        
+                        <!-- Live Trade Tape -->
+                        <div class="whale-tape" id="whaleTape">
+                            <div class="whale-tape-empty">
+                                <span class="empty-icon">🐋</span>
+                                <span class="empty-text">Waiting for large trades...</span>
+                                <span class="empty-hint">Threshold: based on mode</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Summary Row -->
+                        <div class="whale-summary" id="whaleSummary">
+                            <div class="whale-dominant">
+                                <span class="dominant-label">Flow:</span>
+                                <span class="dominant-side neutral" id="whaleDominantSide">MIXED</span>
+                                <span class="dominant-pct" id="whaleDominantPct"></span>
+                            </div>
+                            <div class="whale-alert" id="whaleAlert"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Price Forecast Panel (moved from right sidebar) -->
                 <div class="panel direction-panel collapsible expanded" data-panel="forecast">
                     <div class="panel-header">
@@ -621,56 +682,65 @@
                         <div class="fv-analysis-text" id="fvAnalysisText">Calculating fair values...</div>
                     </div>
                     
-                    <!-- Trade Setup Section -->
-                    <div class="trade-setup" id="tradeSetup">
-                        <div class="trade-position-selector">
-                            <button class="position-btn long" id="positionLong" title="Plan a Long position">LONG</button>
-                            <button class="position-btn short" id="positionShort" title="Plan a Short position">SHORT</button>
-                        </div>
-                        <div class="trade-recommendation" id="tradeRecommendation">
-                            <span class="rec-label">Suggested:</span>
-                            <span class="rec-value" id="recommendedDirection">--</span>
-                        </div>
-                        <div class="trade-filters-row">
-                        <div class="trade-filter">
-                            <label>Min Gain %</label>
-                            <input type="number" id="minGainPercent" value="2.5" min="0.1" max="20" step="0.1">
-                        </div>
-                        <div class="trade-filter">
-                                <label>On Chart</label>
-                            <input type="checkbox" id="showTradeOnChart">
-                            </div>
-                        </div>
-                        <div class="trade-header">
-                            <span class="trade-direction" id="tradeDirection">SELECT</span>
-                            <span class="trade-confidence" id="tradeConfidence">--</span>
-                        </div>
-                        <div class="trade-levels">
-                            <div class="trade-level entry">
-                                <span class="level-label">Entry Zone</span>
-                                <span class="level-value" id="tradeEntry">$--</span>
-                            </div>
-                            <div class="trade-level stop">
-                                <span class="level-label">Stop Loss</span>
-                                <span class="level-value" id="tradeStop">$--</span>
-                            </div>
-                            <div class="trade-level target">
-                                <span class="level-label">Target 1</span>
-                                <span class="level-value" id="tradeTarget1">$--</span>
-                            </div>
-                            <div class="trade-level target">
-                                <span class="level-label">Target 2</span>
-                                <span class="level-value" id="tradeTarget2">$--</span>
-                            </div>
-                        </div>
-                        <div class="trade-rr">
-                            <span class="rr-label">Risk/Reward</span>
-                            <span class="rr-value" id="tradeRR">--</span>
-                        </div>
-                        <div class="trade-reasoning" id="tradeReasoning">
-                            Analyzing order book...
+                    </div>
+                </div>
+                
+                <!-- Trade Setup Panel -->
+                <div class="panel trade-setup-panel collapsible expanded" data-panel="trade-setup" id="tradeSetupPanel">
+                    <div class="panel-header">
+                        <h3>Trade Setup</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeStatus">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="tradesetup" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
                         </div>
                     </div>
+                    <div class="panel-content">
+                        <!-- Recommended Signal - Hero -->
+                        <div class="ts-signal">
+                            <div class="ts-rec">
+                                <span class="ts-rec-label">Recommended</span>
+                                <span class="ts-rec-value wait" id="recommendedDirection">WAIT</span>
+                            </div>
+                            <div class="ts-controls">
+                                <button class="ts-btn long" id="positionLong" title="Go Long">▲ LONG</button>
+                                <button class="ts-btn short" id="positionShort" title="Go Short">▼ SHORT</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Min Gain Filter -->
+                        <div class="ts-filter">
+                            <span class="ts-filter-label">Min %</span>
+                            <input type="number" id="minGainPercent" value="1" min="0.1" max="20" step="0.1">
+                            <label class="ts-chart-toggle">
+                                <input type="checkbox" id="showTradeOnChart">
+                                <span>Chart</span>
+                            </label>
+                        </div>
+                        
+                        <!-- Levels Grid -->
+                        <div class="ts-levels">
+                            <div class="ts-level entry"><span>Entry</span><span id="tradeEntry">$--</span></div>
+                            <div class="ts-level stop"><span>Stop</span><span id="tradeStop">$--</span></div>
+                            <div class="ts-level tp1"><span>TP1</span><span id="tradeTarget1">$--</span></div>
+                            <div class="ts-level tp2"><span>TP2</span><span id="tradeTarget2">$--</span></div>
+                        </div>
+                        
+                        <!-- R:R Display -->
+                        <div class="ts-rr">
+                            <span>R:R</span>
+                            <span class="ts-rr-value" id="tradeRR">--</span>
+                        </div>
+                        
+                        <!-- Reasoning -->
+                        <div class="ts-reasoning" id="tradeReasoning">
+                            Select LONG or SHORT to see trade setup.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -680,6 +750,77 @@
                 <div class="sidebar-handle" id="collapseRightSidebar" title="Click to collapse/expand">
                     <span class="handle-bars">||</span>
                 </div>
+                
+                <!-- Alpha Strike Signal Panel - Pure Alpha Direction -->
+                <div class="panel alpha-strike-panel collapsible expanded" data-panel="alpha-strike" id="alphaStrikePanel">
+                    <div class="panel-header alpha-strike-header">
+                        <div class="panel-header-top">
+                            <h3>Alpha Strike</h3>
+                            <span class="panel-badge live">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="alphastrike" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                        <div class="strike-mode-selector" id="strikeModeSelector">
+                            <button class="strike-mode-btn" data-mode="mm" title="Market Maker: Fast signals, 3/5 confluence">
+                                <span class="mode-icon">⚡</span>
+                                <span class="mode-label">MM</span>
+                            </button>
+                            <button class="strike-mode-btn" data-mode="swing" title="Swing: Balanced, 4/5 confluence">
+                                <span class="mode-icon">📊</span>
+                                <span class="mode-label">Swing</span>
+                            </button>
+                            <button class="strike-mode-btn active" data-mode="htf" title="HTF: Conservative, 5/5 confluence">
+                                <span class="mode-icon">🏦</span>
+                                <span class="mode-label">HTF</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <!-- Hero Signal -->
+                        <div class="as-hero" id="strikeDirection">
+                            <div class="as-signal neutral" id="strikeArrow">
+                                <span class="as-arrow">―</span>
+                                <span class="as-label" id="strikeLabel">FLAT</span>
+                            </div>
+                            <div class="as-stats">
+                                <div class="as-stat">
+                                    <span class="as-stat-val" id="strikeStrength">0%</span>
+                                    <div class="as-bar"><div class="as-bar-fill" id="strikeMeterFill"></div></div>
+                                </div>
+                                <div class="as-action">
+                                    <span class="as-badge wait" id="strikeActionBadge">WAIT</span>
+                                    <span class="as-timer" id="strikeCountdown"></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Confluence Grid -->
+                        <div class="as-confluence" id="strikeConfluence">
+                            <div class="as-conf-head">
+                                <span>Confluence</span>
+                                <span class="as-conf-score" id="confluenceScore">0/5</span>
+                            </div>
+                            <div class="as-conf-grid">
+                                <div class="as-conf" data-indicator="mcs"><span class="as-conf-dot"></span><span class="as-conf-id">MCS</span><span class="as-conf-val">—</span></div>
+                                <div class="as-conf" data-indicator="alpha"><span class="as-conf-dot"></span><span class="as-conf-id">Alpha</span><span class="as-conf-val">—</span></div>
+                                <div class="as-conf" data-indicator="ld"><span class="as-conf-dot"></span><span class="as-conf-id">LD</span><span class="as-conf-val">—</span></div>
+                                <div class="as-conf" data-indicator="bbp"><span class="as-conf-dot"></span><span class="as-conf-id">BBP</span><span class="as-conf-val">—</span></div>
+                                <div class="as-conf" data-indicator="forecast"><span class="as-conf-dot"></span><span class="as-conf-id">FC</span><span class="as-conf-val">—</span></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Insight -->
+                        <div class="as-insight" id="strikeNewbie">
+                            <span class="as-insight-text" id="strikeNewbieText">Waiting for confluence...</span>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Market Consensus Signal Panel -->
                 <div class="panel mcs-panel collapsible expanded" data-panel="mcs" id="mcsPanel">
                     <!-- Trend Color Stripe (Enhancement #5) -->
@@ -690,15 +831,9 @@
                     </div>
                     
                     <div class="panel-header">
-                        <h3>MARKET CONSENSUS</h3>
-                        <!-- Mode Selector (Enhancement #4) -->
+                        <h3>Market Consensus</h3>
                         <div class="panel-header-actions">
-                            <div class="mcs-mode-selector" id="mcsModeSelector">
-                                <button class="mcs-mode-btn" data-mode="aggressive" title="Aggressive: Heavy weight on MM for scalping">⚡</button>
-                                <button class="mcs-mode-btn" data-mode="balanced" title="Balanced: Default 40/35/25 weighting">⚖️</button>
-                                <button class="mcs-mode-btn active" data-mode="conservative" title="Conservative: Require all 3 TFs to align">🛡️</button>
-                            </div>
-                            <span class="live-badge">Live</span>
+                            <span class="panel-badge">Live</span>
                             <button class="panel-alert-btn" data-alert-section="mcs" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
@@ -706,6 +841,13 @@
                                 </svg>
                                 <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
                             </button>
+                        </div>
+                    </div>
+                    <div class="mcs-mode-row">
+                        <div class="mcs-mode-selector" id="mcsModeSelector">
+                            <button class="mode-btn" data-mode="aggressive" title="Aggressive: Heavy MM weight">⚡ AGG</button>
+                            <button class="mode-btn" data-mode="balanced" title="Balanced: Default weighting">⚖️ BAL</button>
+                            <button class="mode-btn active" data-mode="conservative" title="Conservative: All TFs align">🛡️ CON</button>
                         </div>
                     </div>
                     <div class="panel-content">
@@ -1037,36 +1179,30 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <div class="footer-left">
-                <span class="cache-status" id="cacheStatus">Cache: --</span>
-                <!-- WebSocket Data Source Indicator -->
-                <span class="data-source-indicator disconnected" id="dataSourceIndicator" title="Order book data source">
+            <div class="footer-status">
+                <span class="data-source-indicator disconnected" id="dataSourceIndicator" title="Data source">
                     <span class="source-dot"></span>
                     <span class="source-label">...</span>
                 </span>
+                <span class="cache-status" id="cacheStatus">--</span>
+                <span class="footer-update" id="lastUpdate">--</span>
             </div>
-            <div class="footer-center">
-                <span id="lastUpdate">Last update: --</span>
-                <span class="footer-separator">·</span>
-                <span class="footer-copyright">© 2025 <a href="mailto:daniel.boorn@gmail.com">Daniel Boorn</a> · Personal use · <a href="mailto:daniel.boorn@gmail.com">Contact for commercial</a></span>
-                <span class="footer-separator">·</span>
-                <span class="footer-disclaimer">Use at own risk · Not financial advice</span>
-                <span class="footer-separator">·</span>
-                <span class="footer-version">v20251216.8</span>
+            <div class="footer-info">
+                <span class="footer-copyright">© 2025 <a href="mailto:daniel.boorn@gmail.com">Daniel Boorn</a></span>
+                <span class="footer-sep">·</span>
+                <span class="footer-disclaimer" title="Educational use only · Not financial advice · Crypto trading involves substantial risk · Personal non-commercial use only · Contact daniel.boorn@gmail.com for commercial licensing">Not Financial Advice. Trading has Risks. Use at Own Risk.</span>
+                <span class="footer-sep">·</span>
+                <span class="footer-version">v20251217.1</span>
             </div>
-            <div class="footer-right">
-                <a href="analysis.html" class="github-link" title="Open Analysis">
-                    <span>Analysis</span>
+            <div class="footer-links">
+                <a href="analysis.html" class="footer-link" title="Analysis Dashboard">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 1v14h14V1H1zm13 13H2V2h12v12zM4 10h2v3H4v-3zm3-3h2v6H7V7zm3-3h2v9h-2V4z"/></svg>
                 </a>
-                <a href="https://github.com/deboorn/synthetic-order-book/" target="_blank" rel="noopener" class="github-link" title="View on GitHub">
-                    <svg class="github-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                    <span>GitHub</span>
+                <a href="https://github.com/deboorn/synthetic-order-book/" target="_blank" rel="noopener" class="footer-link" title="GitHub">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                 </a>
-                <a href="https://www.tradingview.com/free-charting-libraries/" target="_blank" rel="noopener" class="tradingview-attribution" title="Chart library by TradingView">
-                    <span class="tv-powered">Chart Library</span>
-                    <img src="img/black-logo.svg" alt="TradingView" class="tv-logo">
+                <a href="https://www.tradingview.com/free-charting-libraries/" target="_blank" rel="noopener" class="footer-link footer-link-tv" title="Charts by TradingView">
+                    <img src="img/black-logo.svg" alt="TV">
                 </a>
             </div>
         </footer>
@@ -1273,7 +1409,7 @@
                             <strong>Swing:</strong> 33% Swing + 33% MM + 33% HTF<br>
                             <strong>HTF:</strong> 50% HTF/Investor weight
                         </div>
-                        <p style="margin-top: 8px; font-size: 0.85em; opacity: 0.8;">MCS provides the final directional bias shown in header.</p>
+                        <p style="margin-top: 4px; font-size: 0.7em; opacity: 0.7;">MCS provides the final directional bias shown in header.</p>
                     </div>
 
                     <div class="legend-section">
@@ -1308,17 +1444,6 @@
                                 <span class="toggle-hint">Show order book levels on chart</span>
                             </div>
                         </label>
-                        <label class="settings-toggle">
-                            <input type="checkbox" id="showNearestClusterWinner">
-                            <span class="toggle-slider"></span>
-                            <div class="toggle-info">
-                                <span class="toggle-label">Nearest Cluster Winner</span>
-                                <span class="toggle-hint">Compare closest resistance vs support cluster (arrow + %)</span>
-                            </div>
-                        </label>
-                        <div class="settings-action-row">
-                            <button class="btn-secondary btn-small" id="clearSignalsCache">Clear Signals Cache</button>
-                        </div>
                         <label class="settings-toggle">
                             <input type="checkbox" id="showVolume">
                             <span class="toggle-slider"></span>
@@ -1410,6 +1535,51 @@
                             <div class="toggle-info">
                                 <span class="toggle-label">DB BB Pulse Lighting Signals</span>
                                 <span class="toggle-hint">Buy/sell signal arrows on chart</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showBullsBears">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Bulls vs Bears Signal</span>
+                                <span class="toggle-hint">Arrow based on order book pressure above/below price</span>
+                            </div>
+                        </label>
+                        <div class="settings-group bulls-bears-method" style="margin-left: 32px; margin-top: -4px; margin-bottom: 6px;">
+                            <label>
+                                <span style="font-size: 10px; color: #64748b;">Method</span>
+                            </label>
+                            <select id="bullsBearsMethod" class="tf-select" style="width: 120px; font-size: 10px; padding: 3px 6px;">
+                                <option value="firstLevel">First Level</option>
+                                <option value="percentRange">20% Range</option>
+                            </select>
+                        </div>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showTradeFootprint">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Trade Footprint Heatmap</span>
+                                <span class="toggle-hint">Delta heatmap at each price level per bar</span>
+                            </div>
+                        </label>
+                        <div class="settings-group trade-footprint-bucket" style="margin-left: 32px; margin-top: -4px; margin-bottom: 6px;">
+                            <label>
+                                <span style="font-size: 10px; color: #64748b;">Bucket Size</span>
+                            </label>
+                            <select id="tradeFootprintBucketSize" class="tf-select" style="width: 80px; font-size: 10px; padding: 3px 6px;">
+                                <option value="5">$5</option>
+                                <option value="10" selected>$10</option>
+                                <option value="25">$25</option>
+                                <option value="50">$50</option>
+                                <option value="100">$100</option>
+                            </select>
+                        </div>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showLevelHistoryHeatmap" checked>
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Levels Heatmap</span>
+                                <span class="toggle-hint">Order book cluster history on chart</span>
                             </div>
                         </label>
                     </div>
@@ -1662,6 +1832,7 @@
             
             <div class="modal-footer">
                 <div class="settings-actions">
+                    <button class="btn-danger" id="clearCacheBtn">Clear Cache</button>
                     <button class="btn-secondary" id="resetSettings">Reset Defaults</button>
                     <button class="btn-primary" id="applySettings">Apply</button>
                 </div>
@@ -1849,16 +2020,19 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251216.3"></script>
-    <script src="js/websocket-orderbook.js?v=20251216.3"></script>
-    <script src="js/orderbook-aggregator.js?v=20251216.3"></script>
-    <script src="js/api.js?v=20251216.3"></script>
-    <script src="js/websocket.js?v=20251216.3"></script>
-    <script src="js/bb-pulse.js?v=20251216.3"></script>
-    <script src="js/chart.js?v=20251216.3"></script>
-    <script src="js/depth.js?v=20251216.3"></script>
-    <script src="js/direction.js?v=20251216.3"></script>
-    <script src="js/app.js?v=20251216.3"></script>
+    <script src="js/db.js?v=20251217.16"></script>
+    <script src="js/trade-aggregator.js?v=20251217.16"></script>
+    <script src="js/websocket-orderbook.js?v=20251217.16"></script>
+    <script src="js/orderbook-aggregator.js?v=20251217.16"></script>
+    <script src="js/api.js?v=20251217.16"></script>
+    <script src="js/websocket.js?v=20251217.16"></script>
+    <script src="js/bb-pulse.js?v=20251217.16"></script>
+    <script src="js/chart.js?v=20251217.16"></script>
+    <script src="js/depth.js?v=20251217.16"></script>
+    <script src="js/direction.js?v=20251217.16"></script>
+    <script src="js/alpha-strike.js?v=20251217.16"></script>
+    <script src="js/whale-flow.js?v=20251217.16"></script>
+    <script src="js/app.js?v=20251217.16"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>
@@ -2041,4 +2215,6 @@
     </script>
 </body>
 </html>
+
+
 
