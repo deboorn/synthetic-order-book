@@ -1868,39 +1868,67 @@ body {
 
 /* MCS Mode Row */
 .mcs-mode-row {
-    display: flex;
+    display: none;
     justify-content: center;
     padding: 6px 10px;
     background: rgba(0, 0, 0, 0.15);
     border-bottom: 1px solid var(--border-color);
 }
 
-.mcs-mode-selector {
+.mcs-panel.collapsible.expanded .mcs-mode-row {
     display: flex;
-    gap: 4px;
+}
+
+.mcs-mode-selector {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
 
 .mcs-mode-selector .mode-btn {
-    padding: 4px 10px;
+    aspect-ratio: 1;
+    width: 100%;
+    max-width: 65px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px;
     font-size: 0.7rem;
-    font-weight: 600;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(100, 116, 139, 0.3);
-    border-radius: 4px;
-    color: var(--text-muted);
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(100, 116, 139, 0.25);
+    border-radius: 8px;
     cursor: pointer;
+    opacity: 0.65;
     transition: all 0.15s ease;
-}
-
-.mcs-mode-selector .mode-btn:hover {
-    background: rgba(0, 0, 0, 0.3);
     color: var(--text-secondary);
 }
 
+.mcs-mode-selector .mode-btn .mode-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.mcs-mode-selector .mode-btn .mode-label {
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.mcs-mode-selector .mode-btn:hover {
+    opacity: 0.9;
+    background: rgba(15, 23, 42, 0.8);
+    border-color: rgba(100, 116, 139, 0.4);
+}
+
 .mcs-mode-selector .mode-btn.active {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: var(--accent-primary);
-    color: var(--accent-primary);
+    opacity: 1;
+    background: rgba(16, 185, 129, 0.1);
+    border: 2px solid rgba(16, 185, 129, 0.5);
+    color: var(--bid-color);
 }
 
 /* MCS Header */
@@ -6808,47 +6836,58 @@ body {
 
 /* Mode Selector - Full Width Row */
 .strike-mode-selector {
-    display: flex;
+    display: grid;
+    align-items: center;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(1, 1fr);
+    justify-content: center;
     gap: 6px;
+    margin-bottom: 12px;
+    margin-left: 10px;
 }
 
 .strike-mode-btn {
-    flex: 1;
+    aspect-ratio: 1;
+    width: 100%;
+    max-width: 65px;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 8px 10px;
-    font-size: 0.75rem;
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(100, 116, 139, 0.2);
-    border-radius: 6px;
+    gap: 4px;
+    padding: 8px;
+    font-size: 0.7rem;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(100, 116, 139, 0.25);
+    border-radius: 8px;
     cursor: pointer;
-    opacity: 0.6;
+    opacity: 0.65;
     transition: all 0.15s ease;
     color: var(--text-secondary);
 }
 
 .strike-mode-btn .mode-icon {
-    font-size: 0.9rem;
+    font-size: 1.25rem;
+    line-height: 1;
 }
 
 .strike-mode-btn .mode-label {
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
 
 .strike-mode-btn:hover {
-    opacity: 0.85;
-    background: rgba(0, 0, 0, 0.35);
+    opacity: 0.9;
+    background: rgba(15, 23, 42, 0.8);
     border-color: rgba(100, 116, 139, 0.4);
 }
 
 .strike-mode-btn.active {
     opacity: 1;
-    background: rgba(59, 130, 246, 0.2);
-    border-color: rgba(59, 130, 246, 0.5);
-    color: var(--accent-primary);
+    background: rgba(16, 185, 129, 0.1);
+    border: 2px solid rgba(16, 185, 129, 0.5);
+    color: var(--bid-color);
 }
 
 /* ========== ALPHA STRIKE - COMPACT PRO ========== */
@@ -7284,13 +7323,53 @@ body {
     /* Use standard panel header background */
 }
 
-.whale-threshold-badge {
-    font-size: 0.65rem;
+/* Threshold Selector */
+.whale-threshold-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.whale-threshold-selector .threshold-label {
+    font-size: 0.7rem;
     font-weight: 600;
-    padding: 2px 6px;
-    background: rgba(139, 92, 246, 0.2);
-    border-radius: 3px;
-    color: #a78bfa;
+    color: var(--text-muted);
+}
+
+.threshold-input {
+    flex: 1;
+    padding: 6px 10px;
+    background: #000000;
+    border: 1px solid rgba(100, 116, 139, 0.3);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.15s ease;
+    outline: none;
+}
+
+.threshold-input:focus {
+    border-color: rgba(139, 92, 246, 0.5);
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.threshold-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.threshold-unit {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 35px;
 }
 
 /* CVD Bar */
@@ -7358,6 +7437,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 6px;
+    font-size: 10px;
 }
 
 .whale-tape-empty .empty-icon {

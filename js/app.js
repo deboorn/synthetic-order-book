@@ -4685,6 +4685,8 @@ class OrderBookApp {
         }
         
         if (typeof whaleFlow !== 'undefined') {
+            // Set symbol first (before mode, as mode uses symbol-specific thresholds)
+            whaleFlow.setSymbol(this.currentSymbol);
             whaleFlow.setMode(savedMode);
             
             // Start periodic time update for whale flow tape
@@ -4694,7 +4696,7 @@ class OrderBookApp {
             
             // Listen for whale detections
             whaleFlow.onWhaleDetected = (trade) => {
-                console.log('[Whale Flow] Whale detected:', trade.side, trade.size, 'BTC at', trade.price);
+                console.log('[Whale Flow] Whale detected:', trade.side, trade.size, this.currentSymbol, 'at', trade.price);
             };
             
             whaleFlow.onSmartMoneyAlert = (alert) => {

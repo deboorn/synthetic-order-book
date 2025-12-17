@@ -11,15 +11,18 @@
 
 class WhaleFlow {
     constructor() {
+        // Current symbol
+        this.symbol = (localStorage.getItem('selectedSymbol') || 'BTC').toUpperCase();
+        
         // Current mode
         this.mode = localStorage.getItem('alphaStrikeMode') || 'htf';
         
-        // Mode-based thresholds (in BTC) - adjusted for real market activity
-        this.thresholds = {
-            mm: { notable: 0.05, large: 0.2, whale: 0.5 },      // More sensitive for scalping
-            swing: { notable: 0.1, large: 0.5, whale: 2.0 },    // Medium trades
-            htf: { notable: 0.5, large: 2.0, whale: 5.0 }       // Only big trades matter
-        };
+        // Mode-based thresholds - symbol-aware (values in base currency units)
+        // Thresholds are adjusted based on typical trade sizes for each symbol
+        this.thresholds = this.getSymbolThresholds(this.symbol);
+        
+        // Custom threshold override (null = use mode default)
+        this.customThreshold = parseFloat(localStorage.getItem('whaleCustomThreshold')) || null;
         
         // Trade history
         this.trades = [];
@@ -54,10 +57,63 @@ class WhaleFlow {
     }
     
     /**
+     * Get symbol-specific thresholds
+     * Returns thresholds adjusted for typical trade sizes per symbol
+     */
+    getSymbolThresholds(symbol) {
+        const baseThresholds = {
+            mm: { notable: 0.05, large: 0.2, whale: 0.5 },
+            swing: { notable: 0.1, large: 0.5, whale: 2.0 },
+            htf: { notable: 0.5, large: 2.0, whale: 5.0 }
+        };
+        
+        // Symbol multipliers based on typical price ranges and trade sizes
+        // Higher value coins (BTC, ETH) use base thresholds
+        // Lower value coins (DOGE, SHIB) need higher thresholds
+        const multipliers = {
+            'BTC': 1.0,
+            'ETH': 1.0,
+            'SOL': 1.0,
+            'XRP': 10.0,
+            'DOGE': 100.0,
+            'ADA': 10.0,
+            'AVAX': 1.0,
+            'DOT': 1.0,
+            'LINK': 1.0,
+            'LTC': 1.0,
+            'MATIC': 10.0,
+            'UNI': 1.0,
+            'ATOM': 1.0,
+            'FIL': 1.0,
+            'APT': 1.0,
+            'ARB': 10.0,
+            'OP': 1.0,
+            'NEAR': 1.0,
+            'SHIB': 1000.0,
+            'BCH': 1.0,
+            'SUI': 1.0
+        };
+        
+        const multiplier = multipliers[symbol] || 1.0;
+        
+        // Apply multiplier to all thresholds
+        const thresholds = {};
+        for (const mode in baseThresholds) {
+            thresholds[mode] = {};
+            for (const tier in baseThresholds[mode]) {
+                thresholds[mode][tier] = baseThresholds[mode][tier] * multiplier;
+            }
+        }
+        
+        return thresholds;
+    }
+    
+    /**
      * Initialize
      */
     init() {
         this.cacheElements();
+        this.setupThresholdInput();
         this.updateThresholdUI();
     }
     
@@ -68,6 +124,7 @@ class WhaleFlow {
         this.elements = {
             panel: document.getElementById('whaleFlowPanel'),
             threshold: document.getElementById('whaleThreshold'),
+            thresholdUnit: document.getElementById('whaleThresholdUnit'),
             cvdBuy: document.getElementById('whaleCvdBuy'),
             cvdSell: document.getElementById('whaleCvdSell'),
             cvdValue: document.getElementById('whaleCvdValue'),
@@ -77,6 +134,87 @@ class WhaleFlow {
             alert: document.getElementById('whaleAlert'),
             status: document.getElementById('whaleFlowStatus')
         };
+    }
+    
+    /**
+     * Setup threshold input interactivity
+     */
+    setupThresholdInput() {
+        const input = this.elements.threshold;
+        
+        if (!input) return;
+        
+        // Handle input changes (on blur and Enter key)
+        input.addEventListener('blur', () => {
+            this.handleThresholdInput();
+        });
+        
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                input.blur();
+            }
+        });
+        
+        // Prevent invalid input
+        input.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            if (value < 0) {
+                e.target.value = '0';
+            }
+        });
+    }
+    
+    /**
+     * Handle threshold input change
+     */
+    handleThresholdInput() {
+        const input = this.elements.threshold;
+        if (!input) return;
+        
+        const value = parseFloat(input.value);
+        if (isNaN(value) || value < 0) {
+            // Reset to current threshold if invalid
+            this.updateThresholdUI();
+            return;
+        }
+        
+        this.setCustomThreshold(value);
+    }
+    
+    /**
+     * Set custom threshold override
+     */
+    setCustomThreshold(value) {
+        this.customThreshold = value;
+        localStorage.setItem('whaleCustomThreshold', value);
+        this.updateThresholdUI();
+        this.filterTradesByThreshold();
+    }
+    
+    /**
+     * Get current active threshold
+     */
+    getActiveThreshold() {
+        return this.customThreshold !== null 
+            ? this.customThreshold 
+            : this.thresholds[this.mode].notable;
+    }
+    
+    /**
+     * Set symbol and update thresholds
+     */
+    setSymbol(symbol) {
+        const newSymbol = (symbol || 'BTC').toUpperCase();
+        if (newSymbol === this.symbol) return;
+        
+        this.symbol = newSymbol;
+        this.thresholds = this.getSymbolThresholds(this.symbol);
+        
+        // Clear existing trades when symbol changes (different asset, different context)
+        this.clear();
+        
+        this.updateThresholdUI();
     }
     
     /**
@@ -96,9 +234,25 @@ class WhaleFlow {
      * Update threshold display
      */
     updateThresholdUI() {
+        const threshold = this.getActiveThreshold();
+        
+        // Update input value with current threshold
         if (this.elements.threshold) {
-            const threshold = this.thresholds[this.mode].notable;
-            this.elements.threshold.textContent = `>${threshold} BTC`;
+            // Format threshold for input (no ">" prefix, just the number)
+            let formattedThreshold;
+            if (threshold >= 1000) {
+                formattedThreshold = threshold.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            } else if (threshold >= 1) {
+                formattedThreshold = threshold.toFixed(2);
+            } else {
+                formattedThreshold = threshold.toFixed(4);
+            }
+            this.elements.threshold.value = formattedThreshold;
+        }
+        
+        // Update unit label with current symbol
+        if (this.elements.thresholdUnit) {
+            this.elements.thresholdUnit.textContent = this.symbol;
         }
     }
     
@@ -106,7 +260,7 @@ class WhaleFlow {
      * Filter trades by current threshold
      */
     filterTradesByThreshold() {
-        const threshold = this.thresholds[this.mode].notable;
+        const threshold = this.getActiveThreshold();
         this.trades = this.trades.filter(t => t.size >= threshold);
         this.renderTape();
     }
@@ -123,16 +277,17 @@ class WhaleFlow {
         const tradeSize = trade.size || trade.volume;
         if (!tradeSize) return;
         
-        const threshold = this.thresholds[this.mode];
+        const modeThresholds = this.thresholds[this.mode];
+        const activeThreshold = this.getActiveThreshold();
         const size = parseFloat(tradeSize);
         
-        // Only track trades above notable threshold
-        if (size < threshold.notable) return;
+        // Only track trades above active threshold (custom or mode-based)
+        if (size < activeThreshold) return;
         
-        // Classify trade
+        // Classify trade based on mode thresholds for tier display
         let tag = 'notable';
-        if (size >= threshold.whale) tag = 'whale';
-        else if (size >= threshold.large) tag = 'large';
+        if (size >= modeThresholds.whale) tag = 'whale';
+        else if (size >= modeThresholds.large) tag = 'large';
         
         const tradeRecord = {
             id: Date.now() + Math.random(),
@@ -264,7 +419,7 @@ class WhaleFlow {
         
         el.innerHTML = `
             <span class="whale-trade-side">${trade.side === 'buy' ? '🟢' : '🔴'} ${trade.side.toUpperCase()}</span>
-            <span class="whale-trade-size">${trade.size.toFixed(2)} BTC</span>
+            <span class="whale-trade-size">${this.formatSize(trade.size)} ${this.symbol}</span>
             <span class="whale-trade-price">$${this.formatPrice(trade.price)}</span>
             <span class="whale-trade-time">${timeAgo}</span>
             ${trade.tag !== 'notable' ? `<span class="whale-trade-tag ${trade.tag}">${trade.tag}</span>` : ''}
@@ -303,7 +458,7 @@ class WhaleFlow {
             
             el.innerHTML = `
                 <span class="whale-trade-side">${trade.side === 'buy' ? '🟢' : '🔴'} ${trade.side.toUpperCase()}</span>
-                <span class="whale-trade-size">${trade.size.toFixed(2)} BTC</span>
+                <span class="whale-trade-size">${this.formatSize(trade.size)} ${this.symbol}</span>
                 <span class="whale-trade-price">$${this.formatPrice(trade.price)}</span>
                 <span class="whale-trade-time">${timeAgo}</span>
                 ${trade.tag !== 'notable' ? `<span class="whale-trade-tag ${trade.tag}">${trade.tag}</span>` : ''}
@@ -386,6 +541,21 @@ class WhaleFlow {
         if (minutes < 60) return minutes + 'm';
         const hours = Math.floor(minutes / 60);
         return hours + 'h';
+    }
+    
+    /**
+     * Format size (volume) based on magnitude
+     */
+    formatSize(size) {
+        if (size >= 1000) {
+            return size.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        } else if (size >= 1) {
+            return size.toFixed(2);
+        } else if (size >= 0.01) {
+            return size.toFixed(4);
+        } else {
+            return size.toFixed(6);
+        }
     }
     
     /**
