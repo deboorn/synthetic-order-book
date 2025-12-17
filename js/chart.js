@@ -3538,24 +3538,118 @@ class OrderBookChart {
             this.container.style.position = 'relative';
             this.container.appendChild(canvas);
             
-            // Size canvas to match container
-            const rect = this.container.getBoundingClientRect();
-            canvas.width = rect.width * window.devicePixelRatio;
-            canvas.height = rect.height * window.devicePixelRatio;
+            // Size canvas to match container and cache dimensions
+            this.updateFootprintCanvasSize();
             
             this.tradeFootprint.canvas = canvas;
             this.tradeFootprint.ctx = canvas.getContext('2d');
             this.tradeFootprint.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
             
-            // Subscribe to chart crosshair/time scale changes for re-render
+            // Initialize render state for rAF throttling
+            this.tradeFootprint._needsRender = false;
+            this.tradeFootprint._rafId = null;
+            
+            // Subscribe to chart changes with rAF throttling
             if (this.chart) {
+                // Time scale changes (horizontal drag/zoom)
                 this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
                     if (this.tradeFootprint.enabled) {
-                        this.renderTradeFootprint();
+                        this.scheduleFootprintRender();
                     }
                 });
             }
+            
+            // Handle price scale drags by rendering continuously during mouse drag
+            this._setupFootprintDragTracking();
+            
+            // Update cached dimensions on resize
+            this._footprintResizeObserver = new ResizeObserver(() => {
+                this.updateFootprintCanvasSize();
+                if (this.tradeFootprint.enabled) {
+                    this.scheduleFootprintRender();
+                }
+            });
+            this._footprintResizeObserver.observe(this.container);
         }
+    }
+    
+    /**
+     * Update footprint canvas size and cache dimensions
+     */
+    updateFootprintCanvasSize() {
+        if (!this.container) return;
+        
+        const rect = this.container.getBoundingClientRect();
+        this.tradeFootprint._cachedWidth = rect.width;
+        this.tradeFootprint._cachedHeight = rect.height;
+        
+        if (this.tradeFootprint.canvas) {
+            this.tradeFootprint.canvas.width = rect.width * window.devicePixelRatio;
+            this.tradeFootprint.canvas.height = rect.height * window.devicePixelRatio;
+            
+            // Re-scale context after resize
+            if (this.tradeFootprint.ctx) {
+                this.tradeFootprint.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                this.tradeFootprint.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            }
+        }
+    }
+    
+    /**
+     * Schedule footprint render on next animation frame (coalesces multiple calls)
+     */
+    scheduleFootprintRender() {
+        if (this.tradeFootprint._needsRender) return; // Already scheduled
+        
+        this.tradeFootprint._needsRender = true;
+        this.tradeFootprint._rafId = requestAnimationFrame(() => {
+            this.tradeFootprint._needsRender = false;
+            this.renderTradeFootprint();
+        });
+    }
+    
+    /**
+     * Setup drag tracking for footprint canvas
+     * Renders continuously during mouse drag to handle price scale changes
+     */
+    _setupFootprintDragTracking() {
+        if (!this.container || this.tradeFootprint._dragTrackingSetup) return;
+        this.tradeFootprint._dragTrackingSetup = true;
+        
+        let isDragging = false;
+        let renderLoop = null;
+        
+        const startDragRender = () => {
+            if (renderLoop) return;
+            renderLoop = () => {
+                if (isDragging && this.tradeFootprint.enabled) {
+                    this.renderTradeFootprint();
+                    requestAnimationFrame(renderLoop);
+                } else {
+                    renderLoop = null;
+                }
+            };
+            requestAnimationFrame(renderLoop);
+        };
+        
+        this.container.addEventListener('mousedown', () => {
+            isDragging = true;
+            startDragRender();
+        });
+        
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // Also handle touch for mobile
+        this.container.addEventListener('touchstart', () => {
+            isDragging = true;
+            startDragRender();
+        }, { passive: true });
+        
+        window.addEventListener('touchend', () => {
+            isDragging = false;
+        });
     }
     
     /**
@@ -3563,8 +3657,9 @@ class OrderBookChart {
      */
     clearTradeFootprintCanvas() {
         if (this.tradeFootprint.canvas && this.tradeFootprint.ctx) {
-            const rect = this.container.getBoundingClientRect();
-            this.tradeFootprint.ctx.clearRect(0, 0, rect.width, rect.height);
+            const width = this.tradeFootprint._cachedWidth || this.container.getBoundingClientRect().width;
+            const height = this.tradeFootprint._cachedHeight || this.container.getBoundingClientRect().height;
+            this.tradeFootprint.ctx.clearRect(0, 0, width, height);
         }
     }
     
@@ -3572,6 +3667,19 @@ class OrderBookChart {
      * Remove trade footprint canvas from DOM
      */
     removeTradeFootprintCanvas() {
+        // Cancel any pending render
+        if (this.tradeFootprint._rafId) {
+            cancelAnimationFrame(this.tradeFootprint._rafId);
+            this.tradeFootprint._rafId = null;
+        }
+        this.tradeFootprint._needsRender = false;
+        
+        // Disconnect resize observer
+        if (this._footprintResizeObserver) {
+            this._footprintResizeObserver.disconnect();
+            this._footprintResizeObserver = null;
+        }
+        
         if (this.tradeFootprint.canvas) {
             this.tradeFootprint.canvas.remove();
             this.tradeFootprint.canvas = null;
@@ -3581,6 +3689,7 @@ class OrderBookChart {
     
     /**
      * Render trade footprint heatmap
+     * Optimized: filters to visible bars, uses cached dimensions, rAF throttled
      */
     renderTradeFootprint() {
         if (!this.tradeFootprint.enabled || !this.chart || !this.tradeFootprint.ctx) {
@@ -3594,22 +3703,22 @@ class OrderBookChart {
         if (allData.size === 0) return;
         
         const ctx = this.tradeFootprint.ctx;
-        const rect = this.container.getBoundingClientRect();
+        const width = this.tradeFootprint._cachedWidth || this.container.getBoundingClientRect().width;
+        const height = this.tradeFootprint._cachedHeight || this.container.getBoundingClientRect().height;
         const timeScale = this.chart.timeScale();
-        const priceScale = this.candleSeries.priceScale();
         
         // Clear canvas
-        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.clearRect(0, 0, width, height);
         
-        // Get visible time range
-        const visibleRange = timeScale.getVisibleLogicalRange();
-        if (!visibleRange) return;
+        // Get visible time range for filtering
+        const visibleTimeRange = timeScale.getVisibleRange();
+        if (!visibleTimeRange) return;
         
         // Calculate bar width in pixels
         const candles = this.getCandles();
         if (!candles || candles.length < 2) return;
         
-        // Get interval in seconds for bar width calculation
+        // Get interval in seconds for bar width calculation (cached for performance)
         const intervalMap = {
             '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
             '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
@@ -3617,33 +3726,51 @@ class OrderBookChart {
         };
         const intervalSec = intervalMap[this.currentInterval] || 60;
         
-        // Find max delta across all visible bars for normalization
+        // Add buffer to visible range to include partially visible bars
+        const bufferTime = intervalSec * 2;
+        const visibleFrom = visibleTimeRange.from - bufferTime;
+        const visibleTo = visibleTimeRange.to + bufferTime;
+        
+        // Filter to visible bars only and find max values in single pass
+        const visibleBars = [];
         let maxDelta = 0;
         let maxVolume = 0;
+        
         allData.forEach((footprint, barTime) => {
+            // Skip bars outside visible range
+            if (barTime < visibleFrom || barTime > visibleTo) return;
+            
+            visibleBars.push({ barTime, footprint });
+            
+            // Find max values for normalization
             footprint.forEach(level => {
                 maxDelta = Math.max(maxDelta, Math.abs(level.delta));
                 maxVolume = Math.max(maxVolume, level.totalVol);
             });
         });
         
-        if (maxDelta === 0) return;
+        if (maxDelta === 0 || visibleBars.length === 0) return;
         
-        // Draw footprint for each bar
-        allData.forEach((footprint, barTime) => {
+        // Pre-calculate bar width once (same for all bars at this zoom level)
+        const sampleX = timeScale.timeToCoordinate(visibleBars[0].barTime);
+        const sampleNextX = timeScale.timeToCoordinate(visibleBars[0].barTime + intervalSec);
+        const barWidth = (sampleX !== null && sampleNextX !== null) 
+            ? Math.max(2, (sampleNextX - sampleX) * 0.8) 
+            : 8;
+        
+        const bucketSize = this.tradeFootprint.bucketSize;
+        
+        // Draw footprint for each visible bar
+        for (const { barTime, footprint } of visibleBars) {
             // Convert bar time to x coordinate
             const x = timeScale.timeToCoordinate(barTime);
-            if (x === null || x < 0 || x > rect.width) return;
-            
-            // Calculate bar width (approximately 80% of time slot)
-            const nextX = timeScale.timeToCoordinate(barTime + intervalSec);
-            const barWidth = nextX !== null ? Math.max(2, (nextX - x) * 0.8) : 8;
+            if (x === null || x < -barWidth || x > width + barWidth) continue;
             
             // Draw each price level
-            footprint.forEach(level => {
+            for (const level of footprint) {
                 // Convert price to y coordinate
                 const y = this.candleSeries.priceToCoordinate(level.price);
-                if (y === null || y < 0 || y > rect.height) return;
+                if (y === null || y < -10 || y > height + 10) continue;
                 
                 // Calculate color based on delta
                 const delta = level.delta;
@@ -3666,7 +3793,6 @@ class OrderBookChart {
                 }
                 
                 // Calculate rectangle height (based on bucket size relative to price scale)
-                const bucketSize = this.tradeFootprint.bucketSize;
                 const yTop = this.candleSeries.priceToCoordinate(level.price + bucketSize);
                 const rectHeight = yTop !== null ? Math.max(2, Math.abs(y - yTop)) : 4;
                 
@@ -3690,8 +3816,8 @@ class OrderBookChart {
                         rectHeight
                     );
                 }
-            });
-        });
+            }
+        }
     }
     
     /**
@@ -3699,13 +3825,8 @@ class OrderBookChart {
      */
     onTradeFootprintUpdate(barTime, footprint) {
         if (this.tradeFootprint.enabled) {
-            // Debounce rendering to avoid excessive redraws
-            if (this._footprintRenderTimeout) {
-                clearTimeout(this._footprintRenderTimeout);
-            }
-            this._footprintRenderTimeout = setTimeout(() => {
-                this.renderTradeFootprint();
-            }, 100);
+            // Use rAF-based scheduling for smooth updates
+            this.scheduleFootprintRender();
         }
     }
     
@@ -3739,6 +3860,10 @@ class OrderBookChart {
         this.levelHistory.symbol = this.symbol;
         this.levelHistory.interval = this.currentInterval;
         
+        // Initialize render state for rAF throttling
+        this.levelHistory._needsRender = false;
+        this.levelHistory._rafId = null;
+        
         // Create canvas for cluster heatmap
         this.initLevelHistoryCanvas();
         
@@ -3748,17 +3873,78 @@ class OrderBookChart {
         // Load saved history from localStorage
         this.loadLevelHistory();
         
-        // Subscribe to time scale changes for re-render
+        // Subscribe to chart changes with rAF throttling
         if (this.chart) {
+            // Time scale changes (horizontal drag/zoom)
             this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
                 if (this.levelHistory.showHeatmap) {
-                    this.renderLevelHistoryHeatmap();
+                    this.scheduleLevelHistoryRender();
                 }
             });
         }
         
+        // Handle price scale drags by rendering continuously during mouse drag
+        this._setupLevelHistoryDragTracking();
+        
         this.levelHistory.initialized = true;
         console.log('[Chart] Level History initialized');
+    }
+    
+    /**
+     * Schedule level history render on next animation frame (coalesces multiple calls)
+     */
+    scheduleLevelHistoryRender() {
+        if (this.levelHistory._needsRender) return; // Already scheduled
+        
+        this.levelHistory._needsRender = true;
+        this.levelHistory._rafId = requestAnimationFrame(() => {
+            this.levelHistory._needsRender = false;
+            this.renderLevelHistoryHeatmap();
+        });
+    }
+    
+    /**
+     * Setup drag tracking for level history canvas
+     * Renders continuously during mouse drag to handle price scale changes
+     */
+    _setupLevelHistoryDragTracking() {
+        if (!this.container || this.levelHistory._dragTrackingSetup) return;
+        this.levelHistory._dragTrackingSetup = true;
+        
+        let isDragging = false;
+        let renderLoop = null;
+        
+        const startDragRender = () => {
+            if (renderLoop) return;
+            renderLoop = () => {
+                if (isDragging && this.levelHistory.showHeatmap) {
+                    this.renderLevelHistoryHeatmap();
+                    requestAnimationFrame(renderLoop);
+                } else {
+                    renderLoop = null;
+                }
+            };
+            requestAnimationFrame(renderLoop);
+        };
+        
+        this.container.addEventListener('mousedown', () => {
+            isDragging = true;
+            startDragRender();
+        });
+        
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // Also handle touch for mobile
+        this.container.addEventListener('touchstart', () => {
+            isDragging = true;
+            startDragRender();
+        }, { passive: true });
+        
+        window.addEventListener('touchend', () => {
+            isDragging = false;
+        });
     }
     
     /**
@@ -3782,13 +3968,45 @@ class OrderBookChart {
         this.container.style.position = 'relative';
         this.container.appendChild(canvas);
         
-        const rect = this.container.getBoundingClientRect();
-        canvas.width = rect.width * window.devicePixelRatio;
-        canvas.height = rect.height * window.devicePixelRatio;
+        // Cache dimensions and size canvas
+        this.updateLevelHistoryCanvasSize();
         
         this.levelHistory.canvas = canvas;
         this.levelHistory.ctx = canvas.getContext('2d');
         this.levelHistory.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        
+        // Update cached dimensions on resize
+        if (!this._levelHistoryResizeObserver) {
+            this._levelHistoryResizeObserver = new ResizeObserver(() => {
+                this.updateLevelHistoryCanvasSize();
+                if (this.levelHistory.showHeatmap) {
+                    this.scheduleLevelHistoryRender();
+                }
+            });
+            this._levelHistoryResizeObserver.observe(this.container);
+        }
+    }
+    
+    /**
+     * Update level history canvas size and cache dimensions
+     */
+    updateLevelHistoryCanvasSize() {
+        if (!this.container) return;
+        
+        const rect = this.container.getBoundingClientRect();
+        this.levelHistory._cachedWidth = rect.width;
+        this.levelHistory._cachedHeight = rect.height;
+        
+        if (this.levelHistory.canvas) {
+            this.levelHistory.canvas.width = rect.width * window.devicePixelRatio;
+            this.levelHistory.canvas.height = rect.height * window.devicePixelRatio;
+            
+            // Re-scale context after resize
+            if (this.levelHistory.ctx) {
+                this.levelHistory.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                this.levelHistory.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            }
+        }
     }
     
     /**
@@ -3845,8 +4063,9 @@ class OrderBookChart {
         } else {
             // Clear canvas when disabled
             if (this.levelHistory.ctx) {
-                const rect = this.container.getBoundingClientRect();
-                this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
+                const width = this.levelHistory._cachedWidth || this.container.getBoundingClientRect().width;
+                const height = this.levelHistory._cachedHeight || this.container.getBoundingClientRect().height;
+                this.levelHistory.ctx.clearRect(0, 0, width, height);
             }
         }
     }
@@ -3973,28 +4192,34 @@ class OrderBookChart {
     
     /**
      * Render cluster heatmap on canvas
+     * Optimized: filters to visible bars, uses cached dimensions, rAF throttled
      */
     renderLevelHistoryHeatmap() {
+        const width = this.levelHistory._cachedWidth || this.container?.getBoundingClientRect().width || 0;
+        const height = this.levelHistory._cachedHeight || this.container?.getBoundingClientRect().height || 0;
+        
         if (!this.levelHistory.showHeatmap || !this.levelHistory.ctx || !this.chart) {
             // Clear canvas if heatmap disabled but canvas exists
             if (!this.levelHistory.showHeatmap && this.levelHistory.ctx) {
-                const rect = this.container.getBoundingClientRect();
-                this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
+                this.levelHistory.ctx.clearRect(0, 0, width, height);
             }
             return;
         }
         
         const ctx = this.levelHistory.ctx;
-        const rect = this.container.getBoundingClientRect();
         const timeScale = this.chart.timeScale();
         
         // Clear canvas
-        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.clearRect(0, 0, width, height);
         
         if (this.levelHistory.data.size === 0) {
             // No data yet - waiting for first bar to close
             return;
         }
+        
+        // Get visible time range for filtering
+        const visibleTimeRange = timeScale.getVisibleRange();
+        if (!visibleTimeRange) return;
         
         // Get interval in seconds
         const intervalMap = {
@@ -4004,67 +4229,60 @@ class OrderBookChart {
         };
         const intervalSec = intervalMap[this.currentInterval] || 60;
         
-        // Find max volume across all data for normalization
+        // Add buffer to visible range
+        const bufferTime = intervalSec * 2;
+        const visibleFrom = visibleTimeRange.from - bufferTime;
+        const visibleTo = visibleTimeRange.to + bufferTime;
+        
+        // Filter to visible bars and find max volume in single pass
+        const visibleBars = [];
         let maxVolume = 0;
-        let totalClusters = 0;
-        this.levelHistory.data.forEach(snapshot => {
-            totalClusters += snapshot.clusters.length;
+        
+        this.levelHistory.data.forEach((snapshot, barTime) => {
+            // Skip bars outside visible range
+            if (barTime < visibleFrom || barTime > visibleTo) return;
+            
+            visibleBars.push({ barTime, snapshot });
             snapshot.clusters.forEach(cluster => {
                 maxVolume = Math.max(maxVolume, cluster.volume);
             });
         });
         
-        if (maxVolume === 0) {
-            console.warn('[LevelHistory] Max volume is 0, skipping render');
+        if (maxVolume === 0 || visibleBars.length === 0) {
             return;
         }
         
-        console.log(`[LevelHistory] Rendering: ${this.levelHistory.data.size} bars, ${totalClusters} clusters, maxVol=${maxVolume}`);
+        // Pre-calculate bar width once (same for all bars at this zoom level)
+        let barWidth = 6;
+        if (visibleBars.length > 0) {
+            const sampleX = timeScale.timeToCoordinate(visibleBars[0].barTime);
+            const sampleNextX = timeScale.timeToCoordinate(visibleBars[0].barTime + intervalSec);
+            if (sampleX !== null && sampleNextX !== null) {
+                barWidth = Math.max(2, (sampleNextX - sampleX) * 0.8);
+            }
+        }
         
-        // Draw heatmap for each bar
-        let drawnBars = 0;
-        let drawnClusters = 0;
-        
-        this.levelHistory.data.forEach((snapshot, barTime) => {
+        // Draw heatmap for each visible bar
+        for (const { barTime, snapshot } of visibleBars) {
             const x = timeScale.timeToCoordinate(barTime);
-            if (x === null || x < -50 || x > rect.width + 50) return;
-            
-            drawnBars++;
-            const nextX = timeScale.timeToCoordinate(barTime + intervalSec);
-            const barWidth = nextX !== null ? Math.max(2, (nextX - x) * 0.8) : 6;
+            if (x === null || x < -barWidth || x > width + barWidth) continue;
             
             // Draw each cluster
-            snapshot.clusters.forEach(cluster => {
+            for (const cluster of snapshot.clusters) {
                 const y = this.candleSeries.priceToCoordinate(cluster.price);
-                if (y === null || y < 0 || y > rect.height) return;
+                if (y === null || y < -10 || y > height + 10) continue;
                 
-                drawnClusters++;
                 const intensity = Math.min(1, cluster.volume / maxVolume);
-                const alpha = 0.3 + intensity * 0.6; // More visible
+                const alpha = 0.3 + intensity * 0.6;
                 
                 // Color by type: resistance = magenta, support = cyan
                 ctx.fillStyle = cluster.type === 'resistance'
                     ? `rgba(255, 0, 110, ${alpha})`
                     : `rgba(0, 217, 255, ${alpha})`;
                 
-                // Draw rectangle at price level - make them taller and more visible
+                // Draw rectangle at price level
                 const rectHeight = Math.max(4, 6 + intensity * 4);
                 ctx.fillRect(x - barWidth / 2, y - rectHeight / 2, barWidth, rectHeight);
-            });
-        });
-        
-        if (drawnBars > 0) {
-            console.log(`[LevelHistory] Drew ${drawnBars} bars, ${drawnClusters} clusters`);
-            
-            // Log first bar's cluster prices for debugging
-            if (drawnClusters < 10) {
-                const firstBarTime = Array.from(this.levelHistory.data.keys())[0];
-                const firstBar = this.levelHistory.data.get(firstBarTime);
-                if (firstBar && firstBar.clusters.length > 0) {
-                    const prices = firstBar.clusters.slice(0, 5).map(c => c.price);
-                    console.log(`[LevelHistory] First bar cluster prices: ${prices.join(', ')}`);
-                    console.log(`[LevelHistory] Canvas rect: ${rect.width}x${rect.height}`);
-                }
             }
         }
     }
