@@ -162,7 +162,7 @@ class OrderBookChart {
         
         // Cluster Proximity Signal - fires when bar opens near closest cluster
         this.clusterProximity = {
-            enabled: localStorage.getItem('showClusterProximity') !== 'false', // Default ON
+            enabled: localStorage.getItem('showClusterProximity') === 'true', // Default OFF
             threshold: parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'), // 20% default
             lockTime: parseInt(localStorage.getItem('clusterProximityLockTime') || '10'), // 10 seconds default
             markers: [],              // Historical frozen markers
@@ -179,7 +179,7 @@ class OrderBookChart {
         
         // Cluster Drift Signal - measures directional movement of closest clusters
         this.clusterDrift = {
-            enabled: localStorage.getItem('showClusterDrift') !== 'false', // Default ON
+            enabled: localStorage.getItem('showClusterDrift') === 'true', // Default OFF
             lockTime: parseInt(localStorage.getItem('clusterDriftLockTime') || '10'), // 10 seconds default
             markers: [],              // Historical frozen markers
             liveMarker: null,         // Current bar's live marker
@@ -197,7 +197,7 @@ class OrderBookChart {
         
         // Live Proximity Signal - dynamic, no locking, saves history per bar
         this.liveProximity = {
-            enabled: localStorage.getItem('showLiveProximity') !== 'false', // Default ON
+            enabled: localStorage.getItem('showLiveProximity') === 'true', // Default OFF
             threshold: parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20'), // 20% default
             markers: [],              // Historical markers (one per bar)
             liveMarker: null,         // Current marker (always live)
@@ -207,7 +207,7 @@ class OrderBookChart {
         
         // Live Drift Signal - dynamic, no locking, saves history per bar
         this.liveDrift = {
-            enabled: localStorage.getItem('showLiveDrift') !== 'false', // Default ON
+            enabled: localStorage.getItem('showLiveDrift') === 'true', // Default OFF
             markers: [],              // Historical markers (one per bar)
             liveMarker: null,         // Current marker (always live)
             lastSignal: null,         // Last signal for display
