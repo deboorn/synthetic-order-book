@@ -2,12 +2,12 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251217.1-green)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251217.20-green)
 
 ## 📸 Screenshots
 
 ### Desktop View
-![Synthetic Order Book - Desktop](./img/screenshot-desktop.jpg)
+![Synthetic Order Book - Desktop](./img/screenshot-desktop2.jpg)
 
 ### Mobile View
 <p align="center">
@@ -26,6 +26,8 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 1. [Features](#features)
 2. [Understanding the Interface](#understanding-the-interface)
 3. [Output Reference Guide](#output-reference-guide)
+   - [Cluster Signal Panel](#9-cluster-signal-panel)
+   - [Alpha Strike Panel](#10-alpha-strike-panel)
 4. [Installation](#installation)
 5. [Backend & Replay](#backend--replay)
 6. [Configuration](#configuration)
@@ -42,6 +44,8 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 - **Order Book Imbalance Curve (OBIC)** - Proprietary imbalance analysis
 - **Liquidity Delta Analysis** - Institutional flow detection
 - **Multi-Timeframe Consensus** - MM, Swing, and HTF perspectives
+- **Cluster Signal Panel** - Combined prox/drift signals from locked and live candle states with confluence dots
+- **Alpha Strike Panel** - Confluence-based directional signals with MM/Swing/HTF trading modes
 - **Support/Resistance Levels** - Auto-detected from order book clusters
 - **Trade Footprint Heatmap** - Real-time delta visualization of actual trades per price level
 - **Levels Heatmap** - Historical order book cluster visualization on chart
@@ -647,7 +651,160 @@ The Levels Heatmap shows **historical order book clusters** (support/resistance)
 
 ---
 
-### 9. Market Consensus Panel
+### 9. Cluster Signal Panel
+
+The Cluster panel provides **real-time directional signals** by combining order book proximity (prox) and drift metrics across locked (confirmed) and live (forming) candle states.
+
+```
+┌─────────────────────────────────────┐
+│ ▼ CLUSTER                    [Live] │
+├─────────────────────────────────────┤
+│    ●      ●      ●      ●      ●    │
+│   MCS   Alpha   LD    BBP    FC     │  ← Confluence dots
+│                                     │
+│         ▲ UP                        │  ← Main signal
+│           ▲ L-Up                    │  ← Live component
+│                                     │
+│  ✓ BUY! 3/5 aligned (MM needs 3).  │  ← Action hint
+│                                     │
+│  ┌─────┬─────┬───────┬─────────┐   │
+│  │PROX │DRIFT│ L-PROX│ L-DRIFT │   │
+│  │  ▲  │  ▲  │   ▲   │    ▲    │   │  ← Individual signals
+│  └─────┴─────┴───────┴─────────┘   │
+│                                     │
+│  ██████████████████████████████    │  ← Signal strength bar
+└─────────────────────────────────────┘
+```
+
+#### Signal Components
+
+| Component | Description |
+|-----------|-------------|
+| **PROX** | Proximity signal from locked candle - measures bid/ask imbalance near current price |
+| **DRIFT** | Drift signal from locked candle - measures order flow momentum direction |
+| **L-PROX** | Live proximity from forming candle - real-time imbalance updates |
+| **L-DRIFT** | Live drift from forming candle - real-time momentum updates |
+
+#### Combo Signal Logic
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                  COMBO SIGNAL CALCULATION                   │
+├────────────────────────────────────────────────────────────┤
+│                                                             │
+│   Locked Signal = PROX + DRIFT (confirmed bar)             │
+│   Live Signal   = L-PROX + L-DRIFT (forming bar)           │
+│   Combo         = Locked + Live                             │
+│                                                             │
+│   Display Logic:                                            │
+│   ┌─────────────────────────────────────────────────┐      │
+│   │ Both UP    → ▲ UP (green)   "Strong bullish"   │      │
+│   │ Both DOWN  → ▼ DOWN (red)   "Strong bearish"   │      │
+│   │ Mixed      → — FLAT (amber) "No clear bias"    │      │
+│   └─────────────────────────────────────────────────┘      │
+│                                                             │
+└────────────────────────────────────────────────────────────┘
+```
+
+#### Confluence Dots
+
+The row of dots at the top shows agreement across multiple indicators:
+- **MCS** - Market Consensus Signal alignment
+- **Alpha** - Alpha Score direction
+- **LD** - Liquidity Delta bias
+- **BBP** - Bid/Ask Pressure Ratio
+- **FC** - Forecast direction
+
+Green dot = agrees with signal direction, Gray dot = neutral/disagrees
+
+---
+
+### 10. Alpha Strike Panel
+
+Alpha Strike is a **confluence-based directional signal** that combines multiple indicators to generate high-confidence trade signals across different trading styles.
+
+```
+┌─────────────────────────────────────┐
+│ ▼ ALPHA STRIKE               [Live] │
+├─────────────────────────────────────┤
+│  ┌─────┐ ┌─────┐ ┌─────┐           │
+│  │  ⚡ │ │  📊 │ │  🏦 │           │
+│  │ MM  │ │SWING│ │ HTF │           │  ← Mode selector
+│  └─────┘ └─────┘ └─────┘           │
+│                                     │
+│       ┌─────────────────┐          │
+│       │    ▲ LONG       │   75%    │  ← Direction + Strength
+│       │                 │  ENTRY   │  ← Action badge
+│       └─────────────────┘  0:22    │  ← Countdown to bar close
+│                                     │
+│  CONFLUENCE              3/5       │
+│  ┌────┬─────┬────┬────┬────┐      │
+│  │MCS │Alpha│ LD │BBP │ FC │      │  ← Indicator alignment
+│  │ ●  │  ●  │ ●  │ ●  │ —  │      │
+│  └────┴─────┴────┴────┴────┘      │
+│                                     │
+│  ✓ BUY! 3/5 aligned (MM needs 3). │  ← Newbie hint
+│                                     │
+│  ██████████████████████████████    │  ← Strength meter
+└─────────────────────────────────────┘
+```
+
+#### Trading Modes
+
+| Mode | Icon | Confluence Required | Description |
+|------|------|---------------------|-------------|
+| **MM** | ⚡ | 3/5 | Market Maker - Fast signals for scalping |
+| **Swing** | 📊 | 4/5 | Balanced - For day/swing trading |
+| **HTF** | 🏦 | 5/5 | High Timeframe - Conservative, position trading |
+
+#### Signal States
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   ALPHA STRIKE SIGNALS                      │
+├────────────────────────────────────────────────────────────┤
+│                                                             │
+│   ▲ LONG   (Green)  - Bullish bias, favor long positions   │
+│   ▼ SHORT  (Red)    - Bearish bias, favor short positions  │
+│   — FLAT   (Amber)  - No clear bias, wait or scalp only    │
+│                                                             │
+│   Action Badges:                                            │
+│   ┌────────────────────────────────────────────────┐       │
+│   │ ENTRY  (Green)  - Confluence met, consider entry│       │
+│   │ WAIT   (Gray)   - Insufficient confluence       │       │
+│   │ EXIT   (Red)    - Consider closing positions    │       │
+│   └────────────────────────────────────────────────┘       │
+│                                                             │
+└────────────────────────────────────────────────────────────┘
+```
+
+#### Confluence Grid
+
+Each indicator contributes to the confluence score:
+
+| Indicator | Weight | Description |
+|-----------|--------|-------------|
+| **MCS** | Market Consensus | Multi-timeframe bias signal |
+| **Alpha** | Alpha Score | Composite order flow score |
+| **LD** | Liquidity Delta | Near-price bid/ask imbalance |
+| **BBP** | Bid Pressure Ratio | Overall book pressure |
+| **FC** | Forecast | Price forecast direction |
+
+#### Strength Meter
+
+```
+Strength Scale:
+  0%  ──────────────────────────────────── 100%
+   │         │         │         │         │
+  WEAK    MODERATE  MEDIUM   STRONG   EXTREME
+ (gray)   (yellow) (green)  (green)  (bright)
+
+Higher strength = More conviction in the signal
+```
+
+---
+
+### 11. Market Consensus Panel
 
 ```
 ┌─────────────────────────────────┐
@@ -689,7 +846,7 @@ Confidence Indicator:
 
 ---
 
-### 10. MM (Microstructure) Analysis
+### 12. MM (Microstructure) Analysis
 
 ```
 ┌─────────────────────────────────┐
@@ -711,7 +868,7 @@ Timeframe: Minutes
 
 ---
 
-### 11. Swing (Short-term) Analysis
+### 13. Swing (Short-term) Analysis
 
 ```
 ┌─────────────────────────────────┐
@@ -733,7 +890,7 @@ Timeframe: Hours
 
 ---
 
-### 12. HTF (Macro) Analysis
+### 14. HTF (Macro) Analysis
 
 ```
 ┌─────────────────────────────────┐
@@ -762,7 +919,7 @@ Timeframe: Days
 
 ---
 
-### 13. Key Levels Table
+### 15. Key Levels Table
 
 ```
 ┌─────────────────────────────────┐
@@ -791,7 +948,7 @@ Legend:
 
 ---
 
-### 14. Footer Indicators
+### 16. Footer Indicators
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐

@@ -922,6 +922,9 @@ body {
 
 .sidebar-right {
     border-left: 1px solid var(--border-color);
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: calc(100vh - 120px);
 }
 
 .panel {
@@ -1138,13 +1141,6 @@ body {
 
 .stat-value.bid { color: var(--bid-color); }
 .stat-value.ask { color: var(--ask-color); }
-
-/* Right Sidebar Scrollable */
-.sidebar-right {
-    overflow-y: auto;
-    overflow-x: hidden;
-    max-height: calc(100vh - 120px);
-}
 
 /* Regime Engine Panel */
 .regime-panel {
@@ -1790,6 +1786,7 @@ body {
 /* Collapsible Panel Styles (applies to all sidebar panels) */
 .panel.collapsible {
     margin-bottom: var(--spacing-sm);
+    flex-shrink: 0;
 }
 
 .panel.collapsible:last-child {
@@ -3677,6 +3674,36 @@ body {
     line-height: 1.2;
 }
 
+/* Sub-toggle styling - indented child toggles */
+.settings-toggle.sub-toggle {
+    padding-left: 24px;
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 2px solid var(--accent-primary);
+    margin-left: 8px;
+}
+
+.settings-toggle.sub-toggle .toggle-label {
+    font-size: 0.7rem;
+}
+
+.settings-toggle.sub-toggle .toggle-hint {
+    font-size: 0.55rem;
+}
+
+/* Sub-setting row - indented child controls */
+.settings-row.sub-setting {
+    padding-left: 24px;
+    margin-left: 8px;
+    border-left: 2px solid var(--accent-primary);
+    background: rgba(255, 255, 255, 0.02);
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.settings-row.sub-setting label {
+    font-size: 0.65rem;
+}
+
 .color-input-wrapper {
     display: flex;
     flex-direction: column;
@@ -4150,6 +4177,24 @@ body {
 .btn-danger:hover {
     background: rgba(239, 68, 68, 0.25);
     border-color: #ef4444;
+}
+
+.btn-warning {
+    padding: 6px 14px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: inherit;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.btn-warning:hover {
+    background: rgba(251, 191, 36, 0.25);
+    border-color: #fbbf24;
 }
 
 .btn-small {
@@ -6800,6 +6845,203 @@ body {
         padding: 6px 14px;
         font-size: 0.75rem;
     }
+}
+
+/* ============================================
+   CLUSTER SIGNALS PANEL
+   Shows drift/prox signals for current bar
+   ============================================ */
+
+.cluster-signals-panel {
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.cluster-signals-header {
+    padding: 8px 12px !important;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.cluster-signals-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.cluster-signals-header .panel-header-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cluster-signals-header .panel-header-top .panel-badge,
+.cluster-signals-header .panel-header-top .panel-alert-btn {
+    margin-left: auto;
+}
+
+.cluster-signals-header .panel-header-top .panel-alert-btn {
+    margin-left: 8px;
+}
+
+.cluster-signals-header h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    color: #94a3b8;
+}
+
+.cluster-signals-content {
+    padding: 12px 18px 12px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Hero Combo Display */
+.cluster-combo-hero {
+    text-align: center;
+    padding: 10px;
+    margin-left: 10px;
+    margin-bottom: 10px;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);
+    border-radius: 8px;
+    border: 1px solid rgba(71, 85, 105, 0.3);
+}
+
+.combo-signal-main {
+    margin-bottom: 6px;
+}
+
+.combo-signal-main .combo-value {
+    font-size: 24px;
+    font-weight: 800;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    transition: all 0.3s ease;
+}
+
+.combo-signal-main .combo-value.up {
+    color: #22c55e;
+    text-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+}
+
+.combo-signal-main .combo-value.down {
+    color: #ef4444;
+    text-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+}
+
+.combo-signal-main .combo-value.flat {
+    color: #f59e0b;
+    text-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+}
+
+.combo-breakdown {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #64748b;
+}
+
+.combo-part {
+    padding: 2px 8px;
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 4px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.combo-part.up {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.combo-part.down {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.combo-part.flat {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.combo-plus {
+    color: #475569;
+    font-weight: 400;
+}
+
+/* 4-Column Mini Signal Grid */
+.cluster-signals-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+}
+
+.cluster-mini-signal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 4px;
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 6px;
+    border: 1px solid rgba(71, 85, 105, 0.25);
+    transition: all 0.2s ease;
+}
+
+.cluster-mini-signal:hover {
+    border-color: rgba(71, 85, 105, 0.5);
+    background: rgba(30, 41, 59, 0.7);
+}
+
+#clusterProxSignal {
+    margin-left: 5px;
+}
+
+.mini-label {
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+.mini-value {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    transition: all 0.3s ease;
+}
+
+.mini-value.up {
+    color: #22c55e;
+}
+
+.mini-value.down {
+    color: #ef4444;
+}
+
+.mini-value.waiting {
+    color: #9ca3af;
+    animation: waiting-blink 1s ease-in-out infinite;
+}
+
+.mini-value.late {
+    color: #fbbf24;
+}
+
+@keyframes waiting-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Collapsed state */
+.cluster-signals-panel:not(.expanded) .cluster-signals-content {
+    display: none;
 }
 
 /* ============================================

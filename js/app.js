@@ -662,6 +662,7 @@ class AlertMetricRegistry {
 
         this.sections = [
             { key: 'chart', label: 'Main Chart' },
+            { key: 'cluster', label: 'Cluster Signals' },
             { key: 'depth', label: 'Market Depth' },
             { key: 'orderflow', label: 'Order Flow' },
             { key: 'forecast', label: 'Price Forecast' },
@@ -789,6 +790,92 @@ class AlertMetricRegistry {
                         if (hasUp) return 'ARROW_UP';
                         if (hasDown) return 'ARROW_DOWN';
                         return 'NONE';
+                    }
+                },
+                'clusterProximitySignal': {
+                    key: 'clusterProximitySignal',
+                    label: 'Cluster Proximity Signal',
+                    type: 'enum',
+                    options: ['NONE', 'BUY', 'SELL'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.clusterProximity?.enabled) return 'NONE';
+                        // Only return signal when locked (finalized)
+                        if (!chart.clusterProximity.isLocked) return 'NONE';
+                        const signal = chart.clusterProximity.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'BUY' : signal.direction === 'sell' ? 'SELL' : 'NONE';
+                    }
+                },
+                'clusterDriftSignal': {
+                    key: 'clusterDriftSignal',
+                    label: 'Cluster Drift Signal',
+                    type: 'enum',
+                    options: ['NONE', 'BUY', 'SELL'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.clusterDrift?.enabled) return 'NONE';
+                        // Only return signal when locked (finalized)
+                        if (!chart.clusterDrift.isLocked) return 'NONE';
+                        const signal = chart.clusterDrift.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'BUY' : signal.direction === 'sell' ? 'SELL' : 'NONE';
+                    }
+                }
+            },
+            cluster: {
+                'clusterProximitySignal': {
+                    key: 'clusterProximitySignal',
+                    label: 'Proximity Signal (locked)',
+                    type: 'enum',
+                    options: ['NONE', 'BUY', 'SELL'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.clusterProximity?.enabled) return 'NONE';
+                        if (!chart.clusterProximity.isLocked) return 'NONE';
+                        const signal = chart.clusterProximity.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'BUY' : signal.direction === 'sell' ? 'SELL' : 'NONE';
+                    }
+                },
+                'clusterDriftSignal': {
+                    key: 'clusterDriftSignal',
+                    label: 'Drift Signal (locked)',
+                    type: 'enum',
+                    options: ['NONE', 'UP', 'DOWN'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.clusterDrift?.enabled) return 'NONE';
+                        if (!chart.clusterDrift.isLocked) return 'NONE';
+                        const signal = chart.clusterDrift.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'UP' : signal.direction === 'sell' ? 'DOWN' : 'NONE';
+                    }
+                },
+                'liveProximitySignal': {
+                    key: 'liveProximitySignal',
+                    label: 'Live Proximity Signal',
+                    type: 'enum',
+                    options: ['NONE', 'BUY', 'SELL'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.liveProximity?.enabled) return 'NONE';
+                        const signal = chart.liveProximity.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'BUY' : signal.direction === 'sell' ? 'SELL' : 'NONE';
+                    }
+                },
+                'liveDriftSignal': {
+                    key: 'liveDriftSignal',
+                    label: 'Live Drift Signal',
+                    type: 'enum',
+                    options: ['NONE', 'UP', 'DOWN'],
+                    getValue: (_s) => {
+                        const chart = this.app?.chart;
+                        if (!chart || !chart.liveDrift?.enabled) return 'NONE';
+                        const signal = chart.liveDrift.lastSignal;
+                        if (!signal) return 'NONE';
+                        return signal.direction === 'buy' ? 'UP' : signal.direction === 'sell' ? 'DOWN' : 'NONE';
                     }
                 }
             },
@@ -1626,13 +1713,57 @@ class OrderBookApp {
                 if (this.chart.tradeFootprint && this.chart.tradeFootprint.enabled) {
                     this.chart.onTradeFootprintUpdate(barTime, footprint);
                 }
+                
+                // Capture bar open for flow forecast when new bar detected
+                if (typeof flowForecast !== 'undefined' && barTime !== this._lastFlowForecastBar) {
+                    if (this._lastFlowForecastBar !== null) {
+                        // New bar started - capture open depth for new bar
+                        flowForecast.captureBarOpen(barTime);
+                    }
+                    this._lastFlowForecastBar = barTime;
+                }
             };
             
             tradeAggregator.onBarFinalized = (barTime, footprint) => {
                 if (this.chart.tradeFootprint && this.chart.tradeFootprint.enabled) {
                     this.chart.renderTradeFootprint();
                 }
+                
+                // Generate flow forecast prediction
+                if (typeof flowForecast !== 'undefined') {
+                    const prediction = flowForecast.captureBarClose(barTime, footprint);
+                    if (prediction) {
+                        console.log(`[FlowForecast] Bar ${barTime}: ${prediction.direction} (${prediction.score})`);
+                        // Re-render flow forecast on chart
+                        if (this.chart && this.chart.renderFlowForecast) {
+                            this.chart.renderFlowForecast();
+                        }
+                    }
+                }
             };
+        }
+        
+        // Initialize flow forecast with current symbol/interval
+        if (typeof flowForecast !== 'undefined') {
+            flowForecast.setSymbol(this.currentSymbol);
+            flowForecast.setInterval(this.chart.currentInterval || '1m');
+            this._lastFlowForecastBar = null;
+            
+            // Set up flow forecast callback
+            flowForecast.onPrediction = (barTime, prediction) => {
+                // Update chart with new prediction
+                if (this.chart && this.chart.renderFlowForecast) {
+                    this.chart.renderFlowForecast();
+                }
+            };
+            
+            // Render any stored predictions on load
+            console.log(`[FlowForecast] Initialized with ${flowForecast.predictions.size} stored predictions`);
+            if (this.chart && this.chart.flowForecast.enabled) {
+                setTimeout(() => {
+                    this.chart.renderFlowForecast();
+                }, 1000); // Delay to ensure chart is fully loaded
+            }
         }
     }
     
@@ -1678,9 +1809,50 @@ class OrderBookApp {
         this.levels = processed.levels;
         this.chart.setLevels(this.levels);
         
+        // Accumulate levels for channel mode heatmap (if enabled)
+        if (this.chart.accumulateLevelBucket) {
+            this.chart.accumulateLevelBucket(this.levels);
+        }
+        
         // Update Bulls vs Bears signal marker
         if (this.chart.updateBullsBearsMarker) {
             this.chart.updateBullsBearsMarker(this.levels, this.currentPrice);
+        }
+        
+        // Update Cluster Proximity signal (checks if bar opens near strongest wall)
+        if (this.chart.updateClusterProximitySignal && this.chart.lastCandle) {
+            this.chart.updateClusterProximitySignal(
+                this.levels, 
+                this.chart.lastCandle.open, 
+                this.chart.lastCandle.time
+            );
+        }
+        
+        // Update Cluster Drift signal (measures wall movement direction)
+        if (this.chart.updateClusterDriftSignal && this.chart.lastCandle) {
+            this.chart.updateClusterDriftSignal(
+                this.levels, 
+                this.currentPrice, 
+                this.chart.lastCandle.time
+            );
+        }
+        
+        // Update Live Proximity signal (dynamic, no locking)
+        if (this.chart.updateLiveProximitySignal && this.chart.lastCandle) {
+            this.chart.updateLiveProximitySignal(
+                this.levels, 
+                this.chart.lastCandle.open, 
+                this.chart.lastCandle.time
+            );
+        }
+        
+        // Update Live Drift signal (dynamic, no locking)
+        if (this.chart.updateLiveDriftSignal && this.chart.lastCandle) {
+            this.chart.updateLiveDriftSignal(
+                this.levels, 
+                this.currentPrice, 
+                this.chart.lastCandle.time
+            );
         }
         
         // Update depth chart (medium frequency - 1 second)
@@ -2002,6 +2174,76 @@ class OrderBookApp {
             });
         }
         
+        // Cluster Proximity Signal toggle
+        const showClusterProximityEl = document.getElementById('showClusterProximity');
+        if (showClusterProximityEl) {
+            showClusterProximityEl.addEventListener('change', (e) => {
+                this.chart.toggleClusterProximity(e.target.checked);
+            });
+        }
+        
+        // Cluster Proximity Threshold input
+        const clusterProximityThresholdEl = document.getElementById('clusterProximityThreshold');
+        if (clusterProximityThresholdEl) {
+            clusterProximityThresholdEl.addEventListener('change', (e) => {
+                const thresholdPct = parseFloat(e.target.value) || 20; // Input value is percent (e.g. 20)
+                const threshold = thresholdPct / 100; // Convert % to decimal (20% = 0.20)
+                this.chart.setClusterProximityThreshold(threshold);
+            });
+        }
+        
+        // Cluster Proximity Lock Time input
+        const clusterProximityLockTimeEl = document.getElementById('clusterProximityLockTime');
+        if (clusterProximityLockTimeEl) {
+            clusterProximityLockTimeEl.addEventListener('change', (e) => {
+                const lockTime = parseInt(e.target.value) || 10;
+                this.chart.setClusterProximityLockTime(lockTime);
+            });
+        }
+        
+        // Cluster Drift Signal toggle
+        const showClusterDriftEl = document.getElementById('showClusterDrift');
+        if (showClusterDriftEl) {
+            showClusterDriftEl.addEventListener('change', (e) => {
+                this.chart.toggleClusterDrift(e.target.checked);
+            });
+        }
+        
+        // Cluster Drift Lock Time input
+        const clusterDriftLockTimeEl = document.getElementById('clusterDriftLockTime');
+        if (clusterDriftLockTimeEl) {
+            clusterDriftLockTimeEl.addEventListener('change', (e) => {
+                const lockTime = parseInt(e.target.value) || 5;
+                this.chart.setClusterDriftLockTime(lockTime);
+            });
+        }
+        
+        // Live Proximity Signal toggle
+        const showLiveProximityEl = document.getElementById('showLiveProximity');
+        if (showLiveProximityEl) {
+            showLiveProximityEl.addEventListener('change', (e) => {
+                this.chart.toggleLiveProximity(e.target.checked);
+            });
+        }
+        
+        // Live Proximity Threshold input
+        const liveProximityThresholdEl = document.getElementById('liveProximityThreshold');
+        if (liveProximityThresholdEl) {
+            liveProximityThresholdEl.addEventListener('change', (e) => {
+                const thresholdPct = parseFloat(e.target.value) || 20;
+                const threshold = thresholdPct / 100;
+                this.chart.setLiveProximityThreshold(threshold);
+            });
+        }
+        
+        // Live Drift Signal toggle
+        const showLiveDriftEl = document.getElementById('showLiveDrift');
+        if (showLiveDriftEl) {
+            showLiveDriftEl.addEventListener('change', (e) => {
+                this.chart.toggleLiveDrift(e.target.checked);
+            });
+        }
+        
         // Bulls vs Bears Signal toggle
         const showBullsBearsEl = document.getElementById('showBullsBears');
         if (showBullsBearsEl) {
@@ -2034,11 +2276,76 @@ class OrderBookApp {
             });
         }
         
+        // Flow Forecast toggle
+        const showFlowForecastEl = document.getElementById('showFlowForecast');
+        if (showFlowForecastEl) {
+            showFlowForecastEl.addEventListener('change', (e) => {
+                this.chart.toggleFlowForecast(e.target.checked);
+            });
+        }
+        
+        // Flow Forecast Accuracy toggle
+        const showFlowForecastAccuracyEl = document.getElementById('showFlowForecastAccuracy');
+        if (showFlowForecastAccuracyEl) {
+            showFlowForecastAccuracyEl.addEventListener('change', (e) => {
+                this.chart.flowForecast.showAccuracy = e.target.checked;
+                localStorage.setItem('showFlowForecastAccuracy', e.target.checked);
+                this.chart.renderFlowForecast();
+            });
+        }
+        
         // Level History Heatmap toggle
         const showLevelHistoryHeatmapEl = document.getElementById('showLevelHistoryHeatmap');
         if (showLevelHistoryHeatmapEl) {
             showLevelHistoryHeatmapEl.addEventListener('change', (e) => {
                 this.chart.toggleLevelHistoryHeatmap(e.target.checked);
+            });
+        }
+        
+        // Level Heatmap Channel Mode toggle
+        const levelHeatmapChannelModeEl = document.getElementById('levelHeatmapChannelMode');
+        if (levelHeatmapChannelModeEl) {
+            levelHeatmapChannelModeEl.addEventListener('change', (e) => {
+                this.chart.toggleLevelHistoryChannelMode(e.target.checked);
+            });
+        }
+        
+        // Level Heatmap Bucket Size slider
+        const levelHeatmapBucketSizeEl = document.getElementById('levelHeatmapBucketSize');
+        const levelHeatmapBucketSizeValueEl = document.getElementById('levelHeatmapBucketSizeValue');
+        if (levelHeatmapBucketSizeEl) {
+            levelHeatmapBucketSizeEl.addEventListener('input', (e) => {
+                const size = parseInt(e.target.value);
+                if (levelHeatmapBucketSizeValueEl) {
+                    levelHeatmapBucketSizeValueEl.textContent = '$' + size;
+                }
+                this.chart.setLevelHistoryBucketSize(size);
+            });
+        }
+        
+        // Level Heatmap Brightness slider
+        const levelHeatmapBrightnessEl = document.getElementById('levelHeatmapBrightness');
+        const levelHeatmapBrightnessValueEl = document.getElementById('levelHeatmapBrightnessValue');
+        if (levelHeatmapBrightnessEl) {
+            levelHeatmapBrightnessEl.addEventListener('input', (e) => {
+                const brightness = parseFloat(e.target.value);
+                if (levelHeatmapBrightnessValueEl) {
+                    levelHeatmapBrightnessValueEl.textContent = brightness.toFixed(1) + 'x';
+                }
+                this.chart.setLevelHeatmapBrightness(brightness);
+            });
+        }
+        
+        // Trade Heatmap Brightness slider
+        const tradeHeatmapBrightnessEl = document.getElementById('tradeHeatmapBrightness');
+        const tradeHeatmapBrightnessValueEl = document.getElementById('tradeHeatmapBrightnessValue');
+        if (tradeHeatmapBrightnessEl) {
+            tradeHeatmapBrightnessEl.addEventListener('input', (e) => {
+                const brightness = parseFloat(e.target.value);
+                if (tradeHeatmapBrightnessValueEl) {
+                    tradeHeatmapBrightnessValueEl.textContent = brightness.toFixed(1) + 'x';
+                }
+                this.chart.setTradeHeatmapBrightness(brightness);
             });
         }
         
@@ -2075,11 +2382,25 @@ class OrderBookApp {
         const savedShowEmaGrid = localStorage.getItem('showEmaGrid') === 'true';
         const savedShowZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
         const savedShowBBPulse = localStorage.getItem('showBBPulse') === 'true';
+        const savedShowClusterProximity = localStorage.getItem('showClusterProximity') !== 'false'; // Default ON
+        const savedClusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'); // 20% default
+        const savedClusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '10'); // 10 seconds default
+        const savedShowClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
+        const savedClusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '10'); // 10 seconds default
+        const savedShowLiveProximity = localStorage.getItem('showLiveProximity') !== 'false'; // Default ON
+        const savedLiveProximityThreshold = parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20'); // 20% default
+        const savedShowLiveDrift = localStorage.getItem('showLiveDrift') !== 'false'; // Default ON
         const savedShowBullsBears = localStorage.getItem('showBullsBears') === 'true';
         const savedBullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
-        const savedShowTradeFootprint = localStorage.getItem('showTradeFootprint') !== 'false'; // Default ON
+        const savedShowTradeFootprint = localStorage.getItem('showTradeFootprint') === 'true'; // Default OFF
         const savedTradeFootprintBucketSize = localStorage.getItem('tradeFootprintBucketSize') || '10';
+        const savedShowFlowForecast = localStorage.getItem('showFlowForecast') === 'true'; // Default OFF (hidden feature)
+        const savedShowFlowForecastAccuracy = localStorage.getItem('showFlowForecastAccuracy') === 'true'; // Default OFF
         const savedShowLevelHistoryHeatmap = localStorage.getItem('showLevelHistoryHeatmap') !== 'false'; // Default ON
+        const savedLevelHeatmapChannelMode = localStorage.getItem('levelHeatmapChannelMode') !== 'false'; // Default ON
+        const savedLevelHeatmapBucketSize = localStorage.getItem('levelHeatmapBucketSize') || '50';
+        const savedLevelHeatmapBrightness = localStorage.getItem('levelHeatmapBrightness') || '0.4';
+        const savedTradeHeatmapBrightness = localStorage.getItem('tradeHeatmapBrightness') || '2';
         const savedShowMid = localStorage.getItem('showMid') === 'true';
         const savedShowIFV = localStorage.getItem('showIFV') === 'true';
         const savedShowVWMP = localStorage.getItem('showVWMP') === 'true';
@@ -2101,6 +2422,42 @@ class OrderBookApp {
         if (this.elements.showBBPulse) {
             this.elements.showBBPulse.checked = savedShowBBPulse;
         }
+        const showClusterProximityCheckbox = document.getElementById('showClusterProximity');
+        if (showClusterProximityCheckbox) {
+            showClusterProximityCheckbox.checked = savedShowClusterProximity;
+        }
+        const clusterProximityThresholdSlider = document.getElementById('clusterProximityThreshold');
+        const clusterProximityThresholdValue = document.getElementById('clusterProximityThresholdValue');
+        if (clusterProximityThresholdSlider) {
+            // Threshold stored as decimal (0.20 = 20%), display as percentage
+            const thresholdPercent = Math.round(savedClusterProximityThreshold * 100);
+            clusterProximityThresholdSlider.value = thresholdPercent;
+        }
+        const clusterProximityLockTimeInput = document.getElementById('clusterProximityLockTime');
+        if (clusterProximityLockTimeInput) {
+            clusterProximityLockTimeInput.value = savedClusterProximityLockTime;
+        }
+        const showClusterDriftCheckbox = document.getElementById('showClusterDrift');
+        if (showClusterDriftCheckbox) {
+            showClusterDriftCheckbox.checked = savedShowClusterDrift;
+        }
+        const clusterDriftLockTimeInput = document.getElementById('clusterDriftLockTime');
+        if (clusterDriftLockTimeInput) {
+            clusterDriftLockTimeInput.value = savedClusterDriftLockTime;
+        }
+        const showLiveProximityCheckbox = document.getElementById('showLiveProximity');
+        if (showLiveProximityCheckbox) {
+            showLiveProximityCheckbox.checked = savedShowLiveProximity;
+        }
+        const liveProximityThresholdInput = document.getElementById('liveProximityThreshold');
+        if (liveProximityThresholdInput) {
+            const thresholdPercent = Math.round(savedLiveProximityThreshold * 100);
+            liveProximityThresholdInput.value = thresholdPercent;
+        }
+        const showLiveDriftCheckbox = document.getElementById('showLiveDrift');
+        if (showLiveDriftCheckbox) {
+            showLiveDriftCheckbox.checked = savedShowLiveDrift;
+        }
         const showBullsBearsCheckbox = document.getElementById('showBullsBears');
         if (showBullsBearsCheckbox) {
             showBullsBearsCheckbox.checked = savedShowBullsBears;
@@ -2117,9 +2474,47 @@ class OrderBookApp {
         if (tradeFootprintBucketSizeSelect) {
             tradeFootprintBucketSizeSelect.value = savedTradeFootprintBucketSize;
         }
+        const showFlowForecastCheckbox = document.getElementById('showFlowForecast');
+        if (showFlowForecastCheckbox) {
+            showFlowForecastCheckbox.checked = savedShowFlowForecast;
+        }
+        const showFlowForecastAccuracyCheckbox = document.getElementById('showFlowForecastAccuracy');
+        if (showFlowForecastAccuracyCheckbox) {
+            showFlowForecastAccuracyCheckbox.checked = savedShowFlowForecastAccuracy;
+        }
         const showLevelHistoryHeatmapCheckbox = document.getElementById('showLevelHistoryHeatmap');
         if (showLevelHistoryHeatmapCheckbox) {
             showLevelHistoryHeatmapCheckbox.checked = savedShowLevelHistoryHeatmap;
+        }
+        const levelHeatmapChannelModeCheckbox = document.getElementById('levelHeatmapChannelMode');
+        if (levelHeatmapChannelModeCheckbox) {
+            levelHeatmapChannelModeCheckbox.checked = savedLevelHeatmapChannelMode;
+        }
+        const levelHeatmapBucketSizeSlider = document.getElementById('levelHeatmapBucketSize');
+        const levelHeatmapBucketSizeValue = document.getElementById('levelHeatmapBucketSizeValue');
+        if (levelHeatmapBucketSizeSlider) {
+            levelHeatmapBucketSizeSlider.value = savedLevelHeatmapBucketSize;
+            if (levelHeatmapBucketSizeValue) {
+                levelHeatmapBucketSizeValue.textContent = '$' + savedLevelHeatmapBucketSize;
+            }
+        }
+        // Level Heatmap Brightness
+        const levelHeatmapBrightnessSlider = document.getElementById('levelHeatmapBrightness');
+        const levelHeatmapBrightnessValue = document.getElementById('levelHeatmapBrightnessValue');
+        if (levelHeatmapBrightnessSlider) {
+            levelHeatmapBrightnessSlider.value = savedLevelHeatmapBrightness;
+            if (levelHeatmapBrightnessValue) {
+                levelHeatmapBrightnessValue.textContent = parseFloat(savedLevelHeatmapBrightness).toFixed(1) + 'x';
+            }
+        }
+        // Trade Heatmap Brightness
+        const tradeHeatmapBrightnessSlider = document.getElementById('tradeHeatmapBrightness');
+        const tradeHeatmapBrightnessValue = document.getElementById('tradeHeatmapBrightnessValue');
+        if (tradeHeatmapBrightnessSlider) {
+            tradeHeatmapBrightnessSlider.value = savedTradeHeatmapBrightness;
+            if (tradeHeatmapBrightnessValue) {
+                tradeHeatmapBrightnessValue.textContent = parseFloat(savedTradeHeatmapBrightness).toFixed(1) + 'x';
+            }
         }
         this.elements.showMid.checked = savedShowMid;
         this.elements.showIFV.checked = savedShowIFV;
@@ -2484,6 +2879,45 @@ class OrderBookApp {
                     console.error('[App] Error clearing cache:', e);
                     alert('Error clearing cache. Please try again.');
                 }
+            }
+        });
+        
+        // Clear signals button - clears signal history only
+        document.getElementById('clearSignalsBtn')?.addEventListener('click', () => {
+            if (confirm('Clear all signal history? This will remove all signal markers.')) {
+                // Clear Cluster Proximity signals
+                if (this.chart?.clearClusterProximitySignals) {
+                    this.chart.clearClusterProximitySignals();
+                }
+                
+                // Clear Cluster Drift signals
+                if (this.chart?.clearClusterDriftSignals) {
+                    this.chart.clearClusterDriftSignals();
+                }
+                
+                // Clear Live Proximity signals
+                if (this.chart?.clearLiveProximitySignals) {
+                    this.chart.clearLiveProximitySignals();
+                }
+                
+                // Clear Live Drift signals
+                if (this.chart?.clearLiveDriftSignals) {
+                    this.chart.clearLiveDriftSignals();
+                }
+                
+                // Clear BB Pulse signals
+                if (this.chart?.bbPulse) {
+                    this.chart.bbPulse.markers = [];
+                    this.chart.bbPulse.liveMarker = null;
+                    this.chart.bbPulse.lastBarTime = null;
+                    localStorage.removeItem('bbPulseMarkers');
+                }
+                
+                // Update markers display
+                this.chart?.updateAllSignalMarkers();
+                
+                console.log('[App] Signal history cleared');
+                alert('Signal history cleared successfully.');
             }
         });
         
@@ -4180,8 +4614,8 @@ class OrderBookApp {
         const showVWMP = localStorage.getItem('showVWMP') === 'true';
         const emaGridSpacing = parseFloat(localStorage.getItem('emaGridSpacing')) || 0.003;
         
-        // Load showLevels setting (default TRUE if never set, but honor if disabled)
-        const showLevels = localStorage.getItem('showLevels') !== 'false';
+        // Load showLevels setting (default FALSE - levels track in background but don't display)
+        const showLevels = localStorage.getItem('showLevels') === 'true';
         if (this.elements.showLevels) {
             this.elements.showLevels.checked = showLevels;
         }
@@ -4242,6 +4676,46 @@ class OrderBookApp {
             }
         }
         
+        // Apply Cluster Proximity signal settings (default ON, 20% threshold, 5s lock)
+        const showClusterProximity = localStorage.getItem('showClusterProximity') !== 'false';
+        const clusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20');
+        const clusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '10');
+        if (this.chart.setClusterProximityThreshold) {
+            this.chart.setClusterProximityThreshold(clusterProximityThreshold);
+        }
+        if (this.chart.setClusterProximityLockTime) {
+            this.chart.setClusterProximityLockTime(clusterProximityLockTime);
+        }
+        if (this.chart.toggleClusterProximity) {
+            this.chart.toggleClusterProximity(showClusterProximity);
+        }
+        
+        // Apply Cluster Drift signal settings
+        const showClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
+        const clusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '10');
+        if (this.chart.setClusterDriftLockTime) {
+            this.chart.setClusterDriftLockTime(clusterDriftLockTime);
+        }
+        if (this.chart.toggleClusterDrift) {
+            this.chart.toggleClusterDrift(showClusterDrift);
+        }
+        
+        // Apply Live Proximity signal settings
+        const showLiveProximity = localStorage.getItem('showLiveProximity') !== 'false'; // Default ON
+        const liveProximityThreshold = parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20');
+        if (this.chart.setLiveProximityThreshold) {
+            this.chart.setLiveProximityThreshold(liveProximityThreshold);
+        }
+        if (this.chart.toggleLiveProximity) {
+            this.chart.toggleLiveProximity(showLiveProximity);
+        }
+        
+        // Apply Live Drift signal settings
+        const showLiveDrift = localStorage.getItem('showLiveDrift') !== 'false'; // Default ON
+        if (this.chart.toggleLiveDrift) {
+            this.chart.toggleLiveDrift(showLiveDrift);
+        }
+        
         // Apply Bulls vs Bears signal settings
         const showBullsBears = localStorage.getItem('showBullsBears') === 'true';
         const bullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
@@ -4252,25 +4726,31 @@ class OrderBookApp {
             this.chart.toggleBullsBears(true);
         }
         
-        // Apply Trade Footprint Heatmap settings (default ON)
-        const showTradeFootprint = localStorage.getItem('showTradeFootprint') !== 'false';
+        // Apply Trade Footprint Heatmap settings (default OFF, but always track in background)
+        const showTradeFootprint = localStorage.getItem('showTradeFootprint') === 'true';
         const tradeFootprintBucketSize = localStorage.getItem('tradeFootprintBucketSize') || '10';
         if (this.chart.setTradeFootprintBucketSize) {
             this.chart.setTradeFootprintBucketSize(tradeFootprintBucketSize);
         }
-        if (showTradeFootprint && this.chart.toggleTradeFootprint) {
-            // Initialize trade aggregator with current symbol/interval
-            if (typeof tradeAggregator !== 'undefined') {
-                tradeAggregator.setSymbol(this.currentSymbol);
-                tradeAggregator.setInterval(this.chart.currentInterval);
-            }
-            this.chart.toggleTradeFootprint(true);
+        // Always initialize trade aggregator to track in background
+        if (typeof tradeAggregator !== 'undefined') {
+            tradeAggregator.setSymbol(this.currentSymbol);
+            tradeAggregator.setInterval(this.chart.currentInterval);
+        }
+        if (this.chart.toggleTradeFootprint) {
+            this.chart.toggleTradeFootprint(showTradeFootprint);
         }
         
         // Apply Level History Heatmap settings (default ON)
         const showLevelHistoryHeatmap = localStorage.getItem('showLevelHistoryHeatmap') !== 'false';
         if (this.chart.toggleLevelHistoryHeatmap) {
             this.chart.toggleLevelHistoryHeatmap(showLevelHistoryHeatmap);
+        }
+        
+        // Apply Flow Forecast settings (default OFF - hidden feature)
+        const showFlowForecast = localStorage.getItem('showFlowForecast') === 'true';
+        if (this.chart.toggleFlowForecast) {
+            this.chart.toggleFlowForecast(showFlowForecast);
         }
         
         // Apply EMA/ZEMA signal settings
@@ -4502,7 +4982,7 @@ class OrderBookApp {
         // Show toast notification
         this.showToast(`${symbol} not found on ${exchange}`, 'warning');
     }
-
+    
     showToast(message, type = 'info') {
         // Remove existing toast
         const existing = document.querySelector('.toast');

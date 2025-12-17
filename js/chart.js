@@ -160,13 +160,92 @@ class OrderBookChart {
             liveSupport: null         // Current bar's support level
         };
         
+        // Cluster Proximity Signal - fires when bar opens near closest cluster
+        this.clusterProximity = {
+            enabled: localStorage.getItem('showClusterProximity') !== 'false', // Default ON
+            threshold: parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'), // 20% default
+            lockTime: parseInt(localStorage.getItem('clusterProximityLockTime') || '10'), // 10 seconds default
+            markers: [],              // Historical frozen markers
+            liveMarker: null,         // Current bar's live marker
+            lastBarTime: null,        // Track which bar we're on
+            barStartTimestamp: null,  // When the current bar started (for lock timing)
+            isLocked: false,          // Whether the signal is locked for this bar
+            isLateJoin: false,        // True if we joined mid-bar after lock time (show yellow)
+            lastSignal: null,         // Last signal for display (used by alert system)
+            // Majority voting tracking
+            buyTicks: 0,              // Count of times closest cluster was support (buy)
+            sellTicks: 0              // Count of times closest cluster was resistance (sell)
+        };
+        
+        // Cluster Drift Signal - measures directional movement of closest clusters
+        this.clusterDrift = {
+            enabled: localStorage.getItem('showClusterDrift') !== 'false', // Default ON
+            lockTime: parseInt(localStorage.getItem('clusterDriftLockTime') || '10'), // 10 seconds default
+            markers: [],              // Historical frozen markers
+            liveMarker: null,         // Current bar's live marker
+            lastBarTime: null,        // Track which bar we're on
+            barStartTimestamp: null,  // When the current bar started (for lock timing)
+            isLocked: false,          // Whether the signal is locked for this bar
+            isLateJoin: false,        // True if we joined mid-bar after lock time (show yellow)
+            lastSignal: null,         // Last signal for display
+            // Drift tracking
+            upTicks: 0,               // Count of upward movements
+            downTicks: 0,             // Count of downward movements
+            lastResistancePrice: null, // Previous closest resistance price
+            lastSupportPrice: null     // Previous closest support price
+        };
+        
+        // Live Proximity Signal - dynamic, no locking, saves history per bar
+        this.liveProximity = {
+            enabled: localStorage.getItem('showLiveProximity') !== 'false', // Default ON
+            threshold: parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20'), // 20% default
+            markers: [],              // Historical markers (one per bar)
+            liveMarker: null,         // Current marker (always live)
+            lastSignal: null,         // Last signal for display
+            lastBarTime: null         // Track which bar we're on
+        };
+        
+        // Live Drift Signal - dynamic, no locking, saves history per bar
+        this.liveDrift = {
+            enabled: localStorage.getItem('showLiveDrift') !== 'false', // Default ON
+            markers: [],              // Historical markers (one per bar)
+            liveMarker: null,         // Current marker (always live)
+            lastSignal: null,         // Last signal for display
+            lastBarTime: null,        // Track which bar we're on
+            // Drift tracking (resets each bar)
+            upTicks: 0,
+            downTicks: 0,
+            lastResistancePrice: null,
+            lastSupportPrice: null,
+            lastBarTime: null
+        };
+        
+        // Cluster Strike Panel - Separate visualization of current bar walls
+        this.clusterStrike = {
+            canvas: null,
+            ctx: null,
+            priceRange: 0.20, // ±20% of current price (will show walls within this range)
+            initialized: false,
+            lastRenderTime: 0,
+            renderThrottleMs: 100 // Throttle renders to 10fps for performance
+        };
+        
         // Trade Footprint Heatmap - shows delta at each price level per bar
         this.tradeFootprint = {
-            enabled: localStorage.getItem('showTradeFootprint') !== 'false', // Default ON
+            enabled: localStorage.getItem('showTradeFootprint') === 'true', // Default OFF (tracks in background via tradeAggregator)
             bucketSize: parseInt(localStorage.getItem('tradeFootprintBucketSize') || '10'),
             canvas: null,             // Canvas overlay element
             ctx: null,                // Canvas 2D context
-            maxBars: 200              // Max bars to render
+            maxBars: 200,             // Max bars to render
+            brightness: parseFloat(localStorage.getItem('tradeHeatmapBrightness') || '2') // Brightness multiplier (default 2.0x)
+        };
+        
+        // Flow Forecast - predictive arrows based on order flow + depth
+        this.flowForecast = {
+            enabled: localStorage.getItem('showFlowForecast') === 'true', // Default OFF (hidden feature)
+            canvas: null,
+            ctx: null,
+            showAccuracy: localStorage.getItem('showFlowForecastAccuracy') === 'true'
         };
         
         // Level History - unified tracking of all order book levels + fair value indicators
@@ -175,15 +254,15 @@ class OrderBookChart {
             enabled: true,                    // Always enabled for background caching
             showHeatmap: localStorage.getItem('showLevelHistoryHeatmap') !== 'false', // Display toggle (default ON)
             maxBars: 500,                     // History limit
-            data: new Map(),                  // barTime => { clusters, mid, ifv, vwmp }
+            data: new Map(),                  // barTime => { clusters, mid, ifv, vwmp } OR { buckets, mid, ifv, vwmp } in channel mode
             // Heatmap canvas for order book clusters
             canvas: null,
             ctx: null,
-            // Line series for fair value indicators
+            // Line series removed - now using bucket heatmaps
             midSeries: null,
             ifvSeries: null,
             vwmpSeries: null,
-            // Data arrays for line series
+            // Data arrays for line series (legacy, kept for compatibility)
             midData: [],
             ifvData: [],
             vwmpData: [],
@@ -191,7 +270,18 @@ class OrderBookChart {
             lastBarTime: null,
             symbol: 'BTC',
             interval: '1m',
-            initialized: false
+            initialized: false,
+            // Channel Mode - accumulates wall positions throughout bar instead of single snapshot
+            channelMode: localStorage.getItem('levelHeatmapChannelMode') !== 'false', // Default ON
+            bucketSize: parseInt(localStorage.getItem('levelHeatmapBucketSize') || '50'), // $50 default bucket size
+            currentBarAccumulator: new Map(), // bucketPrice => {bidHits, askHits, maxBidVol, maxAskVol}
+            currentBarSampleCount: 0,         // Track number of samples for normalization
+            brightness: parseFloat(localStorage.getItem('levelHeatmapBrightness') || '0.4'), // Brightness multiplier (default 0.4x)
+            // Fair Value Bucket Accumulators - track where mid/ifv/vwmp spent time during bar
+            midBuckets: new Map(),            // bucketPrice => hits
+            ifvBuckets: new Map(),            // bucketPrice => hits  
+            vwmpBuckets: new Map(),           // bucketPrice => hits
+            fvSampleCount: 0                  // Fair value samples this bar
         };
 
         // Alert markers (plotted when alerts fire)
@@ -623,6 +713,12 @@ class OrderBookChart {
         // Initialize Level History (always-on unified tracking)
         this.initLevelHistory();
         
+        // Initialize Flow Forecast (predictive arrows)
+        if (this.flowForecast.enabled) {
+            this.initFlowForecastCanvas();
+            this._initFlowForecastLegend();
+        }
+        
         // Listen for new bar events to finalize signals
         window.addEventListener('newBarOpened', (e) => {
             if (this.bullsBears && this.bullsBears.enabled) {
@@ -864,6 +960,12 @@ class OrderBookChart {
         // Zoom to recent bars on first load (shows last 50 bars, frames last 6 bars' price range)
         // We no longer restore saved views - always start fresh at the latest data
         this.zoomToRecent(50, 6);
+        
+        // Re-render level history heatmap now that chart has price data
+        // (initial load may have failed if candles weren't loaded yet)
+        if (this.levelHistory.showHeatmap && this.levelHistory.data.size > 0) {
+            this.scheduleLevelHistoryRender();
+        }
     }
 
     // Update with new candle (real-time)
@@ -2993,6 +3095,54 @@ class OrderBookChart {
             }
         }
         
+        // Add Cluster Proximity signals if enabled
+        if (this.clusterProximity && this.clusterProximity.enabled) {
+            // Add historical frozen markers
+            if (this.clusterProximity.markers && this.clusterProximity.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.clusterProximity.markers);
+            }
+            // Add live marker for current bar
+            if (this.clusterProximity.liveMarker) {
+                allMarkers.push(this.clusterProximity.liveMarker);
+            }
+        }
+        
+        // Add Cluster Drift signals if enabled
+        if (this.clusterDrift && this.clusterDrift.enabled) {
+            // Add historical frozen markers
+            if (this.clusterDrift.markers && this.clusterDrift.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.clusterDrift.markers);
+            }
+            // Add live marker for current bar
+            if (this.clusterDrift.liveMarker) {
+                allMarkers.push(this.clusterDrift.liveMarker);
+            }
+        }
+        
+        // Add Live Proximity signal if enabled (with history)
+        if (this.liveProximity && this.liveProximity.enabled) {
+            // Add historical markers
+            if (this.liveProximity.markers && this.liveProximity.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.liveProximity.markers);
+            }
+            // Add live marker for current bar
+            if (this.liveProximity.liveMarker) {
+                allMarkers.push(this.liveProximity.liveMarker);
+            }
+        }
+        
+        // Add Live Drift signal if enabled (with history)
+        if (this.liveDrift && this.liveDrift.enabled) {
+            // Add historical markers
+            if (this.liveDrift.markers && this.liveDrift.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.liveDrift.markers);
+            }
+            // Add live marker for current bar
+            if (this.liveDrift.liveMarker) {
+                allMarkers.push(this.liveDrift.liveMarker);
+            }
+        }
+        
         // Add EMA grid signals if enabled
         if (canCalcSignals && this.emaGrid && this.emaGrid.showSignals) {
             emaSignals = this.calculateEmaGridSignals(candles);
@@ -3014,6 +3164,181 @@ class OrderBookChart {
         
         // Apply all markers
         this.candleSeries.setMarkers(allMarkers);
+        
+        // Update Cluster panel UI
+        this.updateClusterPanelUI();
+    }
+    
+    /**
+     * Update the Cluster signals panel UI with current values
+     * Note: Panel always shows signals regardless of chart display settings
+     */
+    updateClusterPanelUI() {
+        // Get signal directions (null = no signal, 'up' = bullish, 'down' = bearish)
+        // Panel always computes from internal state, independent of 'enabled' flag
+        let proxDir = null;
+        let driftDir = null;
+        let liveProxDir = null;
+        let liveDriftDir = null;
+        
+        // Update Cluster Proximity (prox) - uses UP/DOWN
+        // Always show in panel regardless of this.clusterProximity.enabled
+        const proxValueEl = document.getElementById('clusterProxValue');
+        if (proxValueEl) {
+            if (this.clusterProximity.isLocked && this.clusterProximity.lastSignal) {
+                proxDir = this.clusterProximity.lastSignal.direction === 'buy' ? 'up' : 'down';
+                const isLate = this.clusterProximity.isLateJoin;
+                proxValueEl.textContent = proxDir === 'up' ? '▲' : '▼';
+                proxValueEl.className = 'mini-value ' + (isLate ? 'late' : proxDir);
+            } else if (this.clusterProximity.buyTicks > 0 || this.clusterProximity.sellTicks > 0) {
+                const dir = this.clusterProximity.buyTicks > this.clusterProximity.sellTicks ? 'up' : 
+                           (this.clusterProximity.sellTicks > this.clusterProximity.buyTicks ? 'down' : null);
+                if (dir) {
+                    proxValueEl.textContent = dir === 'up' ? '▲' : '▼';
+                    proxValueEl.className = 'mini-value waiting';
+                } else {
+                    proxValueEl.textContent = '⏳';
+                    proxValueEl.className = 'mini-value waiting';
+                }
+            } else {
+                proxValueEl.textContent = '—';
+                proxValueEl.className = 'mini-value';
+            }
+        }
+        
+        // Update Cluster Drift (drift) - uses UP/DOWN
+        // Always show in panel regardless of this.clusterDrift.enabled
+        const driftValueEl = document.getElementById('clusterDriftValue');
+        if (driftValueEl) {
+            if (this.clusterDrift.isLocked && this.clusterDrift.lastSignal) {
+                driftDir = this.clusterDrift.lastSignal.direction === 'buy' ? 'up' : 'down';
+                const isLate = this.clusterDrift.isLateJoin;
+                driftValueEl.textContent = driftDir === 'up' ? '▲' : '▼';
+                driftValueEl.className = 'mini-value ' + (isLate ? 'late' : driftDir);
+            } else if (this.clusterDrift.upTicks > 0 || this.clusterDrift.downTicks > 0) {
+                const dir = this.clusterDrift.upTicks > this.clusterDrift.downTicks ? 'up' : 
+                           (this.clusterDrift.downTicks > this.clusterDrift.upTicks ? 'down' : null);
+                if (dir) {
+                    driftValueEl.textContent = dir === 'up' ? '▲' : '▼';
+                    driftValueEl.className = 'mini-value waiting';
+                } else {
+                    driftValueEl.textContent = '⏳';
+                    driftValueEl.className = 'mini-value waiting';
+                }
+            } else {
+                driftValueEl.textContent = '—';
+                driftValueEl.className = 'mini-value';
+            }
+        }
+        
+        // Update Live Proximity (l-prox)
+        // Always show in panel regardless of this.liveProximity.enabled
+        const liveProxValueEl = document.getElementById('liveProxValue');
+        if (liveProxValueEl) {
+            if (this.liveProximity.liveMarker && this.liveProximity.lastSignal) {
+                liveProxDir = this.liveProximity.lastSignal.direction === 'buy' ? 'up' : 'down';
+                liveProxValueEl.textContent = liveProxDir === 'up' ? '▲' : '▼';
+                liveProxValueEl.className = 'mini-value ' + liveProxDir;
+            } else {
+                liveProxValueEl.textContent = '—';
+                liveProxValueEl.className = 'mini-value';
+            }
+        }
+        
+        // Update Live Drift (l-drift)
+        // Always show in panel regardless of this.liveDrift.enabled
+        const liveDriftValueEl = document.getElementById('liveDriftValue');
+        if (liveDriftValueEl) {
+            if (this.liveDrift.liveMarker && this.liveDrift.lastSignal) {
+                liveDriftDir = this.liveDrift.lastSignal.direction === 'buy' ? 'up' : 'down';
+                liveDriftValueEl.textContent = liveDriftDir === 'up' ? '▲' : '▼';
+                liveDriftValueEl.className = 'mini-value ' + liveDriftDir;
+            } else {
+                liveDriftValueEl.textContent = '—';
+                liveDriftValueEl.className = 'mini-value';
+            }
+        }
+        
+        // Compute Locked Combo: prox + drift
+        // UP + UP = UP, DOWN + DOWN = DOWN, otherwise FLAT
+        let lockedCombo = null;
+        if (proxDir && driftDir) {
+            if (proxDir === 'up' && driftDir === 'up') {
+                lockedCombo = 'up';
+            } else if (proxDir === 'down' && driftDir === 'down') {
+                lockedCombo = 'down';
+            } else {
+                lockedCombo = 'flat';
+            }
+        }
+        
+        // Compute Live Combo: l-prox + l-drift
+        let liveCombo = null;
+        if (liveProxDir && liveDriftDir) {
+            if (liveProxDir === 'up' && liveDriftDir === 'up') {
+                liveCombo = 'up';
+            } else if (liveProxDir === 'down' && liveDriftDir === 'down') {
+                liveCombo = 'down';
+            } else {
+                liveCombo = 'flat';
+            }
+        }
+        
+        // Compute Final Combo: Locked + Live
+        // UP + UP = UP, DOWN + DOWN = DOWN, otherwise FLAT
+        let finalCombo = null;
+        if (lockedCombo && liveCombo) {
+            if (lockedCombo === 'up' && liveCombo === 'up') {
+                finalCombo = 'up';
+            } else if (lockedCombo === 'down' && liveCombo === 'down') {
+                finalCombo = 'down';
+            } else {
+                finalCombo = 'flat';
+            }
+        } else if (lockedCombo) {
+            finalCombo = lockedCombo;
+        } else if (liveCombo) {
+            finalCombo = liveCombo;
+        }
+        
+        // Update Locked Combo display
+        const lockedComboEl = document.getElementById('clusterComboLocked');
+        if (lockedComboEl) {
+            if (lockedCombo) {
+                lockedComboEl.textContent = lockedCombo === 'up' ? '▲ Up' : (lockedCombo === 'down' ? '▼ Dn' : '— Flat');
+                lockedComboEl.className = 'combo-part ' + lockedCombo;
+            } else {
+                lockedComboEl.textContent = '—';
+                lockedComboEl.className = 'combo-part';
+            }
+        }
+        
+        // Update Live Combo display
+        const liveComboEl = document.getElementById('clusterComboLive');
+        if (liveComboEl) {
+            if (liveCombo) {
+                liveComboEl.textContent = liveCombo === 'up' ? '▲ L-Up' : (liveCombo === 'down' ? '▼ L-Dn' : '— L-Flat');
+                liveComboEl.className = 'combo-part ' + liveCombo;
+            } else {
+                liveComboEl.textContent = '—';
+                liveComboEl.className = 'combo-part';
+            }
+        }
+        
+        // Update Final Combo display (hero)
+        const finalComboEl = document.getElementById('clusterComboFinal');
+        if (finalComboEl) {
+            const valueEl = finalComboEl.querySelector('.combo-value');
+            if (valueEl) {
+                if (finalCombo) {
+                    valueEl.textContent = finalCombo === 'up' ? '▲ UP' : (finalCombo === 'down' ? '▼ DOWN' : '— FLAT');
+                    valueEl.className = 'combo-value ' + finalCombo;
+                } else {
+                    valueEl.textContent = '—';
+                    valueEl.className = 'combo-value';
+                }
+            }
+        }
     }
     
     // ==========================================
@@ -3157,6 +3482,13 @@ class OrderBookChart {
             this.loadBullsBearsHistory();
         } else {
             this.clearBullsBearsSignals();
+        }
+        
+        // Initialize Cluster Proximity signal
+        if (this.clusterProximity.enabled) {
+            this.loadClusterProximityHistory();
+        } else {
+            this.clearClusterProximitySignals();
         }
         
         localStorage.setItem('showBullsBears', show);
@@ -3466,6 +3798,1018 @@ class OrderBookChart {
     }
     
     // ==========================================
+    // Cluster Proximity Signal
+    // ==========================================
+    
+    /**
+     * Toggle Cluster Proximity Signal
+     * Fires when bar opens within threshold of strongest cluster
+     */
+    toggleClusterProximity(show) {
+        this.clusterProximity.enabled = show;
+        console.log('[Chart] toggleClusterProximity:', show);
+        localStorage.setItem('showClusterProximity', show);
+        
+        if (!show) {
+            this.clusterProximity.liveMarker = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Set Cluster Proximity threshold (0.2 = 20%)
+     */
+    setClusterProximityThreshold(threshold) {
+        this.clusterProximity.threshold = parseFloat(threshold) || 0.2;
+        localStorage.setItem('clusterProximityThreshold', this.clusterProximity.threshold);
+        console.log('[Chart] setClusterProximityThreshold:', this.clusterProximity.threshold);
+    }
+    
+    /**
+     * Set Cluster Proximity lock time in seconds
+     */
+    setClusterProximityLockTime(seconds) {
+        this.clusterProximity.lockTime = parseInt(seconds) || 5;
+        localStorage.setItem('clusterProximityLockTime', this.clusterProximity.lockTime);
+        console.log('[Chart] setClusterProximityLockTime:', this.clusterProximity.lockTime, 'seconds');
+    }
+    
+    /**
+     * Update Cluster Proximity signal on bar open
+     * Called when new bar starts or levels change
+     * @param {Array} levels - Order book levels [{price, volume, type}, ...]
+     * @param {number} barOpenPrice - The open price of the current bar
+     * @param {number} barTime - The timestamp of the current bar
+     */
+    updateClusterProximitySignal(levels, barOpenPrice, barTime) {
+        // Always compute signals for the panel, even if chart display is disabled
+        if (!levels || levels.length === 0 || !barOpenPrice || !barTime) {
+            return;
+        }
+        
+        const now = Date.now();
+        const lockTimeMs = this.clusterProximity.lockTime * 1000;
+        // Calculate actual time since bar opened (barTime is in seconds)
+        const actualBarStartMs = barTime * 1000;
+        const actualTimeSinceBarStart = now - actualBarStartMs;
+        
+        // Check if bar changed - finalize previous bar's signal and reset
+        if (this.clusterProximity.lastBarTime && this.clusterProximity.lastBarTime !== barTime) {
+            this.finalizeClusterProximitySignal();
+            // Reset for new bar
+            this.clusterProximity.barStartTimestamp = now;
+            this.clusterProximity.isLocked = false;
+            this.clusterProximity.isLateJoin = false;
+            this.clusterProximity.buyTicks = 0;
+            this.clusterProximity.sellTicks = 0;
+        } else if (!this.clusterProximity.lastBarTime) {
+            // First time - check if we're joining late (after lock time has passed)
+            this.clusterProximity.barStartTimestamp = now;
+            this.clusterProximity.isLocked = false;
+            this.clusterProximity.buyTicks = 0;
+            this.clusterProximity.sellTicks = 0;
+            
+            // Detect late join - if actual bar is already past lock time
+            if (actualTimeSinceBarStart >= lockTimeMs) {
+                this.clusterProximity.isLateJoin = true;
+                console.log(`[ClusterProximity] Late join detected - bar is ${(actualTimeSinceBarStart / 1000).toFixed(1)}s old, lock time is ${this.clusterProximity.lockTime}s`);
+            } else {
+                this.clusterProximity.isLateJoin = false;
+            }
+        }
+        
+        this.clusterProximity.lastBarTime = barTime;
+        
+        // Check if we should lock the signal
+        const timeSinceBarStart = now - this.clusterProximity.barStartTimestamp;
+        
+        if (timeSinceBarStart >= lockTimeMs && !this.clusterProximity.isLocked) {
+            // Lock the signal based on majority
+            this.clusterProximity.isLocked = true;
+            
+            // Determine final signal based on tick counts
+            if (this.clusterProximity.buyTicks > this.clusterProximity.sellTicks) {
+                this.clusterProximity.lastSignal = { direction: 'buy' };
+                console.log(`[ClusterProximity] Signal LOCKED: BUY (${this.clusterProximity.buyTicks} buy vs ${this.clusterProximity.sellTicks} sell)${this.clusterProximity.isLateJoin ? ' [LATE]' : ''}`);
+            } else if (this.clusterProximity.sellTicks > this.clusterProximity.buyTicks) {
+                this.clusterProximity.lastSignal = { direction: 'sell' };
+                console.log(`[ClusterProximity] Signal LOCKED: SELL (${this.clusterProximity.sellTicks} sell vs ${this.clusterProximity.buyTicks} buy)${this.clusterProximity.isLateJoin ? ' [LATE]' : ''}`);
+            } else {
+                this.clusterProximity.lastSignal = null; // Tie - no signal
+                console.log(`[ClusterProximity] Signal LOCKED: TIE (${this.clusterProximity.buyTicks} buy vs ${this.clusterProximity.sellTicks} sell)${this.clusterProximity.isLateJoin ? ' [LATE]' : ''}`);
+            }
+            
+            // Update marker color to final color (yellow if late join)
+            if (this.clusterProximity.liveMarker && this.clusterProximity.lastSignal) {
+                if (this.clusterProximity.isLateJoin) {
+                    this.clusterProximity.liveMarker.color = '#fbbf24'; // Yellow for late signal
+                } else {
+                    this.clusterProximity.liveMarker.color = this.clusterProximity.lastSignal.direction === 'buy' ? '#22c55e' : '#ef4444';
+                }
+            }
+        }
+        
+        // If signal is locked, just update display
+        if (this.clusterProximity.isLocked) {
+            this.updateAllSignalMarkers();
+            return;
+        }
+        
+        // Find the CLOSEST cluster to bar open price
+        let closestCluster = null;
+        let closestDistance = Infinity;
+        
+        for (const level of levels) {
+            const price = parseFloat(level.price) || 0;
+            const volume = parseFloat(level.volume) || 0;
+            
+            // Skip garbage entries (invalid prices, no volume)
+            if (price < 100 || price > 10000000) continue;
+            if (volume <= 0) continue;
+            
+            // Calculate distance from bar open price
+            const distance = Math.abs(barOpenPrice - price);
+            
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestCluster = level;
+            }
+        }
+        
+        if (!closestCluster) {
+            // No valid cluster found - no tick counted
+            this.updateAllSignalMarkers();
+            return;
+        }
+        
+        const threshold = this.clusterProximity.threshold;
+        
+        // Calculate distance as percentage of bar open price
+        const distancePercent = closestDistance / barOpenPrice;
+        
+        // Check if within threshold
+        if (distancePercent <= threshold) {
+            // Increment tick based on cluster type
+            const isSellWall = closestCluster.type === 'resistance';
+            if (isSellWall) {
+                this.clusterProximity.sellTicks++;
+            } else {
+                this.clusterProximity.buyTicks++;
+            }
+            
+            // Determine preliminary direction based on current majority
+            let prelimDirection = null;
+            if (this.clusterProximity.buyTicks > this.clusterProximity.sellTicks) {
+                prelimDirection = 'buy';
+            } else if (this.clusterProximity.sellTicks > this.clusterProximity.buyTicks) {
+                prelimDirection = 'sell';
+            }
+            
+            // Create/update live marker (gray while measuring)
+            if (prelimDirection) {
+                this.clusterProximity.liveMarker = {
+                    time: barTime,
+                    position: prelimDirection === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: '#9ca3af', // Gray while measuring
+                    shape: prelimDirection === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: 'prox',
+                    size: 2
+                };
+                this.clusterProximity.lastSignal = { direction: prelimDirection };
+            } else {
+                // Tie - no marker yet
+                this.clusterProximity.liveMarker = null;
+                this.clusterProximity.lastSignal = null;
+            }
+        }
+        // If not within threshold, no tick counted this sample
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Finalize Cluster Proximity signal for completed bar
+     */
+    finalizeClusterProximitySignal() {
+        if (this.clusterProximity.liveMarker && this.clusterProximity.lastSignal) {
+            // Set final color based on direction
+            this.clusterProximity.liveMarker.color = this.clusterProximity.lastSignal.direction === 'buy' ? '#22c55e' : '#ef4444';
+            
+            // Add to historical markers
+            this.clusterProximity.markers.push({ ...this.clusterProximity.liveMarker });
+            
+            // Cap historical markers (keep last 500)
+            if (this.clusterProximity.markers.length > 500) {
+                this.clusterProximity.markers = this.clusterProximity.markers.slice(-500);
+            }
+            
+            console.log('[Chart] Cluster Proximity signal finalized:', this.clusterProximity.lastSignal);
+            
+            // Save markers
+            this.saveClusterProximityHistory();
+        }
+        
+        // Clear live data for next bar
+        this.clusterProximity.liveMarker = null;
+        this.clusterProximity.lastSignal = null;
+    }
+    
+    /**
+     * Save Cluster Proximity markers to localStorage
+     */
+    saveClusterProximityHistory() {
+        try {
+            localStorage.setItem('clusterProximityMarkers', JSON.stringify(this.clusterProximity.markers));
+        } catch (e) {
+            console.warn('[Chart] Error saving Cluster Proximity history:', e);
+        }
+    }
+    
+    /**
+     * Load Cluster Proximity markers from localStorage
+     */
+    loadClusterProximityHistory() {
+        try {
+            const savedMarkers = localStorage.getItem('clusterProximityMarkers');
+            if (savedMarkers) {
+                this.clusterProximity.markers = JSON.parse(savedMarkers);
+                console.log('[Chart] Loaded', this.clusterProximity.markers.length, 'Cluster Proximity markers');
+            }
+        } catch (e) {
+            console.warn('[Chart] Error loading Cluster Proximity history:', e);
+        }
+    }
+    
+    /**
+     * Clear all Cluster Proximity signals
+     */
+    clearClusterProximitySignals() {
+        this.clusterProximity.markers = [];
+        this.clusterProximity.liveMarker = null;
+        this.clusterProximity.lastSignal = null;
+        this.clusterProximity.lastBarTime = null;
+        this.clusterProximity.buyTicks = 0;
+        this.clusterProximity.sellTicks = 0;
+        this.clusterProximity.isLateJoin = false;
+        
+        localStorage.removeItem('clusterProximityMarkers');
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Cluster Drift Signal
+    // Measures directional movement of closest clusters
+    // ==========================================
+    
+    /**
+     * Toggle Cluster Drift signal
+     */
+    toggleClusterDrift(show) {
+        this.clusterDrift.enabled = show;
+        console.log('[Chart] toggleClusterDrift:', show);
+        
+        if (show) {
+            this.loadClusterDriftHistory();
+        } else {
+            this.clearClusterDriftSignals();
+        }
+        
+        localStorage.setItem('showClusterDrift', show);
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Set Cluster Drift lock time
+     */
+    setClusterDriftLockTime(seconds) {
+        this.clusterDrift.lockTime = parseInt(seconds) || 10;
+        localStorage.setItem('clusterDriftLockTime', this.clusterDrift.lockTime);
+        console.log('[Chart] setClusterDriftLockTime:', this.clusterDrift.lockTime, 'seconds');
+    }
+    
+    /**
+     * Update Cluster Drift signal - measures cluster movement direction
+     * Called on each order book update
+     */
+    updateClusterDriftSignal(levels, currentPrice, barTime) {
+        // Always compute signals for the panel, even if chart display is disabled
+        if (!levels || levels.length === 0 || !currentPrice || !barTime) {
+            return;
+        }
+        
+        const now = Date.now();
+        const lockTimeMs = this.clusterDrift.lockTime * 1000;
+        // Calculate actual time since bar opened (barTime is in seconds)
+        const actualBarStartMs = barTime * 1000;
+        const actualTimeSinceBarStart = now - actualBarStartMs;
+        
+        // Check if bar changed - finalize previous bar's signal
+        if (this.clusterDrift.lastBarTime && this.clusterDrift.lastBarTime !== barTime) {
+            this.finalizeClusterDriftSignal();
+            // Reset for new bar
+            this.clusterDrift.barStartTimestamp = now;
+            this.clusterDrift.isLocked = false;
+            this.clusterDrift.isLateJoin = false;
+            this.clusterDrift.upTicks = 0;
+            this.clusterDrift.downTicks = 0;
+            this.clusterDrift.lastResistancePrice = null;
+            this.clusterDrift.lastSupportPrice = null;
+        } else if (!this.clusterDrift.lastBarTime) {
+            // First time - check if we're joining late (after lock time has passed)
+            this.clusterDrift.barStartTimestamp = now;
+            this.clusterDrift.isLocked = false;
+            this.clusterDrift.upTicks = 0;
+            this.clusterDrift.downTicks = 0;
+            this.clusterDrift.lastResistancePrice = null;
+            this.clusterDrift.lastSupportPrice = null;
+            
+            // Detect late join - if actual bar is already past lock time
+            if (actualTimeSinceBarStart >= lockTimeMs) {
+                this.clusterDrift.isLateJoin = true;
+                console.log(`[ClusterDrift] Late join detected - bar is ${(actualTimeSinceBarStart / 1000).toFixed(1)}s old, lock time is ${this.clusterDrift.lockTime}s`);
+            } else {
+                this.clusterDrift.isLateJoin = false;
+            }
+        }
+        
+        this.clusterDrift.lastBarTime = barTime;
+        
+        // Check if we should lock the signal
+        const timeSinceBarStart = now - this.clusterDrift.barStartTimestamp;
+        
+        if (timeSinceBarStart >= lockTimeMs && !this.clusterDrift.isLocked) {
+            // Lock the signal
+            this.clusterDrift.isLocked = true;
+            
+            // Determine final signal based on tick counts
+            if (this.clusterDrift.upTicks > this.clusterDrift.downTicks) {
+                this.clusterDrift.lastSignal = { direction: 'buy' };
+                console.log(`[ClusterDrift] Signal LOCKED: UP (${this.clusterDrift.upTicks} up vs ${this.clusterDrift.downTicks} down)${this.clusterDrift.isLateJoin ? ' [LATE]' : ''}`);
+            } else if (this.clusterDrift.downTicks > this.clusterDrift.upTicks) {
+                this.clusterDrift.lastSignal = { direction: 'sell' };
+                console.log(`[ClusterDrift] Signal LOCKED: DOWN (${this.clusterDrift.downTicks} down vs ${this.clusterDrift.upTicks} up)${this.clusterDrift.isLateJoin ? ' [LATE]' : ''}`);
+            } else {
+                this.clusterDrift.lastSignal = null; // Tie - no signal
+                console.log(`[ClusterDrift] Signal LOCKED: TIE (${this.clusterDrift.upTicks} up vs ${this.clusterDrift.downTicks} down)${this.clusterDrift.isLateJoin ? ' [LATE]' : ''}`);
+            }
+            
+            // Update marker color - cyan for buy, magenta for sell (yellow if late join)
+            if (this.clusterDrift.liveMarker && this.clusterDrift.lastSignal) {
+                if (this.clusterDrift.isLateJoin) {
+                    this.clusterDrift.liveMarker.color = '#fbbf24'; // Yellow for late signal
+                } else {
+                    this.clusterDrift.liveMarker.color = this.clusterDrift.lastSignal.direction === 'buy' ? '#00d9ff' : '#ff006e';
+                }
+            }
+        }
+        
+        // If locked, just update display
+        if (this.clusterDrift.isLocked) {
+            this.updateAllSignalMarkers();
+            return;
+        }
+        
+        // Find closest resistance (above price) and support (below price)
+        let closestResistance = null;
+        let closestSupport = null;
+        let minResistanceDistance = Infinity;
+        let minSupportDistance = Infinity;
+        
+        for (const level of levels) {
+            const price = parseFloat(level.price) || 0;
+            if (price <= 0 || isNaN(price)) continue;
+            
+            if (level.type === 'resistance' && price > currentPrice) {
+                const distance = price - currentPrice;
+                if (distance < minResistanceDistance) {
+                    minResistanceDistance = distance;
+                    closestResistance = price;
+                }
+            } else if (level.type === 'support' && price < currentPrice) {
+                const distance = currentPrice - price;
+                if (distance < minSupportDistance) {
+                    minSupportDistance = distance;
+                    closestSupport = price;
+                }
+            }
+        }
+        
+        // Track drift - compare to previous positions
+        if (this.clusterDrift.lastResistancePrice !== null && closestResistance !== null) {
+            if (closestResistance > this.clusterDrift.lastResistancePrice) {
+                this.clusterDrift.upTicks++;
+            } else if (closestResistance < this.clusterDrift.lastResistancePrice) {
+                this.clusterDrift.downTicks++;
+            }
+        }
+        
+        if (this.clusterDrift.lastSupportPrice !== null && closestSupport !== null) {
+            if (closestSupport > this.clusterDrift.lastSupportPrice) {
+                this.clusterDrift.upTicks++;
+            } else if (closestSupport < this.clusterDrift.lastSupportPrice) {
+                this.clusterDrift.downTicks++;
+            }
+        }
+        
+        // Store current positions for next comparison
+        this.clusterDrift.lastResistancePrice = closestResistance;
+        this.clusterDrift.lastSupportPrice = closestSupport;
+        
+        // Determine preliminary direction for display
+        let prelimDirection = null;
+        if (this.clusterDrift.upTicks > this.clusterDrift.downTicks) {
+            prelimDirection = 'buy';
+        } else if (this.clusterDrift.downTicks > this.clusterDrift.upTicks) {
+            prelimDirection = 'sell';
+        }
+        
+        // Create/update live marker (gray while measuring, cyan/magenta when locked)
+        if (prelimDirection) {
+            this.clusterDrift.liveMarker = {
+                time: barTime,
+                position: prelimDirection === 'buy' ? 'belowBar' : 'aboveBar',
+                color: '#6b7280', // Darker gray while measuring (different from proximity)
+                shape: prelimDirection === 'buy' ? 'arrowUp' : 'arrowDown',
+                text: 'drift',
+                size: 2
+            };
+            this.clusterDrift.lastSignal = { direction: prelimDirection };
+        } else {
+            this.clusterDrift.liveMarker = null;
+            this.clusterDrift.lastSignal = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Finalize Cluster Drift signal when bar closes
+     */
+    finalizeClusterDriftSignal() {
+        if (this.clusterDrift.liveMarker && this.clusterDrift.lastSignal) {
+            // Set final color based on direction - cyan for buy, magenta for sell
+            this.clusterDrift.liveMarker.color = this.clusterDrift.lastSignal.direction === 'buy' ? '#00d9ff' : '#ff006e';
+            
+            // Add to historical markers
+            this.clusterDrift.markers.push({ ...this.clusterDrift.liveMarker });
+            
+            // Keep only last 500 markers
+            if (this.clusterDrift.markers.length > 500) {
+                this.clusterDrift.markers = this.clusterDrift.markers.slice(-500);
+            }
+            
+            // Save to localStorage
+            this.saveClusterDriftHistory();
+            
+            console.log('[Chart] Cluster Drift signal finalized:', this.clusterDrift.lastSignal);
+        }
+        
+        // Clear live marker
+        this.clusterDrift.liveMarker = null;
+    }
+    
+    /**
+     * Load Cluster Drift history from localStorage
+     */
+    loadClusterDriftHistory() {
+        try {
+            const stored = localStorage.getItem('clusterDriftMarkers');
+            if (stored) {
+                this.clusterDrift.markers = JSON.parse(stored);
+                console.log('[Chart] Loaded', this.clusterDrift.markers.length, 'Cluster Drift markers');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading Cluster Drift history:', e);
+            this.clusterDrift.markers = [];
+        }
+    }
+    
+    /**
+     * Save Cluster Drift history to localStorage
+     */
+    saveClusterDriftHistory() {
+        try {
+            localStorage.setItem('clusterDriftMarkers', JSON.stringify(this.clusterDrift.markers));
+        } catch (e) {
+            console.error('[Chart] Error saving Cluster Drift history:', e);
+        }
+    }
+    
+    /**
+     * Clear all Cluster Drift signals
+     */
+    clearClusterDriftSignals() {
+        this.clusterDrift.markers = [];
+        this.clusterDrift.liveMarker = null;
+        this.clusterDrift.lastSignal = null;
+        this.clusterDrift.lastBarTime = null;
+        this.clusterDrift.upTicks = 0;
+        this.clusterDrift.downTicks = 0;
+        this.clusterDrift.lastResistancePrice = null;
+        this.clusterDrift.lastSupportPrice = null;
+        this.clusterDrift.isLateJoin = false;
+        
+        localStorage.removeItem('clusterDriftMarkers');
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Live Proximity Signal
+    // Dynamic signal, no locking - always shows current state
+    // ==========================================
+    
+    /**
+     * Toggle Live Proximity signal
+     */
+    toggleLiveProximity(show) {
+        this.liveProximity.enabled = show;
+        localStorage.setItem('showLiveProximity', show);
+        console.log('[Chart] toggleLiveProximity:', show);
+        
+        if (!show) {
+            this.liveProximity.liveMarker = null;
+            this.liveProximity.lastSignal = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Set Live Proximity threshold
+     */
+    setLiveProximityThreshold(threshold) {
+        this.liveProximity.threshold = threshold;
+        localStorage.setItem('liveProximityThreshold', threshold);
+        console.log('[Chart] setLiveProximityThreshold:', threshold);
+    }
+    
+    /**
+     * Update Live Proximity signal - dynamic, no locking, saves history per bar
+     */
+    updateLiveProximitySignal(levels, barOpenPrice, barTime) {
+        // Always compute signals for the panel, even if chart display is disabled
+        if (!levels || levels.length === 0 || !barOpenPrice || !barTime) {
+            return;
+        }
+        
+        // Check if bar changed - save previous bar's final marker to history
+        if (this.liveProximity.lastBarTime && this.liveProximity.lastBarTime !== barTime) {
+            if (this.liveProximity.liveMarker) {
+                // Save to history
+                this.liveProximity.markers.push({ ...this.liveProximity.liveMarker });
+                // Cap history
+                if (this.liveProximity.markers.length > 500) {
+                    this.liveProximity.markers = this.liveProximity.markers.slice(-500);
+                }
+                this.saveLiveProximityHistory();
+            }
+        }
+        this.liveProximity.lastBarTime = barTime;
+        
+        // Find the CLOSEST cluster to bar open price
+        let closestCluster = null;
+        let closestDistance = Infinity;
+        
+        for (const level of levels) {
+            const price = parseFloat(level.price) || 0;
+            const volume = parseFloat(level.volume) || 0;
+            
+            if (price < 100 || price > 10000000) continue;
+            if (volume <= 0) continue;
+            
+            const distance = Math.abs(barOpenPrice - price);
+            
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestCluster = level;
+            }
+        }
+        
+        if (!closestCluster) {
+            this.liveProximity.liveMarker = null;
+            this.liveProximity.lastSignal = null;
+            this.updateAllSignalMarkers();
+            return;
+        }
+        
+        const threshold = this.liveProximity.threshold;
+        const distancePercent = closestDistance / barOpenPrice;
+        
+        if (distancePercent <= threshold) {
+            const isSellWall = closestCluster.type === 'resistance';
+            const direction = isSellWall ? 'sell' : 'buy';
+            
+            this.liveProximity.lastSignal = { direction: direction };
+            
+            // More transparent colors for live signals
+            this.liveProximity.liveMarker = {
+                time: barTime,
+                position: direction === 'buy' ? 'belowBar' : 'aboveBar',
+                color: direction === 'buy' ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)', // Green/Red with 50% opacity
+                shape: direction === 'buy' ? 'arrowUp' : 'arrowDown',
+                text: 'l-prox',
+                size: 2
+            };
+        } else {
+            this.liveProximity.liveMarker = null;
+            this.liveProximity.lastSignal = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Save Live Proximity markers to localStorage
+     */
+    saveLiveProximityHistory() {
+        if (this.liveProximity.markers.length > 0) {
+            localStorage.setItem('liveProximityMarkers', JSON.stringify(this.liveProximity.markers));
+        } else {
+            localStorage.removeItem('liveProximityMarkers');
+        }
+    }
+    
+    /**
+     * Load Live Proximity markers from localStorage
+     */
+    loadLiveProximityHistory() {
+        try {
+            const saved = localStorage.getItem('liveProximityMarkers');
+            if (saved) {
+                this.liveProximity.markers = JSON.parse(saved);
+                console.log('[Chart] Loaded', this.liveProximity.markers.length, 'Live Proximity markers');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading Live Proximity history:', e);
+            this.liveProximity.markers = [];
+        }
+    }
+    
+    /**
+     * Clear Live Proximity signals
+     */
+    clearLiveProximitySignals() {
+        this.liveProximity.markers = [];
+        this.liveProximity.liveMarker = null;
+        this.liveProximity.lastSignal = null;
+        this.liveProximity.lastBarTime = null;
+        localStorage.removeItem('liveProximityMarkers');
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Live Drift Signal
+    // Dynamic signal, no locking - always shows current state
+    // ==========================================
+    
+    /**
+     * Toggle Live Drift signal
+     */
+    toggleLiveDrift(show) {
+        this.liveDrift.enabled = show;
+        localStorage.setItem('showLiveDrift', show);
+        console.log('[Chart] toggleLiveDrift:', show);
+        
+        if (!show) {
+            this.liveDrift.liveMarker = null;
+            this.liveDrift.lastSignal = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Update Live Drift signal - dynamic, no locking, saves history per bar
+     */
+    updateLiveDriftSignal(levels, currentPrice, barTime) {
+        // Always compute signals for the panel, even if chart display is disabled
+        if (!levels || levels.length === 0 || !currentPrice || !barTime) {
+            return;
+        }
+        
+        // Check if bar changed - save previous bar's final marker to history and reset
+        if (this.liveDrift.lastBarTime && this.liveDrift.lastBarTime !== barTime) {
+            if (this.liveDrift.liveMarker) {
+                // Save to history
+                this.liveDrift.markers.push({ ...this.liveDrift.liveMarker });
+                // Cap history
+                if (this.liveDrift.markers.length > 500) {
+                    this.liveDrift.markers = this.liveDrift.markers.slice(-500);
+                }
+                this.saveLiveDriftHistory();
+            }
+            // Reset for new bar
+            this.liveDrift.upTicks = 0;
+            this.liveDrift.downTicks = 0;
+            this.liveDrift.lastResistancePrice = null;
+            this.liveDrift.lastSupportPrice = null;
+        }
+        this.liveDrift.lastBarTime = barTime;
+        
+        // Find closest resistance (above price) and support (below price)
+        let closestResistance = null;
+        let closestSupport = null;
+        let minResistanceDistance = Infinity;
+        let minSupportDistance = Infinity;
+        
+        for (const level of levels) {
+            const price = parseFloat(level.price) || 0;
+            if (price <= 0 || isNaN(price)) continue;
+            
+            if (level.type === 'resistance' && price > currentPrice) {
+                const distance = price - currentPrice;
+                if (distance < minResistanceDistance) {
+                    minResistanceDistance = distance;
+                    closestResistance = price;
+                }
+            } else if (level.type === 'support' && price < currentPrice) {
+                const distance = currentPrice - price;
+                if (distance < minSupportDistance) {
+                    minSupportDistance = distance;
+                    closestSupport = price;
+                }
+            }
+        }
+        
+        // Track drift
+        if (this.liveDrift.lastResistancePrice !== null && closestResistance !== null) {
+            if (closestResistance > this.liveDrift.lastResistancePrice) {
+                this.liveDrift.upTicks++;
+            } else if (closestResistance < this.liveDrift.lastResistancePrice) {
+                this.liveDrift.downTicks++;
+            }
+        }
+        
+        if (this.liveDrift.lastSupportPrice !== null && closestSupport !== null) {
+            if (closestSupport > this.liveDrift.lastSupportPrice) {
+                this.liveDrift.upTicks++;
+            } else if (closestSupport < this.liveDrift.lastSupportPrice) {
+                this.liveDrift.downTicks++;
+            }
+        }
+        
+        this.liveDrift.lastResistancePrice = closestResistance;
+        this.liveDrift.lastSupportPrice = closestSupport;
+        
+        // Determine direction based on current ticks
+        let direction = null;
+        if (this.liveDrift.upTicks > this.liveDrift.downTicks) {
+            direction = 'buy';
+        } else if (this.liveDrift.downTicks > this.liveDrift.upTicks) {
+            direction = 'sell';
+        }
+        
+        if (direction) {
+            this.liveDrift.lastSignal = { direction: direction };
+            
+            // More transparent colors for live signals
+            this.liveDrift.liveMarker = {
+                time: barTime,
+                position: direction === 'buy' ? 'belowBar' : 'aboveBar',
+                color: direction === 'buy' ? 'rgba(0, 217, 255, 0.5)' : 'rgba(255, 0, 110, 0.5)', // Cyan/Magenta with 50% opacity
+                shape: direction === 'buy' ? 'arrowUp' : 'arrowDown',
+                text: 'l-drift',
+                size: 2
+            };
+        } else {
+            this.liveDrift.liveMarker = null;
+            this.liveDrift.lastSignal = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Save Live Drift markers to localStorage
+     */
+    saveLiveDriftHistory() {
+        if (this.liveDrift.markers.length > 0) {
+            localStorage.setItem('liveDriftMarkers', JSON.stringify(this.liveDrift.markers));
+        } else {
+            localStorage.removeItem('liveDriftMarkers');
+        }
+    }
+    
+    /**
+     * Load Live Drift markers from localStorage
+     */
+    loadLiveDriftHistory() {
+        try {
+            const saved = localStorage.getItem('liveDriftMarkers');
+            if (saved) {
+                this.liveDrift.markers = JSON.parse(saved);
+                console.log('[Chart] Loaded', this.liveDrift.markers.length, 'Live Drift markers');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading Live Drift history:', e);
+            this.liveDrift.markers = [];
+        }
+    }
+    
+    /**
+     * Clear Live Drift signals
+     */
+    clearLiveDriftSignals() {
+        this.liveDrift.markers = [];
+        this.liveDrift.liveMarker = null;
+        this.liveDrift.lastSignal = null;
+        this.liveDrift.lastBarTime = null;
+        this.liveDrift.upTicks = 0;
+        this.liveDrift.downTicks = 0;
+        this.liveDrift.lastResistancePrice = null;
+        this.liveDrift.lastSupportPrice = null;
+        localStorage.removeItem('liveDriftMarkers');
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Cluster Strike Panel
+    // Separate visualization of current bar walls
+    // ==========================================
+    
+    /**
+     * Initialize Cluster Strike panel canvas
+     */
+    initClusterStrike() {
+        const canvas = document.getElementById('clusterStrikeCanvas');
+        if (!canvas) {
+            console.warn('[ClusterStrike] Canvas not found');
+            return;
+        }
+        
+        this.clusterStrike.canvas = canvas;
+        this.clusterStrike.ctx = canvas.getContext('2d');
+        
+        // Set canvas size based on container
+        this.updateClusterStrikeCanvasSize();
+        
+        // Handle resize
+        const resizeObserver = new ResizeObserver(() => {
+            this.updateClusterStrikeCanvasSize();
+            this.renderClusterStrike();
+        });
+        resizeObserver.observe(canvas.parentElement);
+        
+        this.clusterStrike.initialized = true;
+        console.log('[ClusterStrike] Initialized');
+    }
+    
+    /**
+     * Update Cluster Strike canvas size for high DPI displays
+     */
+    updateClusterStrikeCanvasSize() {
+        const canvas = this.clusterStrike.canvas;
+        if (!canvas) return;
+        
+        const container = canvas.parentElement;
+        const rect = container.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        
+        const ctx = this.clusterStrike.ctx;
+        if (ctx) {
+            ctx.scale(dpr, dpr);
+        }
+    }
+    
+    /**
+     * Render Cluster Strike panel - shows current bar wall heatmap
+     * Matches the channel mode heatmap visual style (blue bids, pink asks)
+     * Called from accumulateLevelBucket when data updates
+     */
+    renderClusterStrike() {
+        if (!this.clusterStrike.initialized || !this.clusterStrike.ctx) return;
+        
+        // Throttle renders
+        const now = Date.now();
+        if (now - this.clusterStrike.lastRenderTime < this.clusterStrike.renderThrottleMs) {
+            return;
+        }
+        this.clusterStrike.lastRenderTime = now;
+        
+        const canvas = this.clusterStrike.canvas;
+        const ctx = this.clusterStrike.ctx;
+        const dpr = window.devicePixelRatio || 1;
+        const width = canvas.width / dpr;
+        const height = canvas.height / dpr;
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+        
+        // Get current price
+        const currentPrice = this.currentPrice;
+        if (!currentPrice) return;
+        
+        // Update price label
+        const priceLabel = document.getElementById('clusterStrikePriceLabel');
+        if (priceLabel) {
+            priceLabel.textContent = '$' + Math.round(currentPrice).toLocaleString();
+        }
+        
+        // Get current bar accumulator data
+        const accumulator = this.levelHistory.currentBarAccumulator;
+        if (!accumulator || accumulator.size === 0) return;
+        
+        // Define price range (±20% of current price)
+        const priceRange = this.clusterStrike.priceRange;
+        const minPrice = currentPrice * (1 - priceRange);
+        const maxPrice = currentPrice * (1 + priceRange);
+        const priceSpan = maxPrice - minPrice;
+        
+        // Filter buckets within price range and find max hits for normalization
+        const visibleBuckets = [];
+        let maxHits = 0;
+        
+        accumulator.forEach((data, bucketPrice) => {
+            if (bucketPrice >= minPrice && bucketPrice <= maxPrice) {
+                const totalHits = (data.bidHits || 0) + (data.askHits || 0);
+                visibleBuckets.push({ price: bucketPrice, ...data, totalHits });
+                maxHits = Math.max(maxHits, totalHits);
+            }
+        });
+        
+        if (visibleBuckets.length === 0 || maxHits === 0) return;
+        
+        const bucketSize = this.levelHistory.bucketSize || 50;
+        
+        // Calculate bucket height in pixels
+        const bucketHeightPx = Math.max(2, (height / priceSpan) * bucketSize);
+        
+        // Draw dark background
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw each bucket as a full-width bar (like the channel mode heatmap)
+        for (const bucket of visibleBuckets) {
+            const { price, bidHits, askHits, totalHits } = bucket;
+            
+            // Calculate Y position (inverted - higher prices at top)
+            const priceRatio = (price - minPrice) / priceSpan;
+            const y = height - (priceRatio * height) - (bucketHeightPx / 2);
+            
+            // Skip if outside visible area
+            if (y < -bucketHeightPx || y > height + bucketHeightPx) continue;
+            
+            // Calculate intensity based on total hits
+            const intensity = Math.min(1, totalHits / maxHits);
+            const alpha = 0.15 + intensity * 0.7;
+            
+            // Color by dominant side: more bids = cyan, more asks = magenta
+            // Matching channel mode heatmap colors exactly
+            const isBidDominant = bidHits >= askHits;
+            ctx.fillStyle = isBidDominant
+                ? `rgba(0, 217, 255, ${alpha})`   // cyan for bid-dominant (support)
+                : `rgba(255, 0, 110, ${alpha})`; // magenta for ask-dominant (resistance)
+            
+            // Draw full-width bucket rectangle
+            ctx.fillRect(0, y, width, Math.max(2, bucketHeightPx));
+        }
+        
+        // Draw current price line (horizontal, gold/yellow)
+        const priceY = height - ((currentPrice - minPrice) / priceSpan * height);
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, priceY);
+        ctx.lineTo(width, priceY);
+        ctx.stroke();
+        
+        // Draw price axis labels
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+        ctx.font = '9px JetBrains Mono, monospace';
+        ctx.textAlign = 'right';
+        
+        // Top price (maxPrice)
+        ctx.fillText('$' + Math.round(maxPrice).toLocaleString(), width - 4, 12);
+        
+        // Bottom price (minPrice) 
+        ctx.fillText('$' + Math.round(minPrice).toLocaleString(), width - 4, height - 4);
+    }
+    
+    /**
+     * Schedule Cluster Strike render (called from accumulateLevelBucket)
+     */
+    scheduleClusterStrikeRender() {
+        if (!this.clusterStrike.initialized) return;
+        
+        // Use requestAnimationFrame for smooth updates
+        if (!this.clusterStrike._renderScheduled) {
+            this.clusterStrike._renderScheduled = true;
+            requestAnimationFrame(() => {
+                this.clusterStrike._renderScheduled = false;
+                this.renderClusterStrike();
+            });
+        }
+    }
+    
+    // ==========================================
     // Trade Footprint Heatmap
     // ==========================================
     
@@ -3530,7 +4874,7 @@ class OrderBookChart {
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 5;
+            z-index: 11;
         `;
         
         // Insert canvas into chart container
@@ -3778,18 +5122,20 @@ class OrderBookChart {
                 const volumeScale = Math.min(1, level.totalVol / maxVolume);
                 
                 // Determine color (green for buying, red for selling)
+                const brightness = this.tradeFootprint.brightness || 1;
                 let color;
                 if (delta > 0) {
                     // Buying pressure - green
-                    const alpha = 0.3 + intensity * 0.6;
+                    const alpha = Math.min(1, (0.3 + intensity * 0.6) * brightness);
                     color = `rgba(16, 185, 129, ${alpha})`;
                 } else if (delta < 0) {
                     // Selling pressure - red
-                    const alpha = 0.3 + intensity * 0.6;
+                    const alpha = Math.min(1, (0.3 + intensity * 0.6) * brightness);
                     color = `rgba(239, 68, 68, ${alpha})`;
                 } else {
                     // Neutral - dim
-                    color = 'rgba(148, 163, 184, 0.2)';
+                    const alpha = Math.min(1, 0.2 * brightness);
+                    color = `rgba(148, 163, 184, ${alpha})`;
                 }
                 
                 // Calculate rectangle height (based on bucket size relative to price scale)
@@ -3845,6 +5191,513 @@ class OrderBookChart {
     }
     
     // ==========================================
+    // Flow Forecast - Predictive Arrows
+    // Shows predicted direction for next bar based on order flow
+    // ==========================================
+    
+    /**
+     * Toggle Flow Forecast display
+     */
+    toggleFlowForecast(show) {
+        this.flowForecast.enabled = show;
+        localStorage.setItem('showFlowForecast', show);
+        
+        if (show) {
+            this.initFlowForecastCanvas();
+            
+            // Render immediately
+            this.renderFlowForecast();
+            
+            // Also render after a short delay to catch any async initialization
+            setTimeout(() => {
+                if (this.flowForecast.enabled) {
+                    this.renderFlowForecast();
+                }
+            }, 100);
+            
+            // And again after chart may have updated
+            setTimeout(() => {
+                if (this.flowForecast.enabled) {
+                    this.renderFlowForecast();
+                }
+            }, 500);
+        } else {
+            this.clearFlowForecastCanvas();
+        }
+    }
+    
+    /**
+     * Initialize flow forecast canvas
+     */
+    initFlowForecastCanvas() {
+        if (this.flowForecast.canvas) {
+            console.log('[FlowForecast] Canvas already exists');
+            return;
+        }
+        
+        // Check for existing canvas
+        const existingCanvas = document.getElementById('flowForecastCanvas');
+        if (existingCanvas) {
+            this.flowForecast.canvas = existingCanvas;
+            this.flowForecast.ctx = existingCanvas.getContext('2d');
+            return;
+        }
+        
+        const canvas = document.createElement('canvas');
+        canvas.id = 'flowForecastCanvas';
+        
+        if (this.container) {
+            const rect = this.container.getBoundingClientRect();
+            
+            // Append to body and position absolutely over the chart
+            canvas.style.cssText = `
+                position: fixed;
+                top: ${rect.top}px;
+                left: ${rect.left}px;
+                width: ${rect.width}px;
+                height: ${rect.height}px;
+                pointer-events: none;
+                z-index: 10;
+            `;
+            document.body.appendChild(canvas);
+            
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            
+            this.flowForecast.canvas = canvas;
+            this.flowForecast.ctx = canvas.getContext('2d');
+            this.flowForecast.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            this.flowForecast._cachedWidth = rect.width;
+            this.flowForecast._cachedHeight = rect.height;
+            
+            // Subscribe to time scale changes
+            if (this.chart) {
+                this.chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+                    if (this.flowForecast.enabled) {
+                        this.scheduleFlowForecastRender();
+                    }
+                });
+            }
+            
+            // Resize observer
+            if (!this._flowForecastResizeObserver) {
+                this._flowForecastResizeObserver = new ResizeObserver(() => {
+                    this.updateFlowForecastCanvasSize();
+                    if (this.flowForecast.enabled) {
+                        this.scheduleFlowForecastRender();
+                    }
+                });
+                this._flowForecastResizeObserver.observe(this.container);
+            }
+            
+            // Setup drag tracking for price scale changes
+            this._setupFlowForecastDragTracking();
+        }
+    }
+
+    /**
+     * Init small legend for Flow Forecast
+     */
+    _initFlowForecastLegend() {
+        if (this._flowForecastLegend || !this.container) return;
+
+        const legend = document.createElement('div');
+        legend.id = 'flowForecastLegend';
+        legend.style.cssText = `
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            padding: 6px 8px;
+            background: rgba(15, 23, 42, 0.7);
+            color: #cbd5e1;
+            font: 10px "JetBrains Mono", monospace;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 12;
+        `;
+
+        legend.innerHTML = `
+            <div style="display:flex;gap:8px;align-items:center;white-space:nowrap;">
+                <span style="color:#10b981;">▲</span> Bull
+                <span style="color:#ef4444;">▼</span> Bear
+                <span style="color:#fbbf24;">◎</span> Low conf
+                <span style="color:#f59e0b;">A</span> Absorption
+                <span style="color:#10b981;">✓</span>/<span style="color:#ef4444;">✗</span> Accuracy
+            </div>
+        `;
+
+        this.container.appendChild(legend);
+        this._flowForecastLegend = legend;
+    }
+    
+    /**
+     * Setup drag tracking for flow forecast canvas
+     */
+    _setupFlowForecastDragTracking() {
+        if (!this.container || this.flowForecast._dragTrackingSetup) return;
+        this.flowForecast._dragTrackingSetup = true;
+        
+        let isDragging = false;
+        let renderLoop = null;
+        
+        const startDragRender = () => {
+            if (renderLoop) return;
+            renderLoop = () => {
+                if (isDragging && this.flowForecast.enabled) {
+                    this.renderFlowForecast();
+                    requestAnimationFrame(renderLoop);
+                } else {
+                    renderLoop = null;
+                }
+            };
+            requestAnimationFrame(renderLoop);
+        };
+        
+        this.container.addEventListener('mousedown', () => {
+            isDragging = true;
+            startDragRender();
+        });
+        
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    }
+    
+    /**
+     * Update flow forecast canvas size
+     */
+    updateFlowForecastCanvasSize() {
+        if (!this.container || !this.flowForecast.canvas) return;
+        
+        const rect = this.container.getBoundingClientRect();
+        this.flowForecast._cachedWidth = rect.width;
+        this.flowForecast._cachedHeight = rect.height;
+        
+        // Update fixed position
+        this.flowForecast.canvas.style.top = `${rect.top}px`;
+        this.flowForecast.canvas.style.left = `${rect.left}px`;
+        this.flowForecast.canvas.style.width = `${rect.width}px`;
+        this.flowForecast.canvas.style.height = `${rect.height}px`;
+        
+        this.flowForecast.canvas.width = rect.width * window.devicePixelRatio;
+        this.flowForecast.canvas.height = rect.height * window.devicePixelRatio;
+        
+        if (this.flowForecast.ctx) {
+            this.flowForecast.ctx.setTransform(1, 0, 0, 1, 0, 0);
+            this.flowForecast.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        }
+    }
+    
+    /**
+     * Schedule flow forecast render (rAF throttled)
+     */
+    scheduleFlowForecastRender() {
+        if (this.flowForecast._needsRender) return;
+        
+        this.flowForecast._needsRender = true;
+        this.flowForecast._rafId = requestAnimationFrame(() => {
+            this.flowForecast._needsRender = false;
+            this.renderFlowForecast();
+        });
+    }
+    
+    /**
+     * Clear flow forecast canvas
+     */
+    clearFlowForecastCanvas() {
+        if (this.flowForecast.canvas && this.flowForecast.ctx) {
+            const width = this.flowForecast._cachedWidth || this.container.getBoundingClientRect().width;
+            const height = this.flowForecast._cachedHeight || this.container.getBoundingClientRect().height;
+            this.flowForecast.ctx.clearRect(0, 0, width, height);
+        }
+    }
+    
+    /**
+     * Render flow forecast arrows on chart
+     */
+    renderFlowForecast() {
+        if (!this.flowForecast.enabled || !this.chart) {
+            return;
+        }
+        
+        // Initialize canvas if needed
+        if (!this.flowForecast.canvas || !this.flowForecast.ctx) {
+            this.initFlowForecastCanvas();
+            if (!this.flowForecast.ctx) {
+                console.warn('[FlowForecast] Canvas context not available');
+                return;
+            }
+        }
+        
+        // Get predictions
+        if (typeof flowForecast === 'undefined') {
+            console.warn('[FlowForecast] flowForecast global not defined');
+            return;
+        }
+        
+        const predictions = flowForecast.getAllPredictions();
+        if (predictions.size === 0) {
+            // Don't spam console, only log once per minute
+            const now = Date.now();
+            if (!this._lastNoPredsLog || now - this._lastNoPredsLog > 60000) {
+                console.log('[FlowForecast] No predictions to render yet');
+                this._lastNoPredsLog = now;
+            }
+            return;
+        }
+        
+        // Debug: log rendering
+        if (this.flowForecast._lastRenderCount !== predictions.size) {
+            console.log(`[FlowForecast] Rendering ${predictions.size} predictions`);
+            this.flowForecast._lastRenderCount = predictions.size;
+        }
+        
+        const ctx = this.flowForecast.ctx;
+        const width = this.flowForecast._cachedWidth || this.container.getBoundingClientRect().width;
+        const height = this.flowForecast._cachedHeight || this.container.getBoundingClientRect().height;
+        const timeScale = this.chart.timeScale();
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+        
+        // Get visible time range
+        const visibleRange = timeScale.getVisibleRange();
+        if (!visibleRange) return;
+        
+        // Get candles for price data
+        const candles = this.getCandles();
+        if (!candles || candles.length === 0) return;
+        
+        // Create candle lookup
+        const candleMap = new Map();
+        candles.forEach(c => candleMap.set(c.time, c));
+        
+        // Get interval for positioning
+        const intervalSec = flowForecast.getIntervalSeconds();
+        
+        // Draw predictions
+        predictions.forEach((prediction, barTime) => {
+            // Skip bars outside visible range (with buffer)
+            if (barTime < visibleRange.from - intervalSec * 2 || barTime > visibleRange.to + intervalSec * 2) {
+                return;
+            }
+            
+            // Always show predictions (no threshold filtering)
+            
+            // Get x coordinate
+            const x = timeScale.timeToCoordinate(barTime);
+            if (x === null || x < -20 || x > width + 20) return;
+            
+            // Get candle for y positioning
+            const candle = candleMap.get(barTime);
+            if (!candle) return;
+            
+            // Determine y position: UP arrow below bar (at low), DOWN arrow above bar (at high)
+            const isUp = prediction.direction === 'up';
+            const yPrice = isUp ? candle.low : candle.high;
+            const y = this.candleSeries.priceToCoordinate(yPrice);
+            if (y === null) return;
+            
+            // Check accuracy if bar is closed
+            let accuracy = null;
+            if (this.flowForecast.showAccuracy) {
+                accuracy = flowForecast.checkAccuracy(barTime);
+            }
+            
+            // Draw arrow
+            this.drawFlowForecastArrow(ctx, x, y, prediction, accuracy, isUp);
+        });
+        
+        // Draw live prediction (next bar) in future space
+        const latestPrediction = flowForecast.getLatestPrediction();
+        if (latestPrediction) {
+            const targetBarTime = latestPrediction.targetBar;
+            
+            // Check if this bar is in the future (not yet closed)
+            const lastCandle = candles[candles.length - 1];
+            if (targetBarTime > lastCandle.time) {
+                // Draw in future space
+                const x = timeScale.timeToCoordinate(targetBarTime);
+                if (x !== null && x > 0 && x < width + 50) {
+                    // Use last candle's price as reference: UP below (at low), DOWN above (at high)
+                    const yPrice = latestPrediction.direction === 'up' ? lastCandle.low : lastCandle.high;
+                    const y = this.candleSeries.priceToCoordinate(yPrice);
+                    if (y !== null) {
+                        this.drawFlowForecastArrow(ctx, x, y, latestPrediction, null, latestPrediction.direction === 'up', true);
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Draw a single flow forecast arrow with confidence number
+     * UP arrows below the bar (pointing up), DOWN arrows above the bar (pointing down)
+     * Triangles always green/red, text shows additional context
+     */
+    drawFlowForecastArrow(ctx, x, y, prediction, accuracy, isUp, isLive = false) {
+        const confidence = Math.abs(prediction.score);
+        const arrowSize = 8;
+        
+        // UP arrows go BELOW the candle, DOWN arrows go ABOVE
+        // y is already at high (for down) or low (for up) from the caller
+        const padding = 12;
+        const arrowY = isUp ? y + padding : y - padding;
+        
+        // Check for signal types (for text coloring)
+        const bbSignal = prediction.bbSignal || 'normal';
+        const bbPulseSignal = prediction.bbPulseSignal;
+        const isBBPulseBuy = bbPulseSignal === 'buy1' || bbPulseSignal === 'buy1_wait';
+        const isBBPulseSell = bbPulseSignal === 'sell1' || bbPulseSignal === 'sell1_wait';
+        const isBBPulseCaution = bbPulseSignal?.includes('caution');
+        const isStrong = bbSignal === 'strong_long' || bbSignal === 'strong_short' || 
+                        bbSignal === 'price_low_buy' || bbSignal === 'price_high_sell' ||
+                        isBBPulseBuy || isBBPulseSell;
+        const isCaution = bbSignal === 'caution_long' || bbSignal === 'caution_short' || isBBPulseCaution;
+        
+        // Determine confidence level
+        const uncertainThreshold = flowForecast?.config?.uncertainThreshold || 30;
+        const isUncertain = confidence < uncertainThreshold;
+        
+        // TRIANGLES: Always simple green or red based on direction
+        const arrowColor = isUp ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)';
+        
+        // TEXT color varies based on signal type
+        let textColor;
+        if (prediction.absorption) {
+            textColor = 'rgba(249, 115, 22, 1)'; // orange
+        } else if (isBBPulseBuy) {
+            textColor = 'rgba(6, 182, 212, 1)'; // cyan
+        } else if (isBBPulseSell) {
+            textColor = 'rgba(236, 72, 153, 1)'; // pink
+        } else if (isCaution || isUncertain) {
+            textColor = 'rgba(251, 191, 36, 1)'; // yellow
+        } else {
+            textColor = arrowColor; // match arrow
+        }
+        
+        // Live prediction styling
+        if (isLive) {
+            ctx.setLineDash([3, 3]);
+            ctx.globalAlpha = 0.7;
+        } else {
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
+        
+        // Draw simple triangle (no shadow/halo)
+        ctx.fillStyle = arrowColor;
+        
+        const drawArrow = (offsetY, alpha = 1) => {
+            ctx.globalAlpha = isLive ? 0.7 * alpha : alpha;
+            ctx.beginPath();
+            if (isUp) {
+                // Up arrow pointing up, positioned below candle
+                ctx.moveTo(x, arrowY - arrowSize + offsetY);
+                ctx.lineTo(x - arrowSize * 0.6, arrowY + offsetY);
+                ctx.lineTo(x + arrowSize * 0.6, arrowY + offsetY);
+            } else {
+                // Down arrow pointing down, positioned above candle
+                ctx.moveTo(x, arrowY + arrowSize + offsetY);
+                ctx.lineTo(x - arrowSize * 0.6, arrowY + offsetY);
+                ctx.lineTo(x + arrowSize * 0.6, arrowY + offsetY);
+            }
+            ctx.closePath();
+            ctx.fill();
+        };
+        
+        // Draw arrows (1, 2, or 3 based on strength)
+        const arrowCount = isStrong ? (isBBPulseBuy || isBBPulseSell ? 3 : 2) : 1;
+        
+        drawArrow(0, 1);
+        if (arrowCount >= 2) {
+            const offset2 = isUp ? 6 : -6;
+            drawArrow(offset2, 0.7);
+        }
+        if (arrowCount >= 3) {
+            const offset3 = isUp ? 12 : -12;
+            drawArrow(offset3, 0.5);
+        }
+        
+        ctx.globalAlpha = 1;
+        
+        // Draw confidence number
+        ctx.font = 'bold 9px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        
+        // Text position: further from arrow based on arrow count
+        const textOffset = arrowCount * 6 + 4;
+        const textY = isUp ? arrowY + textOffset + 2 : arrowY - textOffset - 2;
+        ctx.textBaseline = isUp ? 'top' : 'bottom';
+        
+        // Draw text background
+        const text = confidence.toString();
+        const textWidth = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
+        ctx.fillRect(x - textWidth / 2 - 2, textY - (isUp ? 0 : 10), textWidth + 4, 10);
+        
+        // Draw confidence text
+        ctx.fillStyle = textColor;
+        ctx.fillText(text, x, textY);
+        
+        // Draw context label (BB Pulse, etc.)
+        if (prediction.components) {
+            let bbLabel = '';
+            let labelColor = 'rgba(156, 163, 175, 0.9)'; // gray default
+            
+            if (prediction.components.atBBPeriodLow) {
+                bbLabel = 'L20';
+                labelColor = 'rgba(6, 182, 212, 1)'; // cyan
+            } else if (prediction.components.atBBPeriodHigh) {
+                bbLabel = 'H20';
+                labelColor = 'rgba(236, 72, 153, 1)'; // pink
+            } else if (prediction.components.atPriceLow20) {
+                bbLabel = 'PL';
+                labelColor = 'rgba(34, 197, 94, 0.9)';
+            } else if (prediction.components.atPriceHigh20) {
+                bbLabel = 'PH';
+                labelColor = 'rgba(239, 68, 68, 0.9)';
+            } else if (prediction.components.percentB < 20) {
+                bbLabel = 'OS';
+                labelColor = 'rgba(34, 197, 94, 0.9)';
+            } else if (prediction.components.percentB > 80) {
+                bbLabel = 'OB';
+                labelColor = 'rgba(239, 68, 68, 0.9)';
+            }
+            
+            if (bbLabel) {
+                ctx.font = 'bold 7px JetBrains Mono, monospace';
+                ctx.fillStyle = labelColor;
+                const labelY = isUp ? textY + 10 : textY - 10;
+                ctx.fillText(bbLabel, x, labelY);
+            }
+        }
+        
+        // Draw absorption indicator
+        if (prediction.absorption) {
+            ctx.font = 'bold 8px JetBrains Mono, monospace';
+            ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
+            const aY = isUp ? textY - 12 : textY + 12;
+            ctx.fillText('A', x, aY);
+        }
+        
+        // Draw accuracy indicator (✓ or ✗) if enabled
+        if (accuracy !== null) {
+            ctx.font = 'bold 10px Arial';
+            ctx.fillStyle = accuracy.correct ? 'rgba(16, 185, 129, 1)' : 'rgba(239, 68, 68, 1)';
+            const accSymbol = accuracy.correct ? '✓' : '✗';
+            const accX = x + arrowSize + 5;
+            const accY = isUp ? arrowY - 2 : arrowY + 2;
+            ctx.fillText(accSymbol, accX, accY);
+        }
+        
+        // Reset
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+    }
+    
+    // ==========================================
     // Level History - Unified Order Book + Fair Value Tracking
     // Heatmap for clusters, Lines for Mid/IFV/VWMP
     // ==========================================
@@ -3867,11 +5720,30 @@ class OrderBookChart {
         // Create canvas for cluster heatmap
         this.initLevelHistoryCanvas();
         
-        // Create line series for fair value indicators
-        this.initLevelHistoryLineSeries();
+        // Note: Fair value line series removed - now using heatmap buckets instead
         
         // Load saved history from localStorage
         this.loadLevelHistory();
+        
+        // Load Cluster Proximity signal history
+        if (this.clusterProximity.enabled) {
+            this.loadClusterProximityHistory();
+        }
+        
+        // Load Cluster Drift signal history
+        if (this.clusterDrift.enabled) {
+            this.loadClusterDriftHistory();
+        }
+        
+        // Load Live Proximity signal history
+        if (this.liveProximity.enabled) {
+            this.loadLiveProximityHistory();
+        }
+        
+        // Load Live Drift signal history
+        if (this.liveDrift.enabled) {
+            this.loadLiveDriftHistory();
+        }
         
         // Subscribe to chart changes with rAF throttling
         if (this.chart) {
@@ -3886,8 +5758,36 @@ class OrderBookChart {
         // Handle price scale drags by rendering continuously during mouse drag
         this._setupLevelHistoryDragTracking();
         
+        // Setup persistence handlers for page refresh/close
+        this._setupLevelHistoryPersistence();
+        
         this.levelHistory.initialized = true;
         console.log('[Chart] Level History initialized');
+    }
+    
+    /**
+     * Setup persistence handlers to save level history on page unload/visibility change
+     * Ensures data survives page refresh
+     */
+    _setupLevelHistoryPersistence() {
+        // Save before page unload (refresh/close)
+        window.addEventListener('beforeunload', () => {
+            this.saveLevelHistory();
+        });
+        
+        // Save when page becomes hidden (tab switch, minimize)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.saveLevelHistory();
+            }
+        });
+        
+        // Periodic auto-save every 30 seconds (catches data if bar hasn't closed)
+        this.levelHistory._autoSaveInterval = setInterval(() => {
+            if (this.levelHistory.data.size > 0) {
+                this.saveLevelHistory();
+            }
+        }, 30000);
     }
     
     /**
@@ -3962,7 +5862,7 @@ class OrderBookChart {
             width: 100%;
             height: 100%;
             pointer-events: none;
-            z-index: 4;
+            z-index: 10;
         `;
         
         this.container.style.position = 'relative';
@@ -4011,39 +5911,10 @@ class OrderBookChart {
     
     /**
      * Initialize line series for Fair Value indicators
+     * Note: Line series removed - now using heatmap buckets instead
      */
     initLevelHistoryLineSeries() {
-        if (!this.chart) return;
-        
-        // Mid line - gray, dotted
-        this.levelHistory.midSeries = this.chart.addLineSeries({
-            color: 'rgba(148, 163, 184, 0.5)',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dotted,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false
-        });
-        
-        // IFV line - gold, solid
-        this.levelHistory.ifvSeries = this.chart.addLineSeries({
-            color: 'rgba(251, 191, 36, 0.7)',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false
-        });
-        
-        // VWMP line - green, solid
-        this.levelHistory.vwmpSeries = this.chart.addLineSeries({
-            color: 'rgba(16, 185, 129, 0.7)',
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false
-        });
+        // Line series removed - fair value indicators now rendered as heatmap buckets
     }
     
     /**
@@ -4071,6 +5942,159 @@ class OrderBookChart {
     }
     
     /**
+     * Toggle Level History Channel Mode
+     * Channel mode samples walls continuously throughout bar instead of single snapshot
+     */
+    toggleLevelHistoryChannelMode(enabled) {
+        // Save current mode's data before switching
+        this.saveLevelHistory();
+        
+        // Update mode flag
+        this.levelHistory.channelMode = enabled;
+        localStorage.setItem('levelHeatmapChannelMode', enabled);
+        console.log('[Chart] toggleLevelHistoryChannelMode:', enabled);
+        
+        // Clear in-memory data (will load new mode's data if exists)
+        this.levelHistory.data.clear();
+        this.levelHistory.midData = [];
+        this.levelHistory.ifvData = [];
+        this.levelHistory.vwmpData = [];
+        this.levelHistory.currentBarAccumulator.clear();
+        this.levelHistory.currentBarSampleCount = 0;
+        // Clear fair value accumulators
+        this.levelHistory.midBuckets.clear();
+        this.levelHistory.ifvBuckets.clear();
+        this.levelHistory.vwmpBuckets.clear();
+        this.levelHistory.fvSampleCount = 0;
+        
+        // Load data for the new mode (if any exists)
+        this.loadLevelHistory();
+        
+        // Re-render
+        if (this.levelHistory.showHeatmap) {
+            this.renderLevelHistoryHeatmap();
+        }
+    }
+    
+    /**
+     * Set Level History bucket size for channel mode
+     */
+    setLevelHistoryBucketSize(size) {
+        this.levelHistory.bucketSize = parseInt(size) || 50;
+        localStorage.setItem('levelHeatmapBucketSize', this.levelHistory.bucketSize);
+        console.log('[Chart] setLevelHistoryBucketSize:', this.levelHistory.bucketSize);
+    }
+    
+    /**
+     * Set level heatmap brightness multiplier
+     */
+    setLevelHeatmapBrightness(value) {
+        this.levelHistory.brightness = parseFloat(value) || 1;
+        localStorage.setItem('levelHeatmapBrightness', this.levelHistory.brightness);
+        console.log('[Chart] setLevelHeatmapBrightness:', this.levelHistory.brightness);
+        if (this.levelHistory.showHeatmap) {
+            this.renderLevelHistoryHeatmap();
+        }
+    }
+    
+    /**
+     * Set trade heatmap brightness multiplier
+     */
+    setTradeHeatmapBrightness(value) {
+        this.tradeFootprint.brightness = parseFloat(value) || 1;
+        localStorage.setItem('tradeHeatmapBrightness', this.tradeFootprint.brightness);
+        console.log('[Chart] setTradeHeatmapBrightness:', this.tradeFootprint.brightness);
+        if (this.tradeFootprint.enabled) {
+            this.renderTradeFootprint();
+        }
+    }
+    
+    /**
+     * Accumulate level positions into buckets (called on every WS update in channel mode)
+     * This tracks where walls appear throughout the bar for channel visualization
+     * @param {Array} levels - Current order book levels [{price, type, volume}, ...]
+     */
+    accumulateLevelBucket(levels) {
+        if (!this.levelHistory.channelMode || !levels || levels.length === 0) return;
+        
+        const bucketSize = this.levelHistory.bucketSize;
+        const accumulator = this.levelHistory.currentBarAccumulator;
+        
+        for (const level of levels) {
+            const price = parseFloat(level.price);
+            if (!price || price <= 0) continue;
+            
+            // Calculate bucket key
+            const bucket = Math.floor(price / bucketSize) * bucketSize;
+            
+            // Get or create bucket data
+            let data = accumulator.get(bucket);
+            if (!data) {
+                data = { bidHits: 0, askHits: 0, maxBidVol: 0, maxAskVol: 0 };
+                accumulator.set(bucket, data);
+            }
+            
+            const volume = parseFloat(level.volume) || 0;
+            
+            // Accumulate based on side
+            if (level.type === 'support') {
+                data.bidHits++;
+                data.maxBidVol = Math.max(data.maxBidVol, volume);
+            } else if (level.type === 'resistance') {
+                data.askHits++;
+                data.maxAskVol = Math.max(data.maxAskVol, volume);
+            }
+        }
+        
+        this.levelHistory.currentBarSampleCount++;
+        
+        // Schedule throttled re-render to show current bar in real-time
+        if (this.levelHistory.showHeatmap) {
+            this.scheduleLevelHistoryRender();
+        }
+    }
+    
+    /**
+     * Accumulate fair value (mid/ifv/vwmp) positions into buckets
+     * Called on every WS update to track where fair values spent time during bar
+     * Always tracks in background regardless of display setting
+     * @param {number} mid - Current mid price
+     * @param {number} ifv - Current IFV price
+     * @param {number} vwmp - Current VWMP price
+     */
+    accumulateFairValueBucket(mid, ifv, vwmp) {
+        const bucketSize = this.levelHistory.bucketSize;
+        
+        // Accumulate mid
+        if (mid && isFinite(mid) && mid > 0) {
+            const bucket = Math.floor(mid / bucketSize) * bucketSize;
+            const hits = (this.levelHistory.midBuckets.get(bucket) || 0) + 1;
+            this.levelHistory.midBuckets.set(bucket, hits);
+        }
+        
+        // Accumulate IFV
+        if (ifv && isFinite(ifv) && ifv > 0) {
+            const bucket = Math.floor(ifv / bucketSize) * bucketSize;
+            const hits = (this.levelHistory.ifvBuckets.get(bucket) || 0) + 1;
+            this.levelHistory.ifvBuckets.set(bucket, hits);
+        }
+        
+        // Accumulate VWMP
+        if (vwmp && isFinite(vwmp) && vwmp > 0) {
+            const bucket = Math.floor(vwmp / bucketSize) * bucketSize;
+            const hits = (this.levelHistory.vwmpBuckets.get(bucket) || 0) + 1;
+            this.levelHistory.vwmpBuckets.set(bucket, hits);
+        }
+        
+        this.levelHistory.fvSampleCount++;
+        
+        // Schedule render if any fair value indicator is enabled
+        if (this.fairValueIndicators.showMid || this.fairValueIndicators.showIFV || this.fairValueIndicators.showVWMP) {
+            this.scheduleLevelHistoryRender();
+        }
+    }
+    
+    /**
      * Snapshot current levels and fair values on bar close
      * Always caches data regardless of display setting so data is ready when enabled
      * @param {number} newBarTime - The time of the NEW bar that just opened
@@ -4094,31 +6118,92 @@ class OrderBookChart {
         
         // Get current order book levels (clusters)
         const levels = this.fairValueIndicators.currentLevels;
-        if (!levels || levels.length === 0) {
-            console.warn('[LevelHistory] No levels available for snapshot');
-            return;
-        }
-        
-        // Extract clusters (top levels by volume)
-        const clusters = this.extractClustersForHistory(levels);
         
         // Get current price for filtering fair value calculations
         const currentPrice = this.lastCandle?.close || this.currentPrice;
         
         // Calculate fair value indicators (with price filtering)
-        const mid = this.calculateMidPrice(levels);
-        const ifv = this.calculateIFV(levels, currentPrice);
-        const vwmp = this.calculateVWMP(levels, currentPrice);
+        const mid = levels ? this.calculateMidPrice(levels) : null;
+        const ifv = levels ? this.calculateIFV(levels, currentPrice) : null;
+        const vwmp = levels ? this.calculateVWMP(levels, currentPrice) : null;
         
-        console.log(`[LevelHistory] Snapshot bar ${closedBarTime}: ${clusters.length} clusters, price=${currentPrice}, mid=${mid}, ifv=${ifv}, vwmp=${vwmp}`);
+        let snapshot;
         
-        // Store snapshot
-        const snapshot = {
-            clusters: clusters,
-            mid: mid,
-            ifv: ifv,
-            vwmp: vwmp
-        };
+        // Convert fair value buckets to arrays for storage
+        const midBuckets = Array.from(this.levelHistory.midBuckets.entries()).map(([price, hits]) => ({ price, hits }));
+        const ifvBuckets = Array.from(this.levelHistory.ifvBuckets.entries()).map(([price, hits]) => ({ price, hits }));
+        const vwmpBuckets = Array.from(this.levelHistory.vwmpBuckets.entries()).map(([price, hits]) => ({ price, hits }));
+        const fvSampleCount = this.levelHistory.fvSampleCount;
+        
+        if (this.levelHistory.channelMode) {
+            // CHANNEL MODE: Save accumulated bucket data
+            const accumulator = this.levelHistory.currentBarAccumulator;
+            
+            if (accumulator.size === 0 && midBuckets.length === 0 && ifvBuckets.length === 0 && vwmpBuckets.length === 0) {
+                console.warn('[LevelHistory] Channel mode: No bucket data accumulated for bar');
+                return;
+            }
+            
+            // Convert Map to array for storage (Maps don't serialize well)
+            const buckets = [];
+            accumulator.forEach((data, bucket) => {
+                buckets.push({
+                    price: bucket,
+                    bidHits: data.bidHits,
+                    askHits: data.askHits,
+                    maxBidVol: data.maxBidVol,
+                    maxAskVol: data.maxAskVol
+                });
+            });
+            
+            snapshot = {
+                buckets: buckets,
+                sampleCount: this.levelHistory.currentBarSampleCount,
+                mid: mid,
+                ifv: ifv,
+                vwmp: vwmp,
+                midBuckets: midBuckets,
+                ifvBuckets: ifvBuckets,
+                vwmpBuckets: vwmpBuckets,
+                fvSampleCount: fvSampleCount,
+                isChannelMode: true
+            };
+            
+            console.log(`[LevelHistory] Channel snapshot bar ${closedBarTime}: ${buckets.length} level buckets, ${midBuckets.length}/${ifvBuckets.length}/${vwmpBuckets.length} fv buckets, ${this.levelHistory.currentBarSampleCount} samples`);
+            
+            // Reset accumulators for next bar
+            this.levelHistory.currentBarAccumulator.clear();
+            this.levelHistory.currentBarSampleCount = 0;
+            
+        } else {
+            // STANDARD MODE: Single snapshot at bar close
+            if (!levels || levels.length === 0) {
+                console.warn('[LevelHistory] No levels available for snapshot');
+                return;
+            }
+            
+            // Extract clusters (top levels by volume)
+            const clusters = this.extractClustersForHistory(levels);
+            
+            snapshot = {
+                clusters: clusters,
+                mid: mid,
+                ifv: ifv,
+                vwmp: vwmp,
+                midBuckets: midBuckets,
+                ifvBuckets: ifvBuckets,
+                vwmpBuckets: vwmpBuckets,
+                fvSampleCount: fvSampleCount
+            };
+            
+            console.log(`[LevelHistory] Snapshot bar ${closedBarTime}: ${clusters.length} clusters, ${midBuckets.length}/${ifvBuckets.length}/${vwmpBuckets.length} fv buckets, price=${currentPrice}`);
+        }
+        
+        // Reset fair value accumulators for next bar
+        this.levelHistory.midBuckets.clear();
+        this.levelHistory.ifvBuckets.clear();
+        this.levelHistory.vwmpBuckets.clear();
+        this.levelHistory.fvSampleCount = 0;
         
         this.levelHistory.data.set(closedBarTime, snapshot);
         this.levelHistory.lastBarTime = closedBarTime;
@@ -4192,6 +6277,9 @@ class OrderBookChart {
     
     /**
      * Render cluster heatmap on canvas
+     * Supports two modes:
+     * - Standard: Individual rectangles at exact cluster prices (single snapshot per bar)
+     * - Channel: Bucket bands showing wall movement range (accumulated throughout bar)
      * Optimized: filters to visible bars, uses cached dimensions, rAF throttled
      */
     renderLevelHistoryHeatmap() {
@@ -4212,8 +6300,14 @@ class OrderBookChart {
         // Clear canvas
         ctx.clearRect(0, 0, width, height);
         
-        if (this.levelHistory.data.size === 0) {
-            // No data yet - waiting for first bar to close
+        // Check if we have any data (historical OR current bar accumulator)
+        const hasHistoricalData = this.levelHistory.data.size > 0;
+        const hasCurrentBarData = this.levelHistory.channelMode && 
+            this.levelHistory.currentBarAccumulator && 
+            this.levelHistory.currentBarAccumulator.size > 0;
+        
+        if (!hasHistoricalData && !hasCurrentBarData) {
+            // No data yet - waiting for first bar data
             return;
         }
         
@@ -4234,25 +6328,45 @@ class OrderBookChart {
         const visibleFrom = visibleTimeRange.from - bufferTime;
         const visibleTo = visibleTimeRange.to + bufferTime;
         
-        // Filter to visible bars and find max volume in single pass
+        // Filter to visible bars
         const visibleBars = [];
-        let maxVolume = 0;
-        
         this.levelHistory.data.forEach((snapshot, barTime) => {
-            // Skip bars outside visible range
             if (barTime < visibleFrom || barTime > visibleTo) return;
-            
             visibleBars.push({ barTime, snapshot });
-            snapshot.clusters.forEach(cluster => {
-                maxVolume = Math.max(maxVolume, cluster.volume);
-            });
         });
         
-        if (maxVolume === 0 || visibleBars.length === 0) {
-            return;
+        // Check if we're in channel mode (use stored mode or current setting)
+        const isChannelMode = this.levelHistory.channelMode || 
+            (visibleBars.length > 0 && visibleBars[0]?.snapshot?.isChannelMode === true);
+        
+        // Allow rendering even with no historical bars if we have current bar data in channel mode
+        if (visibleBars.length === 0 && !hasCurrentBarData) return;
+        
+        console.log(`[LevelHistory Render] ${visibleBars.length} visible bars, channelMode=${isChannelMode}, first bar:`, visibleBars[0]?.snapshot);
+        
+        if (isChannelMode) {
+            this._renderChannelModeHeatmap(ctx, visibleBars, timeScale, intervalSec, width, height);
+        } else {
+            this._renderStandardModeHeatmap(ctx, visibleBars, timeScale, intervalSec, width, height);
+        }
+    }
+    
+    /**
+     * Render standard mode heatmap (single snapshot clusters)
+     */
+    _renderStandardModeHeatmap(ctx, visibleBars, timeScale, intervalSec, width, height) {
+        // Find max volume across all visible bars
+        let maxVolume = 0;
+        for (const { snapshot } of visibleBars) {
+            if (!snapshot.clusters) continue;
+            for (const cluster of snapshot.clusters) {
+                maxVolume = Math.max(maxVolume, cluster.volume);
+            }
         }
         
-        // Pre-calculate bar width once (same for all bars at this zoom level)
+        if (maxVolume === 0) return;
+        
+        // Pre-calculate bar width once
         let barWidth = 6;
         if (visibleBars.length > 0) {
             const sampleX = timeScale.timeToCoordinate(visibleBars[0].barTime);
@@ -4262,8 +6376,20 @@ class OrderBookChart {
             }
         }
         
+        // Calculate bucket size and height for fair value rendering
+        const bucketSize = this.levelHistory.bucketSize;
+        const refPrice = this.currentPrice || 100000;
+        const refY1 = this.candleSeries.priceToCoordinate(refPrice);
+        const refY2 = this.candleSeries.priceToCoordinate(refPrice + bucketSize);
+        let bucketHeight = refY1 !== null && refY2 !== null 
+            ? Math.abs(refY1 - refY2) 
+            : 8;
+        bucketHeight = Math.max(4, bucketHeight);
+        
         // Draw heatmap for each visible bar
         for (const { barTime, snapshot } of visibleBars) {
+            if (!snapshot.clusters) continue;
+            
             const x = timeScale.timeToCoordinate(barTime);
             if (x === null || x < -barWidth || x > width + barWidth) continue;
             
@@ -4273,7 +6399,8 @@ class OrderBookChart {
                 if (y === null || y < -10 || y > height + 10) continue;
                 
                 const intensity = Math.min(1, cluster.volume / maxVolume);
-                const alpha = 0.3 + intensity * 0.6;
+                const brightness = this.levelHistory.brightness || 1;
+                const alpha = Math.min(1, (0.3 + intensity * 0.6) * brightness);
                 
                 // Color by type: resistance = magenta, support = cyan
                 ctx.fillStyle = cluster.type === 'resistance'
@@ -4285,60 +6412,306 @@ class OrderBookChart {
                 ctx.fillRect(x - barWidth / 2, y - rectHeight / 2, barWidth, rectHeight);
             }
         }
+        
+        // Render fair value buckets on top
+        this._renderFairValueBuckets(ctx, visibleBars, timeScale, intervalSec, width, height, bucketSize, barWidth, bucketHeight);
+    }
+    
+    /**
+     * Render channel mode heatmap (accumulated bucket bands)
+     * Shows where walls traveled throughout the bar as a channel/band
+     */
+    _renderChannelModeHeatmap(ctx, visibleBars, timeScale, intervalSec, width, height) {
+        const bucketSize = this.levelHistory.bucketSize;
+        
+        // Build current bar's bucket data from the live accumulator
+        const now = Math.floor(Date.now() / 1000);
+        const currentBarTime = this.getBarTime(now, this.currentInterval);
+        let currentBarBuckets = [];
+        if (currentBarTime && this.levelHistory.currentBarAccumulator && this.levelHistory.currentBarAccumulator.size > 0) {
+            currentBarBuckets = Array.from(this.levelHistory.currentBarAccumulator.entries()).map(([price, data]) => ({
+                price,
+                bidHits: data.bidHits,
+                askHits: data.askHits,
+                maxBidVol: data.maxBidVol,
+                maxAskVol: data.maxAskVol
+            }));
+        }
+        
+        // Find max hits across all visible bars AND current bar for normalization
+        let maxHits = 0;
+        let totalBuckets = 0;
+        for (const { snapshot } of visibleBars) {
+            if (!snapshot.buckets) continue;
+            totalBuckets += snapshot.buckets.length;
+            for (const bucket of snapshot.buckets) {
+                const totalHits = bucket.bidHits + bucket.askHits;
+                maxHits = Math.max(maxHits, totalHits);
+            }
+        }
+        // Include current bar in max calculation
+        for (const bucket of currentBarBuckets) {
+            const totalHits = bucket.bidHits + bucket.askHits;
+            maxHits = Math.max(maxHits, totalHits);
+        }
+        totalBuckets += currentBarBuckets.length;
+        
+        if (maxHits === 0) return;
+        
+        // Pre-calculate bar width once
+        // Try to use historical bar time, or fall back to current bar time
+        let barWidth = 6;
+        const sampleBarTime = visibleBars.length > 0 ? visibleBars[0].barTime : currentBarTime;
+        if (sampleBarTime) {
+            const sampleX = timeScale.timeToCoordinate(sampleBarTime);
+            const sampleNextX = timeScale.timeToCoordinate(sampleBarTime + intervalSec);
+            if (sampleX !== null && sampleNextX !== null) {
+                barWidth = Math.max(2, (sampleNextX - sampleX) * 0.8);
+            }
+        }
+        
+        // Calculate bucket height in pixels (convert price to y coordinates)
+        // Use a reference price to estimate pixel height of one bucket
+        const refPrice = this.currentPrice || 100000;
+        const refY1 = this.candleSeries.priceToCoordinate(refPrice);
+        const refY2 = this.candleSeries.priceToCoordinate(refPrice + bucketSize);
+        let bucketHeight = refY1 !== null && refY2 !== null 
+            ? Math.abs(refY1 - refY2) 
+            : 8; // Fallback height
+        
+        // Ensure minimum visible height
+        bucketHeight = Math.max(4, bucketHeight);
+        
+        // Count how many buckets we actually draw
+        let drawnBuckets = 0;
+        
+        // Draw heatmap for each visible bar (historical)
+        for (const { barTime, snapshot } of visibleBars) {
+            if (!snapshot.buckets) continue;
+            
+            const x = timeScale.timeToCoordinate(barTime);
+            if (x === null || x < -barWidth || x > width + barWidth) continue;
+            
+            // Draw each bucket
+            for (const bucket of snapshot.buckets) {
+                const y = this.candleSeries.priceToCoordinate(bucket.price + bucketSize / 2); // Center of bucket
+                if (y === null || y < -bucketHeight || y > height + bucketHeight) continue;
+                
+                drawnBuckets++;
+                
+                const totalHits = bucket.bidHits + bucket.askHits;
+                const intensity = Math.min(1, totalHits / maxHits);
+                const brightness = this.levelHistory.brightness || 1;
+                const alpha = Math.min(1, (0.15 + intensity * 0.65) * brightness);
+                
+                // Color by dominant side: more bids = cyan, more asks = magenta
+                const isBidDominant = bucket.bidHits >= bucket.askHits;
+                ctx.fillStyle = isBidDominant
+                    ? `rgba(0, 217, 255, ${alpha})`   // cyan for bid-dominant
+                    : `rgba(255, 0, 110, ${alpha})`; // magenta for ask-dominant
+                
+                // Draw bucket rectangle - height based on actual bucket size
+                const rectHeight = Math.max(4, bucketHeight);
+                ctx.fillRect(x - barWidth / 2, y - rectHeight / 2, barWidth, rectHeight);
+            }
+        }
+        
+        // Draw current bar's live accumulated data
+        if (currentBarTime && currentBarBuckets.length > 0) {
+            const x = timeScale.timeToCoordinate(currentBarTime);
+            if (x !== null && x >= -barWidth && x <= width + barWidth) {
+                for (const bucket of currentBarBuckets) {
+                    const y = this.candleSeries.priceToCoordinate(bucket.price + bucketSize / 2);
+                    if (y === null || y < -bucketHeight || y > height + bucketHeight) continue;
+                    
+                    drawnBuckets++;
+                    
+                    const totalHits = bucket.bidHits + bucket.askHits;
+                    const intensity = Math.min(1, totalHits / maxHits);
+                    const brightness = this.levelHistory.brightness || 1;
+                    const alpha = Math.min(1, (0.15 + intensity * 0.65) * brightness);
+                    
+                    const isBidDominant = bucket.bidHits >= bucket.askHits;
+                    ctx.fillStyle = isBidDominant
+                        ? `rgba(0, 217, 255, ${alpha})`
+                        : `rgba(255, 0, 110, ${alpha})`;
+                    
+                    const rectHeight = Math.max(4, bucketHeight);
+                    ctx.fillRect(x - barWidth / 2, y - rectHeight / 2, barWidth, rectHeight);
+                }
+            }
+        }
+        
+        // Render fair value buckets (mid/ifv/vwmp) on top of level buckets
+        this._renderFairValueBuckets(ctx, visibleBars, timeScale, intervalSec, width, height, bucketSize, barWidth, bucketHeight);
+    }
+    
+    /**
+     * Render fair value bucket heatmaps (mid, ifv, vwmp)
+     * Shows where fair values spent time during each bar
+     */
+    _renderFairValueBuckets(ctx, visibleBars, timeScale, intervalSec, width, height, bucketSize, barWidth, bucketHeight) {
+        const showMid = this.fairValueIndicators.showMid;
+        const showIFV = this.fairValueIndicators.showIFV;
+        const showVWMP = this.fairValueIndicators.showVWMP;
+        
+        // Skip if none enabled
+        if (!showMid && !showIFV && !showVWMP) return;
+        
+        // Build current bar's fair value buckets from live accumulators
+        const now = Math.floor(Date.now() / 1000);
+        const currentBarTime = this.getBarTime(now, this.currentInterval);
+        
+        const currentMidBuckets = currentBarTime && this.levelHistory.midBuckets.size > 0
+            ? Array.from(this.levelHistory.midBuckets.entries()).map(([price, hits]) => ({ price, hits }))
+            : [];
+        const currentIfvBuckets = currentBarTime && this.levelHistory.ifvBuckets.size > 0
+            ? Array.from(this.levelHistory.ifvBuckets.entries()).map(([price, hits]) => ({ price, hits }))
+            : [];
+        const currentVwmpBuckets = currentBarTime && this.levelHistory.vwmpBuckets.size > 0
+            ? Array.from(this.levelHistory.vwmpBuckets.entries()).map(([price, hits]) => ({ price, hits }))
+            : [];
+        
+        // Find max hits for each indicator type across all visible bars
+        let maxMidHits = 0, maxIfvHits = 0, maxVwmpHits = 0;
+        for (const { snapshot } of visibleBars) {
+            if (snapshot.midBuckets) {
+                for (const b of snapshot.midBuckets) maxMidHits = Math.max(maxMidHits, b.hits);
+            }
+            if (snapshot.ifvBuckets) {
+                for (const b of snapshot.ifvBuckets) maxIfvHits = Math.max(maxIfvHits, b.hits);
+            }
+            if (snapshot.vwmpBuckets) {
+                for (const b of snapshot.vwmpBuckets) maxVwmpHits = Math.max(maxVwmpHits, b.hits);
+            }
+        }
+        // Include current bar
+        for (const b of currentMidBuckets) maxMidHits = Math.max(maxMidHits, b.hits);
+        for (const b of currentIfvBuckets) maxIfvHits = Math.max(maxIfvHits, b.hits);
+        for (const b of currentVwmpBuckets) maxVwmpHits = Math.max(maxVwmpHits, b.hits);
+        
+        const brightness = this.levelHistory.brightness || 1;
+        const fvBarWidth = Math.max(2, barWidth * 0.5); // Thinner bars for fair value
+        const fvBucketHeight = Math.max(3, bucketHeight * 0.6); // Slightly smaller height
+        
+        // Helper to draw fair value bucket for a bar
+        const drawFvBucket = (x, buckets, maxHits, color) => {
+            if (!buckets || maxHits === 0) return;
+            for (const bucket of buckets) {
+                const y = this.candleSeries.priceToCoordinate(bucket.price + bucketSize / 2);
+                if (y === null || y < -fvBucketHeight || y > height + fvBucketHeight) continue;
+                
+                const intensity = Math.min(1, bucket.hits / maxHits);
+                const alpha = Math.min(1, (0.2 + intensity * 0.7) * brightness);
+                
+                ctx.fillStyle = color.replace('ALPHA', alpha.toFixed(2));
+                ctx.fillRect(x - fvBarWidth / 2, y - fvBucketHeight / 2, fvBarWidth, fvBucketHeight);
+            }
+        };
+        
+        // Draw for each visible bar
+        for (const { barTime, snapshot } of visibleBars) {
+            const x = timeScale.timeToCoordinate(barTime);
+            if (x === null || x < -barWidth || x > width + barWidth) continue;
+            
+            // Draw in order: Mid (bottom), IFV (middle), VWMP (top)
+            if (showMid && snapshot.midBuckets) {
+                drawFvBucket(x, snapshot.midBuckets, maxMidHits, 'rgba(148, 163, 184, ALPHA)'); // Gray
+            }
+            if (showIFV && snapshot.ifvBuckets) {
+                drawFvBucket(x, snapshot.ifvBuckets, maxIfvHits, 'rgba(251, 191, 36, ALPHA)'); // Gold
+            }
+            if (showVWMP && snapshot.vwmpBuckets) {
+                drawFvBucket(x, snapshot.vwmpBuckets, maxVwmpHits, 'rgba(52, 211, 153, ALPHA)'); // Green
+            }
+        }
+        
+        // Draw current bar's live fair value data
+        if (currentBarTime) {
+            const x = timeScale.timeToCoordinate(currentBarTime);
+            if (x !== null && x >= -barWidth && x <= width + barWidth) {
+                if (showMid) drawFvBucket(x, currentMidBuckets, maxMidHits, 'rgba(148, 163, 184, ALPHA)');
+                if (showIFV) drawFvBucket(x, currentIfvBuckets, maxIfvHits, 'rgba(251, 191, 36, ALPHA)');
+                if (showVWMP) drawFvBucket(x, currentVwmpBuckets, maxVwmpHits, 'rgba(52, 211, 153, ALPHA)');
+            }
+        }
     }
     
     /**
      * Render fair value indicator lines
+     * Only shows lines when their corresponding toggle is enabled
+     * Data is still tracked in background regardless of toggle state
      */
     renderLevelHistoryLines() {
-        if (!this.levelHistory.enabled) return;
-        
-        // Update Mid series
-        if (this.levelHistory.midSeries && this.levelHistory.midData.length > 0) {
-            try {
-                this.levelHistory.midSeries.setData(this.levelHistory.midData);
-            } catch (e) { /* ignore */ }
-        }
-        
-        // Update IFV series
-        if (this.levelHistory.ifvSeries && this.levelHistory.ifvData.length > 0) {
-            try {
-                this.levelHistory.ifvSeries.setData(this.levelHistory.ifvData);
-            } catch (e) { /* ignore */ }
-        }
-        
-        // Update VWMP series
-        if (this.levelHistory.vwmpSeries && this.levelHistory.vwmpData.length > 0) {
-            try {
-                this.levelHistory.vwmpSeries.setData(this.levelHistory.vwmpData);
-            } catch (e) { /* ignore */ }
-        }
+        // Line series removed - now using heatmap buckets for fair value indicators
+        // This function kept for compatibility but does nothing
     }
     
     /**
      * Get localStorage key for level history
+     * Includes mode suffix to prevent standard/channel data conflicts
      */
     getLevelHistoryStorageKey() {
-        return `levelHistory_${this.levelHistory.symbol}_${this.levelHistory.interval}`;
+        const mode = this.levelHistory.channelMode ? '_ch' : '';
+        return `levelHistory_${this.levelHistory.symbol}_${this.levelHistory.interval}${mode}`;
     }
     
     /**
      * Save level history to localStorage
+     * Handles both standard mode (clusters) and channel mode (buckets)
      */
     saveLevelHistory() {
         try {
             const data = {};
+            const isChannelMode = this.levelHistory.channelMode;
+            
             this.levelHistory.data.forEach((snapshot, barTime) => {
-                data[barTime] = {
-                    c: snapshot.clusters.map(c => ({
-                        p: c.price,
-                        t: c.type === 'resistance' ? 'r' : 's',
-                        v: c.volume
-                    })),
-                    m: snapshot.mid,
-                    i: snapshot.ifv,
-                    w: snapshot.vwmp
-                };
+                // Save fair value buckets (if present)
+                const fvData = {};
+                if (snapshot.midBuckets && snapshot.midBuckets.length > 0) {
+                    fvData.mb = snapshot.midBuckets.map(b => ({ p: b.price, h: b.hits }));
+                }
+                if (snapshot.ifvBuckets && snapshot.ifvBuckets.length > 0) {
+                    fvData.ib = snapshot.ifvBuckets.map(b => ({ p: b.price, h: b.hits }));
+                }
+                if (snapshot.vwmpBuckets && snapshot.vwmpBuckets.length > 0) {
+                    fvData.wb = snapshot.vwmpBuckets.map(b => ({ p: b.price, h: b.hits }));
+                }
+                if (snapshot.fvSampleCount) {
+                    fvData.fsc = snapshot.fvSampleCount;
+                }
+                
+                if (snapshot.isChannelMode || snapshot.buckets) {
+                    // Channel mode: save buckets
+                    data[barTime] = {
+                        b: snapshot.buckets.map(b => ({
+                            p: b.price,
+                            bh: b.bidHits,
+                            ah: b.askHits,
+                            bv: Math.round(b.maxBidVol * 1000) / 1000,
+                            av: Math.round(b.maxAskVol * 1000) / 1000
+                        })),
+                        sc: snapshot.sampleCount,
+                        m: snapshot.mid,
+                        i: snapshot.ifv,
+                        w: snapshot.vwmp,
+                        ch: true, // Channel mode flag
+                        ...fvData
+                    };
+                } else {
+                    // Standard mode: save clusters
+                    data[barTime] = {
+                        c: snapshot.clusters.map(c => ({
+                            p: c.price,
+                            t: c.type === 'resistance' ? 'r' : 's',
+                            v: c.volume
+                        })),
+                        m: snapshot.mid,
+                        i: snapshot.ifv,
+                        w: snapshot.vwmp,
+                        ...fvData
+                    };
+                }
             });
             
             localStorage.setItem(this.getLevelHistoryStorageKey(), JSON.stringify(data));
@@ -4349,6 +6722,7 @@ class OrderBookChart {
     
     /**
      * Load level history from localStorage
+     * Handles both standard mode (clusters) and channel mode (buckets)
      */
     loadLevelHistory() {
         try {
@@ -4364,20 +6738,56 @@ class OrderBookChart {
             
             Object.entries(data).forEach(([barTime, snapshot]) => {
                 const time = parseInt(barTime);
-                const clusters = snapshot.c.map(c => ({
-                    price: c.p,
-                    type: c.t === 'r' ? 'resistance' : 'support',
-                    volume: c.v
-                }));
                 
-                this.levelHistory.data.set(time, {
-                    clusters: clusters,
-                    mid: snapshot.m,
-                    ifv: snapshot.i,
-                    vwmp: snapshot.w
-                });
+                // Load fair value buckets (if present)
+                const midBuckets = snapshot.mb ? snapshot.mb.map(b => ({ price: b.p, hits: b.h })) : [];
+                const ifvBuckets = snapshot.ib ? snapshot.ib.map(b => ({ price: b.p, hits: b.h })) : [];
+                const vwmpBuckets = snapshot.wb ? snapshot.wb.map(b => ({ price: b.p, hits: b.h })) : [];
+                const fvSampleCount = snapshot.fsc || 0;
                 
-                // Build line data arrays
+                if (snapshot.ch || snapshot.b) {
+                    // Channel mode data
+                    const buckets = snapshot.b.map(b => ({
+                        price: b.p,
+                        bidHits: b.bh,
+                        askHits: b.ah,
+                        maxBidVol: b.bv,
+                        maxAskVol: b.av
+                    }));
+                    
+                    this.levelHistory.data.set(time, {
+                        buckets: buckets,
+                        sampleCount: snapshot.sc,
+                        mid: snapshot.m,
+                        ifv: snapshot.i,
+                        vwmp: snapshot.w,
+                        midBuckets: midBuckets,
+                        ifvBuckets: ifvBuckets,
+                        vwmpBuckets: vwmpBuckets,
+                        fvSampleCount: fvSampleCount,
+                        isChannelMode: true
+                    });
+                } else {
+                    // Standard mode data
+                    const clusters = snapshot.c.map(c => ({
+                        price: c.p,
+                        type: c.t === 'r' ? 'resistance' : 'support',
+                        volume: c.v
+                    }));
+                    
+                    this.levelHistory.data.set(time, {
+                        clusters: clusters,
+                        mid: snapshot.m,
+                        ifv: snapshot.i,
+                        vwmp: snapshot.w,
+                        midBuckets: midBuckets,
+                        ifvBuckets: ifvBuckets,
+                        vwmpBuckets: vwmpBuckets,
+                        fvSampleCount: fvSampleCount
+                    });
+                }
+                
+                // Build line data arrays (same for both modes) - for legacy line series
                 if (snapshot.m) this.levelHistory.midData.push({ time: time, value: snapshot.m });
                 if (snapshot.i) this.levelHistory.ifvData.push({ time: time, value: snapshot.i });
                 if (snapshot.w) this.levelHistory.vwmpData.push({ time: time, value: snapshot.w });
@@ -4412,22 +6822,23 @@ class OrderBookChart {
         this.levelHistory.vwmpData = [];
         this.levelHistory.lastBarTime = null;
         
+        // Clear channel mode accumulator
+        this.levelHistory.currentBarAccumulator.clear();
+        this.levelHistory.currentBarSampleCount = 0;
+        
+        // Clear fair value bucket accumulators
+        this.levelHistory.midBuckets.clear();
+        this.levelHistory.ifvBuckets.clear();
+        this.levelHistory.vwmpBuckets.clear();
+        this.levelHistory.fvSampleCount = 0;
+        
         // Clear canvas
         if (this.levelHistory.ctx && this.container) {
             const rect = this.container.getBoundingClientRect();
             this.levelHistory.ctx.clearRect(0, 0, rect.width, rect.height);
         }
         
-        // Clear line series
-        if (this.levelHistory.midSeries) {
-            try { this.levelHistory.midSeries.setData([]); } catch (e) { /* ignore */ }
-        }
-        if (this.levelHistory.ifvSeries) {
-            try { this.levelHistory.ifvSeries.setData([]); } catch (e) { /* ignore */ }
-        }
-        if (this.levelHistory.vwmpSeries) {
-            try { this.levelHistory.vwmpSeries.setData([]); } catch (e) { /* ignore */ }
-        }
+        // Note: Line series removed - using heatmap buckets instead
     }
     
     /**
@@ -4464,6 +6875,9 @@ class OrderBookChart {
     toggleMid(show) {
         this.fairValueIndicators.showMid = show;
         this.updateFairValueIndicators();
+        // Re-render heatmap to show/hide Mid bucket heatmap
+        this.renderLevelHistoryHeatmap();
+        this.renderLevelHistoryLines();
     }
     
     /**
@@ -4475,6 +6889,9 @@ class OrderBookChart {
         if (this.historicalFairValue?.enabled) {
             this.renderHistoricalFairValue();
         }
+        // Re-render heatmap to show/hide IFV bucket heatmap
+        this.renderLevelHistoryHeatmap();
+        this.renderLevelHistoryLines();
     }
     
     /**
@@ -4486,6 +6903,9 @@ class OrderBookChart {
         if (this.historicalFairValue?.enabled) {
             this.renderHistoricalFairValue();
         }
+        // Re-render heatmap to show/hide VWMP bucket heatmap
+        this.renderLevelHistoryHeatmap();
+        this.renderLevelHistoryLines();
     }
     
     /**
@@ -4670,6 +7090,9 @@ class OrderBookChart {
         const mid = this.calculateMid(levels);
         const ifv = this.calculateIFV(levels, this.currentPrice);
         const vwmp = this.calculateVWMP(levels, this.currentPrice);
+        
+        // Always accumulate fair value buckets for heatmap (tracks in background)
+        this.accumulateFairValueBucket(mid, ifv, vwmp);
 
         // Track VWMP/IFV history plot (per-candle) regardless of redraw threshold
         this.trackHistoricalFairValue(vwmp, ifv);
@@ -5097,38 +7520,8 @@ class OrderBookChart {
         // Keep same base colors as current VWMP/IFV, but with lower opacity for history.
         const baseOpacity = 0.55;
         
-        // Ensure series exist (create once, then update)
-        if (!this.historicalFairValue.vwmpSeries) {
-            try {
-                this.historicalFairValue.vwmpSeries = this.chart.addLineSeries({
-                    color: `rgba(52, 211, 153, ${baseOpacity})`,  // VWMP green (history)
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    crosshairMarkerVisible: false,
-                    lastValueVisible: false,
-                    priceLineVisible: false
-                });
-                this.historicalFairValue.series.push(this.historicalFairValue.vwmpSeries);
-            } catch (e) { /* ignore */ }
-        } else {
-            try { this.historicalFairValue.vwmpSeries.applyOptions({ color: `rgba(52, 211, 153, ${baseOpacity})` }); } catch (e) {}
-        }
-        
-        if (!this.historicalFairValue.ifvSeries) {
-            try {
-                this.historicalFairValue.ifvSeries = this.chart.addLineSeries({
-                    color: `rgba(167, 139, 250, ${baseOpacity})`,  // IFV purple (history)
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Solid,
-                    crosshairMarkerVisible: false,
-                    lastValueVisible: false,
-                    priceLineVisible: false
-                });
-                this.historicalFairValue.series.push(this.historicalFairValue.ifvSeries);
-            } catch (e) { /* ignore */ }
-        } else {
-            try { this.historicalFairValue.ifvSeries.applyOptions({ color: `rgba(167, 139, 250, ${baseOpacity})` }); } catch (e) {}
-        }
+        // Note: VWMP and IFV line series removed - now using heatmap buckets instead
+        // Only upside/downside targets remain as line series
         
         // Create ghosted upside target series (faded cyan)
         const targetOpacity = baseOpacity * 0.75;
@@ -5165,18 +7558,7 @@ class OrderBookChart {
             try { this.historicalFairValue.downsideSeries.applyOptions({ color: `rgba(255, 0, 110, ${targetOpacity})` }); } catch (e) {}
         }
         
-        // Apply data (VWMP/IFV history should only show when their current lines are enabled)
-        try {
-            if (this.historicalFairValue.vwmpSeries) {
-                this.historicalFairValue.vwmpSeries.setData(this.fairValueIndicators.showVWMP ? vwmpData : []);
-            }
-        } catch (e) { /* ignore */ }
-        
-        try {
-            if (this.historicalFairValue.ifvSeries) {
-                this.historicalFairValue.ifvSeries.setData(this.fairValueIndicators.showIFV ? ifvData : []);
-            }
-        } catch (e) { /* ignore */ }
+        // Note: VWMP/IFV line series removed - using heatmap buckets instead
         
         // Targets remain tied to the projection overlay toggle (if present)
         const showTargets = !!this.projections?.showTargets;
