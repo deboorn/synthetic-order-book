@@ -1626,6 +1626,15 @@ class OrderBookApp {
         
         // Initialize WebSocket Order Book
         this.initWebSocketOrderBook();
+        
+        // Initialize Trade Panels (8 instances)
+        if (typeof TradePanel !== 'undefined') {
+            this.tradePanels = [];
+            for (let i = 1; i <= 8; i++) {
+                this.tradePanels.push(new TradePanel(this, i.toString()));
+            }
+            console.log('Trade Panels initialized:', this.tradePanels.length);
+        }
 
         console.log('Order Book App initialized');
     }
@@ -1936,6 +1945,9 @@ class OrderBookApp {
             clearInterval(this.priceInterval);
         }
 
+        // Sync enabled exchanges to price manager before connecting
+        wsManager.setEnabledExchanges(this.selectedExchanges);
+        
         // Use WebSocket for real-time streaming with OHLC support
         wsManager.connect(
             this.currentSymbol,
@@ -1946,12 +1958,12 @@ class OrderBookApp {
                 this.currentPrice = priceData.price;
                 this.updatePriceDisplay(priceData.price, priceData);
                 
-                // Update connection status - show if price is from OHLC (accurate) or averaged
-                const sourceLabel = priceData.priceSource === 'ohlc' ? 
-                    '<span class="ohlc-badge">OHLC</span>' : 
-                    `<span class="avg-badge">${priceData.sources}x</span>`;
+                // Update connection status - show which exchange the price is from
+                const exchangeName = priceData.priceSource ? 
+                    priceData.priceSource.charAt(0).toUpperCase() + priceData.priceSource.slice(1) : 
+                    'Live';
                 this.elements.exchangeStatus.innerHTML = 
-                    `<span class="status-dot connected"></span><span>Live ${sourceLabel}</span>`;
+                    `<span class="status-dot connected"></span><span class="price-source-badge">${exchangeName}</span>`;
             },
             // OHLC update callback (for chart - this is the accurate candle stream!)
             (ohlcData) => {
@@ -3921,6 +3933,11 @@ class OrderBookApp {
             orderBookWS.setExchangeEnabled('kraken', this.selectedExchanges.includes('kraken'));
             orderBookWS.setExchangeEnabled('coinbase', this.selectedExchanges.includes('coinbase'));
             orderBookWS.setExchangeEnabled('bitstamp', this.selectedExchanges.includes('bitstamp'));
+        }
+        
+        // Sync with WebSocket Price Manager (for real-time price display)
+        if (typeof wsManager !== 'undefined') {
+            wsManager.setEnabledExchanges(this.selectedExchanges);
         }
     }
 

@@ -517,6 +517,17 @@ body {
     margin-left: 6px;
 }
 
+.price-source-badge {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    text-transform: capitalize;
+    letter-spacing: 0.3px;
+}
+
 @keyframes ohlc-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
@@ -590,7 +601,7 @@ body {
     top: 0;
     bottom: 0;
     width: 12px;
-    background: var(--bg-tertiary);
+    background: rgb(16, 24, 39);
     border: 1px solid var(--border-color);
     cursor: pointer;
     display: flex;
@@ -925,6 +936,27 @@ body {
     overflow-y: auto;
     overflow-x: hidden;
     max-height: calc(100vh - 120px);
+}
+
+/* Auto-hide scrollbar for sidebars */
+.sidebar-left::-webkit-scrollbar-thumb,
+.sidebar-right::-webkit-scrollbar-thumb {
+    background: transparent;
+}
+
+.sidebar-left:hover::-webkit-scrollbar-thumb,
+.sidebar-right:hover::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.5);
+}
+
+.sidebar-left,
+.sidebar-right {
+    scrollbar-color: transparent transparent;
+}
+
+.sidebar-left:hover,
+.sidebar-right:hover {
+    scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
 }
 
 .panel {
@@ -8661,6 +8693,543 @@ body {
     
     .zone-value {
         font-size: 0.75rem;
+    }
+}
+
+/* ============================================
+   TRADE SIMULATOR PANEL
+   ============================================ */
+
+.trade-sim-panel {
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.trade-sim-panel .panel-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-muted);
+}
+
+.trade-sim-panel .panel-badge.running {
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--bid-color);
+    animation: pulse-badge 1.5s ease-in-out infinite;
+}
+
+.trade-sim-panel .panel-content {
+    padding: 20px;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Config Section */
+.trade-sim-config {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.trade-sim-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.trade-sim-select,
+.trade-sim-input {
+    flex: 1;
+    max-width: 100px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.trade-sim-select:focus,
+.trade-sim-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.trade-sim-input {
+    text-align: right;
+}
+
+/* Control Buttons */
+.trade-sim-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-btn {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.trade-sim-btn.start {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: var(--bid-color);
+    padding: 6px 20px;
+}
+
+.trade-sim-btn.start:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: var(--bid-color);
+}
+
+.trade-sim-btn.stop {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: var(--ask-color);
+}
+
+.trade-sim-btn.stop:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: var(--ask-color);
+}
+
+.trade-sim-btn.clear {
+    background: rgba(100, 116, 139, 0.15);
+    border-color: rgba(100, 116, 139, 0.3);
+    color: var(--text-secondary);
+}
+
+.trade-sim-btn.clear:hover:not(:disabled) {
+    background: rgba(100, 116, 139, 0.25);
+    border-color: var(--text-secondary);
+}
+
+.trade-sim-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Locked Signal Indicator */
+.trade-sim-locked {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    margin-bottom: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trade-sim-locked .locked-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.trade-sim-locked .locked-signal-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    margin-left: auto;
+}
+
+.trade-sim-locked .locked-signal-value.none {
+    color: var(--text-muted);
+}
+
+.trade-sim-locked .locked-signal-value.buy {
+    color: var(--bid-color);
+    text-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.trade-sim-locked .locked-signal-value.sell {
+    color: var(--ask-color);
+    text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+/* Position Indicator */
+.trade-sim-position {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-position .position-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.trade-sim-position .position-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.trade-sim-position .position-value.none {
+    color: var(--text-muted);
+}
+
+.trade-sim-position .position-value.long {
+    color: var(--bid-color);
+}
+
+.trade-sim-position .position-value.short {
+    color: var(--ask-color);
+}
+
+.trade-sim-position .position-entry {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Summary Stats */
+.trade-sim-summary {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-summary .summary-stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+}
+
+.trade-sim-summary .stat-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.trade-sim-summary .stat-value {
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+}
+
+.trade-sim-summary .stat-value.win {
+    color: var(--bid-color);
+}
+
+.trade-sim-summary .stat-value.loss {
+    color: var(--ask-color);
+}
+
+.trade-sim-summary .stat-value.positive {
+    color: var(--bid-color);
+}
+
+.trade-sim-summary .stat-value.negative {
+    color: var(--ask-color);
+}
+
+/* Trade Log */
+.trade-sim-log {
+    max-height: 150px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    padding: 6px;
+}
+
+.trade-log-empty {
+    text-align: center;
+    padding: 20px 10px;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-style: italic;
+}
+
+.trade-log-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 3px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.trade-log-entry:hover:not(.open) {
+    filter: brightness(1.2);
+}
+
+.trade-log-entry.open:hover {
+    filter: brightness(1.1);
+}
+
+.trade-log-entry:last-child {
+    margin-bottom: 0;
+}
+
+.trade-log-entry.profit {
+    background: rgba(16, 185, 129, 0.1);
+    border-left: 2px solid var(--bid-color);
+}
+
+.trade-log-entry.loss {
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 2px solid var(--ask-color);
+}
+
+.trade-log-entry .trade-type {
+    font-weight: 700;
+    min-width: 35px;
+}
+
+.trade-log-entry .trade-type.long {
+    color: var(--bid-color);
+}
+
+.trade-log-entry .trade-type.short {
+    color: var(--ask-color);
+}
+
+.trade-log-entry .trade-duration {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    min-width: 42px;
+}
+
+.trade-log-entry .trade-pnl-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    min-width: 65px;
+}
+
+.trade-log-entry .trade-pnl-dollar {
+    font-weight: 700;
+    font-size: 0.65rem;
+}
+
+.trade-log-entry .trade-pnl-percent {
+    font-size: 0.55rem;
+    opacity: 0.8;
+}
+
+.trade-log-entry.profit .trade-pnl-dollar,
+.trade-log-entry.profit .trade-pnl-percent {
+    color: var(--bid-color);
+}
+
+.trade-log-entry.loss .trade-pnl-dollar,
+.trade-log-entry.loss .trade-pnl-percent {
+    color: var(--ask-color);
+}
+
+/* Open Trade Styling */
+.trade-log-entry.open {
+    border-left-width: 3px;
+    animation: pulse-open-trade 1.5s ease-in-out infinite;
+}
+
+.trade-log-entry.open.profit {
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.trade-log-entry.open.loss {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.trade-log-entry .live-price {
+    color: var(--text-accent);
+    font-weight: 600;
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+@keyframes pulse-open-trade {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Trade Detail Modal */
+.trade-detail-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.trade-detail-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+}
+
+.trade-detail-content {
+    position: relative;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    min-width: 280px;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: modal-appear 0.2s ease;
+}
+
+.trade-detail-content.profit {
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+.trade-detail-content.loss {
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+@keyframes modal-appear {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.trade-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.trade-detail-type {
+    font-size: 0.85rem;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.trade-detail-type.long {
+    color: var(--bid-color);
+}
+
+.trade-detail-type.short {
+    color: var(--ask-color);
+}
+
+.trade-detail-status {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: rgba(16, 185, 129, 0.2);
+    color: var(--bid-color);
+    font-weight: 600;
+}
+
+.trade-detail-status.closed {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-secondary);
+}
+
+.trade-detail-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.trade-detail-close:hover {
+    color: var(--text-primary);
+}
+
+.trade-detail-body {
+    padding: 12px 16px;
+}
+
+.trade-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.trade-detail-row:last-child {
+    border-bottom: none;
+}
+
+.trade-detail-row .detail-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.trade-detail-row .detail-value {
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+}
+
+.trade-detail-row.highlight {
+    background: rgba(255, 255, 255, 0.03);
+    margin: 4px -16px;
+    padding: 8px 16px;
+    border-radius: 4px;
+}
+
+.trade-detail-row.highlight.profit .detail-value {
+    color: var(--bid-color);
+    font-weight: 700;
+}
+
+.trade-detail-row.highlight.loss .detail-value {
+    color: var(--ask-color);
+    font-weight: 700;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .trade-sim-summary .stat-value {
+        font-size: 0.75rem;
+    }
+    
+    .trade-sim-log {
+        max-height: 100px;
     }
 }
 

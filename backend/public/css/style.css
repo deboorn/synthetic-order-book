@@ -590,7 +590,7 @@ body {
     top: 0;
     bottom: 0;
     width: 12px;
-    background: var(--bg-tertiary);
+    background: rgb(16, 24, 39);
     border: 1px solid var(--border-color);
     cursor: pointer;
     display: flex;

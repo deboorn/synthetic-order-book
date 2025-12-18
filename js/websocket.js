@@ -11,7 +11,7 @@
 class WebSocketManager {
     constructor() {
         this.connections = {};
-        this.prices = {};
+        this.prices = {};  // { exchange: { price, timestamp } }
         this.ohlcPrice = 0;  // Primary price from OHLC stream
         this.symbol = 'BTC';
         this.interval = '1m';
@@ -21,6 +21,13 @@ class WebSocketManager {
         this.reconnectDelay = 5000;
         this.isConnected = false;
         this.ohlcConnected = false;
+        
+        // Enabled exchanges for price display (synced from app)
+        this.enabledExchanges = ['coinbase', 'kraken', 'bitstamp'];
+        
+        // Last broadcast price (kept for fallback)
+        this.lastPrice = 0;
+        this.lastPriceExchange = null;
         
         // Kraken OHLC interval mapping (in minutes)
         // Kraken supported: 1, 5, 15, 30, 60, 240, 1440, 10080, 21600
@@ -73,6 +80,13 @@ class WebSocketManager {
     getExchangeSymbol(exchange, symbol) {
         const map = this.symbolMaps[exchange];
         return map ? map[symbol.toUpperCase()] : null;
+    }
+    
+    // Set which exchanges are enabled for price display
+    setEnabledExchanges(exchanges) {
+        this.enabledExchanges = exchanges.map(e => e.toLowerCase());
+        // Re-broadcast price with new filter
+        this.broadcastPrice();
     }
 
     // Get Kraken interval value
@@ -255,7 +269,10 @@ class WebSocketManager {
                 try {
                     const data = JSON.parse(event.data);
                     if (data.type === 'ticker' && data.price) {
-                        this.prices.coinbase = parseFloat(data.price);
+                        this.prices.coinbase = {
+                            price: parseFloat(data.price),
+                            timestamp: Date.now()
+                        };
                         this.broadcastPrice();
                     } else if (data.type === 'error') {
                         console.warn('[Coinbase] Error:', data.message);
@@ -313,11 +330,12 @@ class WebSocketManager {
                     if (Array.isArray(data) && data[2] === 'ticker') {
                         const tickerData = data[1];
                         if (tickerData && tickerData.c && tickerData.c[0]) {
-                            // Only update if OHLC isn't connected (avoid conflicts)
-                            if (!this.ohlcConnected) {
-                                this.prices.kraken = parseFloat(tickerData.c[0]);
-                                this.broadcastPrice();
-                            }
+                            // Always update Kraken price (don't skip when OHLC connected)
+                            this.prices.kraken = {
+                                price: parseFloat(tickerData.c[0]),
+                                timestamp: Date.now()
+                            };
+                            this.broadcastPrice();
                         }
                     }
                 } catch (e) {
@@ -369,7 +387,10 @@ class WebSocketManager {
                     }
                     
                     if (data.event === 'trade' && data.data && data.data.price) {
-                        this.prices.bitstamp = parseFloat(data.data.price);
+                        this.prices.bitstamp = {
+                            price: parseFloat(data.data.price),
+                            timestamp: Date.now()
+                        };
                         this.broadcastPrice();
                     }
                 } catch (e) {
@@ -392,21 +413,34 @@ class WebSocketManager {
         }
     }
 
-    // Broadcast price - OHLC is primary source, others are fallback
+    // Broadcast price - use most recent price from enabled exchanges
     broadcastPrice() {
-        let price;
-        let source;
+        let price = null;
+        let sourceExchange = null;
+        let latestTimestamp = 0;
         
-        // OHLC price is the PRIMARY source (most accurate, direct from exchange candle)
-        if (this.ohlcConnected && this.ohlcPrice > 0) {
-            price = this.ohlcPrice;
-            source = 'ohlc';
+        // Find the most recent price from enabled exchanges only
+        for (const exchange of this.enabledExchanges) {
+            const data = this.prices[exchange];
+            if (data && data.price > 0 && data.timestamp > latestTimestamp) {
+                latestTimestamp = data.timestamp;
+                price = data.price;
+                sourceExchange = exchange;
+            }
+        }
+        
+        // If no price from enabled exchanges, keep last known price
+        if (price === null) {
+            if (this.lastPrice > 0) {
+                price = this.lastPrice;
+                sourceExchange = this.lastPriceExchange;
+            } else {
+                return; // No price available at all
+            }
         } else {
-            // Fallback: average from ticker streams
-            const validPrices = Object.values(this.prices).filter(p => p > 0);
-            if (validPrices.length === 0) return;
-            price = validPrices.reduce((a, b) => a + b, 0) / validPrices.length;
-            source = 'ticker_avg';
+            // Store for fallback
+            this.lastPrice = price;
+            this.lastPriceExchange = sourceExchange;
         }
         
         price = Math.round(price * 100) / 100;
@@ -415,20 +449,30 @@ class WebSocketManager {
         if (this.onPriceUpdate) {
             this.onPriceUpdate({
                 price: price,
-                prices: { ...this.prices, ohlc: this.ohlcPrice },
+                prices: this.prices,
                 sources: Object.keys(this.prices).length,
                 symbol: this.symbol,
                 ohlcConnected: this.ohlcConnected,
-                priceSource: source
+                priceSource: sourceExchange,
+                priceTimestamp: latestTimestamp
             });
         }
     }
 
-    // Get current aggregated price
+    // Get current price (most recent from enabled exchanges)
     getPrice() {
-        const validPrices = Object.values(this.prices).filter(p => p > 0);
-        if (validPrices.length === 0) return 0;
-        return Math.round((validPrices.reduce((a, b) => a + b, 0) / validPrices.length) * 100) / 100;
+        let latestTimestamp = 0;
+        let price = 0;
+        
+        for (const exchange of this.enabledExchanges) {
+            const data = this.prices[exchange];
+            if (data && data.price > 0 && data.timestamp > latestTimestamp) {
+                latestTimestamp = data.timestamp;
+                price = data.price;
+            }
+        }
+        
+        return price > 0 ? Math.round(price * 100) / 100 : this.lastPrice;
     }
 
     // Disconnect all
@@ -443,6 +487,7 @@ class WebSocketManager {
         this.ohlcPrice = 0;
         this.isConnected = false;
         this.ohlcConnected = false;
+        // Keep lastPrice for continuity on reconnect
     }
 }
 

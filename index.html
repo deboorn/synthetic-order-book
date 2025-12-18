@@ -41,7 +41,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%230a0e17'/%3E%3C/linearGradient%3E%3ClinearGradient id='glow' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3ClinearGradient id='green' x1='0%25' y1='100%25' x2='0%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%23059669'/%3E%3Cstop offset='100%25' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3ClinearGradient id='red' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dc2626'/%3E%3Cstop offset='100%25' stop-color='%23ef4444'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23bg)' width='180' height='180' rx='36'/%3E%3Crect x='6' y='6' width='168' height='168' rx='32' fill='none' stroke='url(%23glow)' stroke-width='1.5' opacity='0.4'/%3E%3Crect x='28' y='90' width='15' height='48' rx='3' fill='url(%23green)'/%3E%3Crect x='31' y='76' width='9' height='14' fill='%2310b981'/%3E%3Crect x='31' y='138' width='9' height='11' fill='%2310b981'/%3E%3Crect x='50' y='52' width='15' height='66' rx='3' fill='url(%23red)'/%3E%3Crect x='53' y='42' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='53' y='118' width='9' height='14' fill='%23ef4444'/%3E%3Crect x='72' y='66' width='15' height='52' rx='3' fill='url(%23green)'/%3E%3Crect x='75' y='52' width='9' height='14' fill='%2310b981'/%3E%3Crect x='75' y='118' width='9' height='10' fill='%2310b981'/%3E%3Crect x='94' y='48' width='15' height='62' rx='3' fill='url(%23green)'/%3E%3Crect x='97' y='34' width='9' height='14' fill='%2310b981'/%3E%3Crect x='97' y='110' width='9' height='11' fill='%2310b981'/%3E%3Crect x='116' y='58' width='15' height='48' rx='3' fill='url(%23red)'/%3E%3Crect x='119' y='48' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='119' y='106' width='9' height='16' fill='%23ef4444'/%3E%3Crect x='138' y='44' width='15' height='56' rx='3' fill='url(%23green)'/%3E%3Crect x='141' y='30' width='9' height='14' fill='%2310b981'/%3E%3Crect x='141' y='100' width='9' height='10' fill='%2310b981'/%3E%3Cpath d='M24 142 Q54 124 82 118 T138 90 T160 76' stroke='url(%23glow)' stroke-width='2.5' fill='none' stroke-linecap='round' opacity='0.8'/%3E%3Ccircle cx='160' cy='76' r='4' fill='%233b82f6'/%3E%3C/svg%3E">
     
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251217.21">
+    <link rel="stylesheet" href="css/style.css?v=20251218.1">
 </head>
 <body>
     <div class="app">
@@ -749,6 +749,580 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Trade Simulator 1 Panel -->
+                <div class="panel trade-sim-panel collapsible expanded" data-panel="trade-sim-1" id="tradeSim1Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 1</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim1Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <!-- Signal Source & Threshold -->
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim1Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim1Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim1Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Control Buttons -->
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim1Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim1Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim1Clear">Clear</button>
+                        </div>
+                        
+                        <!-- Locked Signal Indicator -->
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim1LockedSignal">—</span>
+                        </div>
+                        
+                        <!-- Current Position Indicator -->
+                        <div class="trade-sim-position" id="tradeSim1Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim1PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim1EntryPrice"></span>
+                        </div>
+                        
+                        <!-- Summary Stats -->
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim1Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim1Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim1Losses">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Trade Log -->
+                        <div class="trade-sim-log" id="tradeSim1Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 2 Panel -->
+                <div class="panel trade-sim-panel collapsible expanded" data-panel="trade-sim-2" id="tradeSim2Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 2</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim2Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <!-- Signal Source & Threshold -->
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim2Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim2Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim2Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Control Buttons -->
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim2Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim2Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim2Clear">Clear</button>
+                        </div>
+                        
+                        <!-- Locked Signal Indicator -->
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim2LockedSignal">—</span>
+                        </div>
+                        
+                        <!-- Current Position Indicator -->
+                        <div class="trade-sim-position" id="tradeSim2Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim2PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim2EntryPrice"></span>
+                        </div>
+                        
+                        <!-- Summary Stats -->
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim2Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim2Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim2Losses">0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Trade Log -->
+                        <div class="trade-sim-log" id="tradeSim2Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 3 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-3" id="tradeSim3Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 3</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim3Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim3Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim3Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim3Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim3Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim3Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim3Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim3LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim3Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim3PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim3EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim3Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim3Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim3Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim3Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 4 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-4" id="tradeSim4Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 4</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim4Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim4Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim4Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim4Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim4Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim4Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim4Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim4LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim4Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim4PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim4EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim4Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim4Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim4Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim4Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 5 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-5" id="tradeSim5Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 5</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim5Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim5Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim5Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim5Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim5Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim5Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim5Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim5LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim5Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim5PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim5EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim5Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim5Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim5Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim5Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 6 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-6" id="tradeSim6Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 6</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim6Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim6Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim6Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim6Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim6Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim6Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim6Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim6LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim6Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim6PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim6EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim6Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim6Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim6Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim6Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 7 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-7" id="tradeSim7Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 7</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim7Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim7Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim7Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim7Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim7Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim7Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim7Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim7LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim7Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim7PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim7EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim7Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim7Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim7Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim7Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trade Simulator 8 Panel -->
+                <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-8" id="tradeSim8Panel">
+                    <div class="panel-header">
+                        <h3>Trade Simulator 8</h3>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="tradeSim8Status">Idle</span>
+                        </div>
+                    </div>
+                    <div class="panel-content">
+                        <div class="trade-sim-config">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Signal</label>
+                                <select id="tradeSim8Signal" class="trade-sim-select">
+                                    <option value="l-drift">l-drift</option>
+                                    <option value="l-prox">l-prox</option>
+                                    <option value="l-combo">l-prox + l-drift</option>
+                                    <option value="prox">prox (confirmed)</option>
+                                    <option value="drift">drift (confirmed)</option>
+                                    <option value="combo">prox + drift</option>
+                                    <option value="all4">all 4 signals</option>
+                                </select>
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Threshold (s)</label>
+                                <input type="number" id="tradeSim8Threshold" class="trade-sim-input" value="2.0" min="0.1" max="60" step="0.1" placeholder="2.0">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Mode</label>
+                                <select id="tradeSim8Mode" class="trade-sim-select">
+                                    <option value="both">Both</option>
+                                    <option value="long">Long Only</option>
+                                    <option value="short">Short Only</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="trade-sim-controls">
+                            <button class="trade-sim-btn start" id="tradeSim8Start">Start</button>
+                            <button class="trade-sim-btn stop" id="tradeSim8Stop" disabled>Stop</button>
+                            <button class="trade-sim-btn clear" id="tradeSim8Clear">Clear</button>
+                        </div>
+                        <div class="trade-sim-locked">
+                            <span class="locked-label">Locked Signal:</span>
+                            <span class="locked-signal-value none" id="tradeSim8LockedSignal">—</span>
+                        </div>
+                        <div class="trade-sim-position" id="tradeSim8Position">
+                            <span class="position-label">Position:</span>
+                            <span class="position-value none" id="tradeSim8PositionValue">None</span>
+                            <span class="position-entry" id="tradeSim8EntryPrice"></span>
+                        </div>
+                        <div class="trade-sim-summary">
+                            <div class="summary-stat">
+                                <span class="stat-label">P&L</span>
+                                <span class="stat-value" id="tradeSim8Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Wins</span>
+                                <span class="stat-value win" id="tradeSim8Wins">0</span>
+                            </div>
+                            <div class="summary-stat">
+                                <span class="stat-label">Losses</span>
+                                <span class="stat-value loss" id="tradeSim8Losses">0</span>
+                            </div>
+                        </div>
+                        <div class="trade-sim-log" id="tradeSim8Log">
+                            <div class="trade-log-empty">No trades yet</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Sidebar - Alpha, Regime & Levels -->
@@ -1257,7 +1831,7 @@
                 <span class="footer-sep">·</span>
                 <span class="footer-disclaimer" title="Educational use only · Not financial advice · Crypto trading involves substantial risk · Personal non-commercial use only · Contact daniel.boorn@gmail.com for commercial licensing">Not Financial Advice. Trading has Risks. Use at Own Risk.</span>
                 <span class="footer-sep">·</span>
-                <span class="footer-version">v20251217.21</span>
+                <span class="footer-version">v20251218.1</span>
             </div>
             <div class="footer-links">
                 <a href="analysis.html" class="footer-link" title="Analysis Dashboard">
@@ -2152,20 +2726,21 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251217.21"></script>
-    <script src="js/trade-aggregator.js?v=20251217.21"></script>
-    <script src="js/websocket-orderbook.js?v=20251217.21"></script>
-    <script src="js/orderbook-aggregator.js?v=20251217.21"></script>
-    <script src="js/api.js?v=20251217.21"></script>
-    <script src="js/websocket.js?v=20251217.21"></script>
-    <script src="js/bb-pulse.js?v=20251217.21"></script>
-    <script src="js/chart.js?v=20251217.21"></script>
-    <script src="js/depth.js?v=20251217.21"></script>
-    <script src="js/direction.js?v=20251217.21"></script>
-    <script src="js/alpha-strike.js?v=20251217.21"></script>
-    <script src="js/whale-flow.js?v=20251217.21"></script>
-    <script src="js/flow-forecast.js?v=20251217.21"></script>
-    <script src="js/app.js?v=20251217.21"></script>
+    <script src="js/db.js?v=20251218.1"></script>
+    <script src="js/trade-aggregator.js?v=20251218.1"></script>
+    <script src="js/websocket-orderbook.js?v=20251218.1"></script>
+    <script src="js/orderbook-aggregator.js?v=20251218.1"></script>
+    <script src="js/api.js?v=20251218.1"></script>
+    <script src="js/websocket.js?v=20251218.1"></script>
+    <script src="js/bb-pulse.js?v=20251218.1"></script>
+    <script src="js/chart.js?v=20251218.1"></script>
+    <script src="js/depth.js?v=20251218.1"></script>
+    <script src="js/direction.js?v=20251218.1"></script>
+    <script src="js/alpha-strike.js?v=20251218.1"></script>
+    <script src="js/whale-flow.js?v=20251218.1"></script>
+    <script src="js/flow-forecast.js?v=20251218.1"></script>
+    <script src="js/trade-panel.js?v=20251218.1"></script>
+    <script src="js/app.js?v=20251218.1"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>
