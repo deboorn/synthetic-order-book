@@ -9,7 +9,8 @@ class TradePanel {
     constructor(app, instanceId = '1') {
         this.app = app;
         this.instanceId = instanceId;
-        this.storagePrefix = `tradeSim${instanceId}`;
+        this.currentSymbol = app?.currentSymbol || localStorage.getItem('selectedSymbol') || 'BTC';
+        this.storagePrefix = `tradeSim${instanceId}_${this.currentSymbol}`;
         
         // State
         this.isRunning = false;
@@ -885,6 +886,21 @@ class TradePanel {
     onSignalUpdate() {
         // The polling interval handles this, but this method allows
         // direct integration if needed for faster response
+    }
+    
+    /**
+     * Check if this panel has an active trade (running with open position)
+     * Used by app to prompt before symbol change
+     */
+    hasActiveTrade() {
+        return this.isRunning && this.position !== null;
+    }
+    
+    /**
+     * Get current symbol this panel is tracking
+     */
+    getSymbol() {
+        return this.currentSymbol;
     }
 }
 

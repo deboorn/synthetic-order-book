@@ -4987,9 +4987,76 @@ class OrderBookApp {
             return;
         }
         
+        // Check if any trade simulators have active trades
+        const activeTrades = this.getActiveTradeSimulators();
+        if (activeTrades.length > 0) {
+            const count = activeTrades.length;
+            const simNames = activeTrades.map(p => `Sim ${p.instanceId}`).join(', ');
+            const confirmed = await this.showConfirmDialog(
+                `You have ${count} active trade${count > 1 ? 's' : ''} on ${this.currentSymbol}`,
+                `${simNames} ${count > 1 ? 'have' : 'has'} open positions. Switch to ${symbol}?`,
+                'Switch',
+                'Cancel'
+            );
+            
+            if (!confirmed) {
+                // Restore the input to current symbol
+                this.elements.symbolInput.value = this.currentSymbol;
+                // Restore active button state
+                document.querySelectorAll('.currency-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.symbol === this.currentSymbol);
+                });
+                return;
+            }
+        }
+        
         // Save new symbol and reload page to ensure clean state (no cache mixing)
         localStorage.setItem('selectedSymbol', symbol);
         window.location.reload();
+    }
+    
+    /**
+     * Get list of trade panels with active trades
+     */
+    getActiveTradeSimulators() {
+        if (!this.tradePanels) return [];
+        return this.tradePanels.filter(panel => panel.hasActiveTrade());
+    }
+    
+    /**
+     * Show a confirmation dialog and return a promise
+     */
+    showConfirmDialog(title, message, confirmText = 'Confirm', cancelText = 'Cancel') {
+        return new Promise((resolve) => {
+            // Create modal
+            const modal = document.createElement('div');
+            modal.className = 'confirm-modal';
+            modal.innerHTML = `
+                <div class="confirm-backdrop"></div>
+                <div class="confirm-content">
+                    <div class="confirm-title">${title}</div>
+                    <div class="confirm-message">${message}</div>
+                    <div class="confirm-actions">
+                        <button class="confirm-btn cancel">${cancelText}</button>
+                        <button class="confirm-btn confirm">${confirmText}</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            
+            // Bind events
+            const cleanup = (result) => {
+                modal.remove();
+                resolve(result);
+            };
+            
+            modal.querySelector('.confirm-backdrop').addEventListener('click', () => cleanup(false));
+            modal.querySelector('.confirm-btn.cancel').addEventListener('click', () => cleanup(false));
+            modal.querySelector('.confirm-btn.confirm').addEventListener('click', () => cleanup(true));
+            
+            // Focus confirm button
+            modal.querySelector('.confirm-btn.confirm').focus();
+        });
     }
 
     showSymbolError(error) {

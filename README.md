@@ -2,7 +2,9 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251217.21-green)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251218.4-green) ![Status](https://img.shields.io/badge/Status-BETA-orange)
+
+> ⚠️ **BETA SOFTWARE** - This project is under active development and changes daily as research and new features are implemented. Expect frequent updates, breaking changes, and evolving functionality. Use at your own discretion.
 
 ## 📸 Screenshots
 
@@ -28,6 +30,7 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 3. [Output Reference Guide](#output-reference-guide)
    - [Cluster Signal Panel](#9-cluster-signal-panel)
    - [Alpha Strike Panel](#10-alpha-strike-panel)
+   - [Trade Simulators](#17-trade-simulators)
 4. [Installation](#installation)
 5. [Backend & Replay](#backend--replay)
 6. [Configuration](#configuration)
@@ -46,11 +49,13 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 - **Multi-Timeframe Consensus** - MM, Swing, and HTF perspectives
 - **Cluster Signal Panel** - Combined prox/drift signals from locked and live candle states with confluence dots
 - **Alpha Strike Panel** - Confluence-based directional signals with MM/Swing/HTF trading modes
+- **Trade Simulators (x8)** - Paper trading with signal-based entries, per-symbol tracking, and persistence across page refresh
 - **Support/Resistance Levels** - Auto-detected from order book clusters
 - **Trade Footprint Heatmap** - Real-time delta visualization of actual trades per price level
 - **Levels Heatmap** - Historical order book cluster visualization on chart
 - **Historical Klines** - Via Binance Vision API (CORS-friendly)
 - **TradingView-style Alerts** - Browser notifications + sound for key metrics (one time / once per bar / once per minute)
+- **Multi-Symbol Support** - BTC, ETH, SOL with independent state per symbol
 
 ---
 
@@ -971,8 +976,8 @@ Full Footer Components:
 │           Last update time                                                  │
 │                                                                             │
 │  [CENTER] Copyright & Disclaimer                                            │
-│           © 2025 Daniel Boorn (click for email)                            │
-│           "Not Financial Advice. Trading has Risks. Use at Own Risk."      │
+│           © 2025 Daniel Boorn (click for email)                             │
+│           "Not Financial Advice. Trading has Risks. Use at Own Risk."       │
 │           (hover for full disclaimer):                                      │
 │             • Educational use only                                          │
 │             • Not financial advice                                          │
@@ -992,6 +997,139 @@ WebSocket Status:
   WS (2/3) = One exchange disconnected  
   WS (0/3) = All disconnected (check network)
 ```
+
+---
+
+### 17. Trade Simulators
+
+The Trade Simulators allow **paper trading** based on live order book signals. There are **8 independent simulator instances**, each with its own configuration, position tracking, and trade history.
+
+```
+┌───────────────────────────────────┐
+│ ▼ Trade Simulator 1         Idle │
+├───────────────────────────────────┤
+│ Signal     [l-drift          ▼]  │
+│ Threshold  [2.0] seconds         │
+│ Mode       [Both             ▼]  │
+│                                  │
+│ [Start] [Stop] [Clear]           │
+│                                  │
+│ Locked Signal: —                 │
+│ Position: None                   │
+│                                  │
+│ P&L: $0.00  Wins: 0  Losses: 0   │
+│                                  │
+│ ┌───────────────────────────────┐│
+│ │ LONG  2m 15s  +$45.20  +0.04% ││
+│ │ SHORT 5m 30s  -$12.50  -0.01% ││
+│ │ LONG  1m 45s  +$28.00  +0.03% ││
+│ └───────────────────────────────┘│
+└───────────────────────────────────┘
+```
+
+#### Signal Sources
+
+| Signal | Description |
+|--------|-------------|
+| **l-drift** | Live drift signal from forming candle |
+| **l-prox** | Live proximity signal from forming candle |
+| **l-combo** | l-prox + l-drift combined (both must agree) |
+| **prox** | Confirmed proximity from locked candle |
+| **drift** | Confirmed drift from locked candle |
+| **combo** | prox + drift combined (confirmed signals) |
+| **3 out of 4** | At least 3 of the 4 signals must agree |
+| **all 4 signals** | All 4 signals must agree (strictest) |
+
+#### Trade Modes
+
+| Mode | Description |
+|------|-------------|
+| **Both** | Trade both long and short signals |
+| **Long Only** | Only enter long positions on buy signals |
+| **Short Only** | Only enter short positions on sell signals |
+
+#### Threshold
+
+The **threshold** (in seconds) determines how long a signal must persist before triggering a trade. This filters out noise and prevents whipsaws.
+
+- Lower threshold (0.5-1s) = Faster entries, more trades
+- Higher threshold (3-5s) = Slower entries, fewer but higher conviction trades
+
+#### How It Works
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    TRADE SIMULATOR FLOW                      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Signal Detection                                         │
+│     ├─ Monitor selected signal source (e.g., l-drift)       │
+│     └─ Track signal direction (buy/sell)                     │
+│                                                              │
+│  2. Threshold Timer                                          │
+│     ├─ Signal appears → Start timer                          │
+│     ├─ Signal changes → Reset timer                          │
+│     └─ Timer reaches threshold → Lock signal                 │
+│                                                              │
+│  3. Trade Execution                                          │
+│     ├─ No position + buy signal → Open LONG                  │
+│     ├─ No position + sell signal → Open SHORT                │
+│     ├─ LONG + sell signal → Close LONG, Open SHORT           │
+│     └─ SHORT + buy signal → Close SHORT, Open LONG           │
+│                                                              │
+│  4. Position Tracking                                        │
+│     ├─ Live P&L calculated against current price             │
+│     ├─ Duration tracked from entry                           │
+│     └─ Trade logged with entry/exit prices                   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### Symbol-Specific Tracking
+
+Each simulator tracks trades **independently per symbol**:
+
+- BTC trades are stored separately from ETH trades
+- Switching symbols loads that symbol's trade history
+- Running simulators persist across page refresh
+- Confirmation prompt when switching with active trades
+
+```
+┌────────────────────────────────────────────────┐
+│  You have 2 active trades on BTC               │
+│                                                │
+│  Sim 1, Sim 3 have open positions.             │
+│  Switch to ETH?                                │
+│                                                │
+│                  [Cancel] [Switch]             │
+└────────────────────────────────────────────────┘
+```
+
+#### Trade Log
+
+Click any trade entry to view details:
+
+```
+┌───────────────────────────────────┐
+│  LONG                      OPEN  │
+├───────────────────────────────────┤
+│  Entry Price    $104,250.00      │
+│  Current Price  $104,320.50      │
+│  P&L            +$70.50 (+0.068%)│
+│  Duration       3m 45s           │
+│  Entry Time     2:15:30 PM       │
+│  Exit Time      Active           │
+└───────────────────────────────────┘
+```
+
+#### Persistence
+
+All simulator state is saved to localStorage:
+
+- **Configuration**: Signal source, threshold, mode
+- **Active Positions**: Entry price, entry time, direction
+- **Trade History**: All completed trades with P&L
+- **Running State**: Auto-resumes on page refresh
 
 ---
 
