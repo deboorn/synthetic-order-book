@@ -430,6 +430,15 @@ class TradePanel {
                 result = combine(prox, drift);
                 break;
                 
+            case '3of4':
+                // 3 out of 4 signals must agree
+                const signals3of4 = [lProx, lDrift, prox, drift].filter(s => s !== null);
+                const buyCount = signals3of4.filter(s => s === 'buy').length;
+                const sellCount = signals3of4.filter(s => s === 'sell').length;
+                if (buyCount >= 3) result = 'buy';
+                else if (sellCount >= 3) result = 'sell';
+                break;
+                
             case 'all4':
                 // All 4 signals must agree
                 const all = [lProx, lDrift, prox, drift];
