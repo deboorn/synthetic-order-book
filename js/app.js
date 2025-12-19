@@ -1534,12 +1534,19 @@ class OrderBookApp {
             db.setSymbol(this.currentSymbol);
             console.log('IndexedDB initialized for', this.currentSymbol);
             
+            // Migrate data from localStorage to IndexedDB (one-time)
+            await db.migrateFromLocalStorage();
+            
             // Cleanup old historical levels (>7 days old)
             if (db.cleanupHistoricalLevels) {
                 db.cleanupHistoricalLevels(7).catch(err => {
                     console.warn('Failed to cleanup old historical levels:', err);
                 });
             }
+            
+            // Initialize storage meter and update periodically
+            db.updateStorageMeter();
+            setInterval(() => db.updateStorageMeter(), 30000); // Update every 30 seconds
         } catch (error) {
             console.error('Failed to initialize IndexedDB:', error);
         }
@@ -2208,7 +2215,7 @@ class OrderBookApp {
         const clusterProximityLockTimeEl = document.getElementById('clusterProximityLockTime');
         if (clusterProximityLockTimeEl) {
             clusterProximityLockTimeEl.addEventListener('change', (e) => {
-                const lockTime = parseInt(e.target.value) || 10;
+                const lockTime = parseInt(e.target.value) || 5;
                 this.chart.setClusterProximityLockTime(lockTime);
             });
         }
@@ -2396,9 +2403,9 @@ class OrderBookApp {
         const savedShowBBPulse = localStorage.getItem('showBBPulse') === 'true';
         const savedShowClusterProximity = localStorage.getItem('showClusterProximity') !== 'false'; // Default ON
         const savedClusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'); // 20% default
-        const savedClusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '10'); // 10 seconds default
+        const savedClusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '5'); // 5 seconds default
         const savedShowClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
-        const savedClusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '10'); // 10 seconds default
+        const savedClusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '5'); // 5 seconds default
         const savedShowLiveProximity = localStorage.getItem('showLiveProximity') !== 'false'; // Default ON
         const savedLiveProximityThreshold = parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20'); // 20% default
         const savedShowLiveDrift = localStorage.getItem('showLiveDrift') !== 'false'; // Default ON
@@ -2877,15 +2884,98 @@ class OrderBookApp {
         document.getElementById('clearCacheBtn')?.addEventListener('click', async () => {
             if (confirm('Clear all cached data? This will reset all saved settings and historical data.')) {
                 try {
-                    // Clear localStorage
-                    localStorage.clear();
+                    console.log('[App] Starting cache clear...');
                     
-                    // Clear IndexedDB
+                    // CRITICAL: Clear in-memory caches FIRST to prevent beforeunload from saving them back
+                    if (this.chart) {
+                        // Clear level history in-memory data
+                        if (this.chart.levelHistory) {
+                            this.chart.levelHistory.data.clear();
+                            this.chart.levelHistory.midData = [];
+                            this.chart.levelHistory.ifvData = [];
+                            this.chart.levelHistory.vwmpData = [];
+                            if (this.chart.levelHistory.currentBarAccumulator) {
+                                this.chart.levelHistory.currentBarAccumulator.clear();
+                            }
+                            if (this.chart.levelHistory.midBuckets) this.chart.levelHistory.midBuckets.clear();
+                            if (this.chart.levelHistory.ifvBuckets) this.chart.levelHistory.ifvBuckets.clear();
+                            if (this.chart.levelHistory.vwmpBuckets) this.chart.levelHistory.vwmpBuckets.clear();
+                            // Stop auto-save interval
+                            if (this.chart.levelHistory._autoSaveInterval) {
+                                clearInterval(this.chart.levelHistory._autoSaveInterval);
+                            }
+                        }
+                        // Clear historical levels
+                        if (this.chart.historicalLevels) {
+                            this.chart.historicalLevels.cachedData.clear();
+                            this.chart.historicalLevels.previousLevels = [];
+                        }
+                        // Clear trade footprint
+                        if (this.chart.tradeFootprint) {
+                            this.chart.tradeFootprint.data = {};
+                        }
+                        // Clear signal markers
+                        if (this.chart.clusterProximity) this.chart.clusterProximity.markers = [];
+                        if (this.chart.clusterDrift) this.chart.clusterDrift.markers = [];
+                        if (this.chart.liveProximity) this.chart.liveProximity.markers = [];
+                        if (this.chart.liveDrift) this.chart.liveDrift.markers = [];
+                        if (this.chart.bullsBears) this.chart.bullsBears.markers = [];
+                    }
+                    
+                    // Clear trade aggregator in-memory data
+                    if (window.tradeAggregator && window.tradeAggregator.bars) {
+                        window.tradeAggregator.bars.clear();
+                    }
+                    
+                    console.log('[App] In-memory caches cleared');
+                    
+                    // Clear localStorage
+                    const lsKeys = Object.keys(localStorage);
+                    localStorage.clear();
+                    console.log(`[App] Cleared ${lsKeys.length} localStorage keys`);
+                    
+                    // Clear sessionStorage
+                    const ssKeys = Object.keys(sessionStorage);
+                    sessionStorage.clear();
+                    console.log(`[App] Cleared ${ssKeys.length} sessionStorage keys`);
+                    
+                    // Clear IndexedDB stores
                     if (typeof db !== 'undefined' && db.clearAll) {
                         await db.clearAll();
                     }
                     
-                    console.log('[App] Cache cleared, reloading...');
+                    // Delete entire IndexedDB database for clean slate
+                    if (typeof db !== 'undefined' && db.dbName) {
+                        try {
+                            // Close existing connection
+                            if (db.db) {
+                                db.db.close();
+                                db.db = null;
+                            }
+                            // Delete the database entirely
+                            const deleteReq = indexedDB.deleteDatabase(db.dbName);
+                            await new Promise((resolve, reject) => {
+                                deleteReq.onsuccess = () => {
+                                    console.log('[App] IndexedDB database deleted');
+                                    resolve();
+                                };
+                                deleteReq.onerror = () => {
+                                    console.warn('[App] Failed to delete IndexedDB:', deleteReq.error);
+                                    resolve(); // Don't block on error
+                                };
+                                deleteReq.onblocked = () => {
+                                    console.warn('[App] IndexedDB delete blocked - closing connections');
+                                    resolve();
+                                };
+                            });
+                        } catch (e) {
+                            console.warn('[App] IndexedDB delete error:', e);
+                        }
+                    }
+                    
+                    console.log('[App] Cache cleared completely, reloading...');
+                    // Prevent beforeunload from saving data back
+                    window._skipSaveOnUnload = true;
                     window.location.reload();
                 } catch (e) {
                     console.error('[App] Error clearing cache:', e);
@@ -4696,7 +4786,7 @@ class OrderBookApp {
         // Apply Cluster Proximity signal settings (default ON, 20% threshold, 5s lock)
         const showClusterProximity = localStorage.getItem('showClusterProximity') !== 'false';
         const clusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20');
-        const clusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '10');
+        const clusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '5');
         if (this.chart.setClusterProximityThreshold) {
             this.chart.setClusterProximityThreshold(clusterProximityThreshold);
         }
@@ -4709,7 +4799,7 @@ class OrderBookApp {
         
         // Apply Cluster Drift signal settings
         const showClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
-        const clusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '10');
+        const clusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '5');
         if (this.chart.setClusterDriftLockTime) {
             this.chart.setClusterDriftLockTime(clusterDriftLockTime);
         }

@@ -2782,7 +2782,66 @@ body {
 
 .footer-version {
     font-size: 0.55rem;
-    color: rgba(96, 165, 250, 0.6);
+    color: rgba(147, 197, 253, 0.9);
+}
+
+/* Footer Storage Meter */
+.footer-storage {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.55rem;
+    cursor: help;
+}
+
+.storage-icon {
+    font-size: 0.7rem;
+    line-height: 1;
+}
+
+.storage-meter {
+    width: 40px;
+    height: 8px;
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+.storage-meter-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #22c55e, #22c55e);
+    border-radius: 3px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.storage-meter-fill.warning {
+    background: linear-gradient(90deg, #f59e0b, #f97316);
+}
+
+.storage-meter-fill.danger {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+    animation: pulse-danger 1s ease-in-out infinite;
+}
+
+@keyframes pulse-danger {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.storage-text {
+    color: rgba(148, 163, 184, 0.9);
+    min-width: 45px;
+}
+
+.storage-text.warning {
+    color: #f59e0b;
+}
+
+.storage-text.danger {
+    color: #ef4444;
+    font-weight: 600;
 }
 
 /* Footer Links */
@@ -8864,6 +8923,30 @@ body {
     text-align: right;
 }
 
+.trade-sim-input-small {
+    max-width: 50px !important;
+    margin-left: 8px;
+}
+
+.trade-sim-checkbox {
+    margin-right: 6px;
+    cursor: pointer;
+}
+
+.max-trades-row {
+    margin-bottom: 10px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.max-trades-row .trade-sim-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.7rem;
+    opacity: 0.8;
+}
+
 /* Control Buttons */
 .trade-sim-controls {
     display: flex;
@@ -9003,6 +9086,7 @@ body {
 /* Summary Stats */
 .trade-sim-summary {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 10px;
 }
@@ -9044,6 +9128,54 @@ body {
 
 .trade-sim-summary .stat-value.negative {
     color: var(--ask-color);
+}
+
+/* P&L Breakdown Row */
+.trade-sim-summary .summary-stat-row.pnl-breakdown {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    order: 10;
+    margin-top: 2px;
+}
+
+/* Metrics Rows (Peak Profit/Loss, Session, 30m/60m PNL) */
+.trade-sim-summary .summary-stat-row.metrics-row {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    order: 11;
+    margin-top: 2px;
+}
+
+.trade-sim-summary .summary-stat-row.metrics-row .stat-label {
+    font-size: 0.55rem;
+    opacity: 0.8;
+}
+
+.trade-sim-summary .summary-stat-row.metrics-row .stat-value {
+    font-size: 0.65rem;
+}
+
+.trade-sim-summary .summary-stat.half {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
+}
+
+.trade-sim-summary .summary-stat.half .stat-label {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-bottom: 1px;
+}
+
+.trade-sim-summary .summary-stat.half .stat-value {
+    font-size: 0.7rem;
+    font-weight: 600;
 }
 
 /* Trade Log */
@@ -9315,6 +9447,473 @@ body {
     font-weight: 700;
 }
 
+/* ============================================
+   PERP CONFIG SECTION
+   ============================================ */
+
+.trade-sim-perp-config {
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 10px 0;
+}
+
+.trade-sim-perp-config .trade-sim-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-perp-config .trade-sim-row:last-child {
+    margin-bottom: 0;
+}
+
+.trade-sim-perp-config .trade-sim-label {
+    font-size: 0.6rem;
+    color: var(--accent-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.trade-sim-perp-config .trade-sim-input {
+    width: 100%;
+    max-width: none;
+    flex: none;
+}
+
+/* Mode-specific panel styling */
+.trade-sim-panel.mode-perp-live {
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.trade-sim-panel.mode-perp-live .panel-badge.running {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+/* Live mode status indicator */
+.trade-sim-panel .panel-badge.live-mode {
+    background: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+    font-weight: 600;
+    animation: pulse-live 1s ease-in-out infinite;
+}
+
+
+@keyframes pulse-live {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+
+/* Perp Config Row Pairs (side by side inputs) */
+.trade-sim-row-pair {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.trade-sim-row-pair .trade-sim-row {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+/* Order Progress Indicator */
+.order-progress-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    margin: 8px 0;
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    animation: progress-pulse 1s ease-in-out infinite;
+}
+
+.order-progress-text {
+    color: #60a5fa;
+    font-weight: 500;
+}
+
+.order-progress-count {
+    color: #93c5fd;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+}
+
+@keyframes progress-pulse {
+    0%, 100% { border-color: rgba(59, 130, 246, 0.3); }
+    50% { border-color: rgba(59, 130, 246, 0.6); }
+}
+
+/* Coinbase Status Indicator */
+.coinbase-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0 4px 0;
+    margin-top: 8px;
+    border-top: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+.coinbase-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.coinbase-status-dot.status-disconnected {
+    background: rgba(100, 100, 100, 0.6);
+}
+
+.coinbase-status-dot.status-connecting {
+    background: #f59e0b;
+    animation: pulse-connecting 1s ease-in-out infinite;
+}
+
+.coinbase-status-dot.status-ready {
+    background: #10b981;
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.5);
+}
+
+.coinbase-status-dot.status-ordering {
+    background: #3b82f6;
+    animation: pulse-ordering 0.5s ease-in-out infinite;
+}
+
+.coinbase-status-dot.status-error {
+    background: #ef4444;
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+}
+
+@keyframes pulse-connecting {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+@keyframes pulse-ordering {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+}
+
+.coinbase-status-text {
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.coinbase-balance {
+    font-size: 0.6rem;
+    color: var(--accent-secondary);
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.coinbase-balance .positive {
+    color: #10b981;
+}
+
+.coinbase-balance .negative {
+    color: #ef4444;
+}
+
+/* ============================================
+   HEADER SETTINGS BUTTON
+   ============================================ */
+
+.header-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+}
+
+.header-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.header-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* ============================================
+   COINBASE SETTINGS MODAL
+   ============================================ */
+
+.coinbase-settings-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.coinbase-settings-modal.open {
+    display: flex;
+}
+
+.coinbase-settings-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.coinbase-settings-content {
+    position: relative;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.coinbase-settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.coinbase-settings-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coinbase-settings-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color var(--transition-fast);
+}
+
+.coinbase-settings-close:hover {
+    color: var(--text-primary);
+}
+
+.coinbase-settings-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.coinbase-settings-warning {
+    background: rgba(234, 179, 8, 0.15);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.75rem;
+    color: #eab308;
+    margin-bottom: 16px;
+}
+
+.coinbase-settings-section {
+    margin-bottom: 20px;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.coinbase-settings-section.live {
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.coinbase-settings-section h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-badge {
+    font-size: 0.6rem;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.section-badge.live {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.coinbase-settings-live-warning {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.7rem;
+    color: #ef4444;
+    margin-bottom: 12px;
+}
+
+.coinbase-settings-field {
+    margin-bottom: 12px;
+}
+
+.coinbase-settings-field label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.coinbase-settings-field input,
+.coinbase-settings-field textarea {
+    width: 100%;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+    transition: border-color var(--transition-fast);
+}
+
+.coinbase-settings-field input:focus,
+.coinbase-settings-field textarea:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.coinbase-settings-field input:disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+.coinbase-settings-field small {
+    display: block;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.coinbase-settings-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.coinbase-btn {
+    padding: 8px 14px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: 1px solid transparent;
+}
+
+.coinbase-btn.test {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: var(--accent-primary);
+}
+
+.coinbase-btn.test:hover {
+    background: rgba(59, 130, 246, 0.25);
+}
+
+.coinbase-btn.test.live {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.coinbase-btn.test.live:hover {
+    background: rgba(239, 68, 68, 0.25);
+}
+
+.coinbase-btn.test:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.connection-status {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.connection-status.success {
+    color: var(--bid-color);
+}
+
+.connection-status.error {
+    color: var(--ask-color);
+}
+
+.connection-status.warning {
+    color: #eab308;
+}
+
+.coinbase-settings-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.coinbase-btn.secondary {
+    background: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+.coinbase-btn.secondary:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.coinbase-btn.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+.coinbase-btn.primary:hover {
+    background: #2563eb;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .trade-sim-summary .stat-value {
@@ -9323,6 +9922,15 @@ body {
     
     .trade-sim-log {
         max-height: 100px;
+    }
+    
+    .coinbase-settings-content {
+        width: 95%;
+        max-height: 95vh;
+    }
+    
+    .coinbase-settings-body {
+        padding: 14px;
     }
 }
 

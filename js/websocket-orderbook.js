@@ -30,8 +30,14 @@ class OrderBookWebSocket {
         };
         
         this.reconnectAttempts = {};
-        this.maxReconnectAttempts = 5;
+        this.maxReconnectAttempts = Infinity; // Never give up - critical for long sessions
         this.reconnectDelay = 3000;
+        this.maxReconnectDelay = 60000; // Cap at 1 minute between attempts
+        
+        // Health monitoring for long sessions
+        this.healthCheckInterval = null;
+        this.healthCheckFrequency = 30000; // Check every 30 seconds
+        this.staleDataThreshold = 60000; // Data older than 60 seconds is stale
         
         this.callbacks = {
             onUpdate: null,
@@ -154,12 +160,18 @@ class OrderBookWebSocket {
         if (newConnections > 0) {
             console.warn(`[OrderBook WS] Connecting to ${newConnections} exchange(s)...`);
         }
+        
+        // Start health monitoring for long sessions
+        this.startHealthCheck();
     }
     
     /**
      * Disconnect from all exchanges
      */
     disconnect() {
+        // Stop health monitoring
+        this.stopHealthCheck();
+        
         for (const exchange in this.connections) {
             this.disconnectExchange(exchange);
         }
@@ -688,15 +700,79 @@ class OrderBookWebSocket {
         
         this.reconnectAttempts[exchange] = (this.reconnectAttempts[exchange] || 0) + 1;
         
-        if (this.reconnectAttempts[exchange] <= this.maxReconnectAttempts) {
-            console.warn(`[OrderBook WS] Reconnecting ${exchange} (attempt ${this.reconnectAttempts[exchange]}/${this.maxReconnectAttempts})...`);
+        // Calculate delay with exponential backoff, capped at maxReconnectDelay
+        const delay = Math.min(
+            this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts[exchange] - 1),
+            this.maxReconnectDelay
+        );
+        
+        console.warn(`[OrderBook WS] Reconnecting ${exchange} (attempt ${this.reconnectAttempts[exchange]}) in ${(delay/1000).toFixed(1)}s...`);
             
             setTimeout(() => {
                 this.connectExchange(exchange);
-            }, this.reconnectDelay * this.reconnectAttempts[exchange]);
-        } else {
-            console.error(`[OrderBook WS] ${exchange} max reconnect attempts reached`);
+        }, delay);
+    }
+    
+    // ==========================================
+    // Health Monitoring & Memory Management
+    // ==========================================
+    
+    /**
+     * Start health check interval for long sessions
+     * Monitors for stale data and forces reconnect if needed
+     */
+    startHealthCheck() {
+        if (this.healthCheckInterval) return; // Already running
+        
+        console.log('[OrderBook WS] Starting health monitor (30s interval)');
+        
+        this.healthCheckInterval = setInterval(() => {
+            this.performHealthCheck();
+        }, this.healthCheckFrequency);
+    }
+    
+    /**
+     * Stop health check interval
+     */
+    stopHealthCheck() {
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+            this.healthCheckInterval = null;
+            console.log('[OrderBook WS] Health monitor stopped');
         }
+    }
+    
+    /**
+     * Perform health check on all exchanges
+     */
+    performHealthCheck() {
+        const now = Date.now();
+        
+        for (const exchange in this.orderBooks) {
+            if (!this.enabled[exchange]) continue;
+            
+            const book = this.orderBooks[exchange];
+            const lastUpdate = book.lastUpdate;
+            const age = now - lastUpdate;
+            
+            // Check for stale data
+            if (book.connected && lastUpdate > 0 && age > this.staleDataThreshold) {
+                console.warn(`[OrderBook WS] ${exchange} data is stale (${(age/1000).toFixed(0)}s old) - forcing reconnect`);
+                
+                // Force disconnect and reconnect
+                this.disconnectExchange(exchange);
+                this.reconnectAttempts[exchange] = 0; // Reset attempts for fresh start
+                this.connectExchange(exchange);
+            }
+        }
+        
+        // Log health status periodically
+        const status = this.getConnectionStatus();
+        const bookSizes = {};
+        for (const ex in this.orderBooks) {
+            bookSizes[ex] = this.orderBooks[ex].bids.size + this.orderBooks[ex].asks.size;
+        }
+        console.log(`[OrderBook WS] Health: connected=${status.anyConnected}, sizes:`, bookSizes);
     }
     
     // ==========================================

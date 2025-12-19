@@ -41,7 +41,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%230a0e17'/%3E%3C/linearGradient%3E%3ClinearGradient id='glow' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3ClinearGradient id='green' x1='0%25' y1='100%25' x2='0%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%23059669'/%3E%3Cstop offset='100%25' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3ClinearGradient id='red' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dc2626'/%3E%3Cstop offset='100%25' stop-color='%23ef4444'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23bg)' width='180' height='180' rx='36'/%3E%3Crect x='6' y='6' width='168' height='168' rx='32' fill='none' stroke='url(%23glow)' stroke-width='1.5' opacity='0.4'/%3E%3Crect x='28' y='90' width='15' height='48' rx='3' fill='url(%23green)'/%3E%3Crect x='31' y='76' width='9' height='14' fill='%2310b981'/%3E%3Crect x='31' y='138' width='9' height='11' fill='%2310b981'/%3E%3Crect x='50' y='52' width='15' height='66' rx='3' fill='url(%23red)'/%3E%3Crect x='53' y='42' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='53' y='118' width='9' height='14' fill='%23ef4444'/%3E%3Crect x='72' y='66' width='15' height='52' rx='3' fill='url(%23green)'/%3E%3Crect x='75' y='52' width='9' height='14' fill='%2310b981'/%3E%3Crect x='75' y='118' width='9' height='10' fill='%2310b981'/%3E%3Crect x='94' y='48' width='15' height='62' rx='3' fill='url(%23green)'/%3E%3Crect x='97' y='34' width='9' height='14' fill='%2310b981'/%3E%3Crect x='97' y='110' width='9' height='11' fill='%2310b981'/%3E%3Crect x='116' y='58' width='15' height='48' rx='3' fill='url(%23red)'/%3E%3Crect x='119' y='48' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='119' y='106' width='9' height='16' fill='%23ef4444'/%3E%3Crect x='138' y='44' width='15' height='56' rx='3' fill='url(%23green)'/%3E%3Crect x='141' y='30' width='9' height='14' fill='%2310b981'/%3E%3Crect x='141' y='100' width='9' height='10' fill='%2310b981'/%3E%3Cpath d='M24 142 Q54 124 82 118 T138 90 T160 76' stroke='url(%23glow)' stroke-width='2.5' fill='none' stroke-linecap='round' opacity='0.8'/%3E%3Ccircle cx='160' cy='76' r='4' fill='%233b82f6'/%3E%3C/svg%3E">
     
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251218.4">
+    <link rel="stylesheet" href="css/style.css?v=20251219.1">
 </head>
 <body>
     <div class="app">
@@ -109,6 +109,12 @@
                 </div>
             </div>
             <div class="header-right">
+                <button class="header-btn" id="coinbaseSettingsBtn" title="Coinbase API Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
                 <div class="exchange-status" id="exchangeStatus">
                     <span class="status-dot"></span>
                     <span>Connecting...</span>
@@ -786,6 +792,57 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim1TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Perp Config (shown when perp mode selected) -->
+                        <div class="trade-sim-perp-config" id="tradeSim1PerpConfig" style="display:none;">
+                            <div class="trade-sim-row-pair">
+                                <div class="trade-sim-row">
+                                    <label class="trade-sim-label">Contracts</label>
+                                    <input type="number" id="tradeSim1Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                                </div>
+                                <div class="trade-sim-row">
+                                    <label class="trade-sim-label">Order Timeout</label>
+                                    <input type="number" id="tradeSim1OrderTimeout" class="trade-sim-input" value="10" min="1" max="60" step="1" title="Seconds to wait before checking/retrying limit order">
+                                </div>
+                            </div>
+                            <div class="trade-sim-row-pair">
+                                <div class="trade-sim-row">
+                                    <label class="trade-sim-label">Leverage</label>
+                                    <input type="number" id="tradeSim1Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                                </div>
+                                <div class="trade-sim-row">
+                                    <label class="trade-sim-label">Max Loss ($)</label>
+                                    <input type="number" id="tradeSim1MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                                </div>
+                            </div>
+                            <!-- Order Progress Indicator -->
+                            <div class="order-progress-row" id="tradeSim1OrderProgress" style="display:none;">
+                                <span class="order-progress-text" id="tradeSim1OrderProgressText">Filling...</span>
+                                <span class="order-progress-count" id="tradeSim1OrderProgressCount">0/0</span>
+                            </div>
+                            <!-- Coinbase Status Indicator -->
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim1CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim1CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim1CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim1LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim1MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
                         
                         <!-- Control Buttons -->
@@ -813,6 +870,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim1Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim1ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim1LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim1PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim1PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim1SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim1AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim1Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim1Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -867,6 +964,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim2TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- Perp Config (shown when perp mode selected) -->
+                        <div class="trade-sim-perp-config" id="tradeSim2PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim2Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim2Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim2MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim2CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim2CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim2CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim2LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim2MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
                         
                         <!-- Control Buttons -->
@@ -894,6 +1028,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim2Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim2ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim2LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim2PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim2PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim2SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim2AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim2Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim2Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -947,7 +1121,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim3TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim3PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim3Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim3Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim3MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim3CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim3CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim3CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim3LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim3MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim3Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim3Stop" disabled>Stop</button>
@@ -966,6 +1176,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim3Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim3ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim3LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim3PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim3PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim3SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim3AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim3Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim3Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1017,7 +1267,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim4TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim4PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim4Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim4Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim4MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim4CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim4CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim4CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim4LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim4MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim4Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim4Stop" disabled>Stop</button>
@@ -1036,6 +1322,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim4Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim4ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim4LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim4PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim4PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim4SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim4AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim4Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim4Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1087,7 +1413,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim5TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim5PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim5Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim5Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim5MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim5CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim5CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim5CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim5LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim5MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim5Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim5Stop" disabled>Stop</button>
@@ -1106,6 +1468,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim5Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim5ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim5LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim5PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim5PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim5SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim5AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim5Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim5Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1157,7 +1559,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim6TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim6PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim6Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim6Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim6MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim6CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim6CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim6CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim6LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim6MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim6Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim6Stop" disabled>Stop</button>
@@ -1176,6 +1614,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim6Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim6ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim6LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim6PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim6PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim6SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim6AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim6Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim6Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1227,7 +1705,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim7TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim7PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim7Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim7Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim7MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim7CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim7CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim7CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim7LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim7MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim7Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim7Stop" disabled>Stop</button>
@@ -1246,6 +1760,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim7Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim7ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim7LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim7PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim7PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim7SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim7AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim7Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim7Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1297,7 +1851,43 @@
                                     <option value="short">Short Only</option>
                                 </select>
                             </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Trading</label>
+                                <select id="tradeSim8TradingMode" class="trade-sim-select">
+                                    <option value="simulation">Simulation</option>
+                                    <option value="perp-live">Perp Live</option>
+                                </select>
+                            </div>
                         </div>
+                        <div class="trade-sim-perp-config" id="tradeSim8PerpConfig" style="display:none;">
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Contracts</label>
+                                <input type="number" id="tradeSim8Contracts" class="trade-sim-input" value="1" min="1" step="1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Leverage</label>
+                                <input type="number" id="tradeSim8Leverage" class="trade-sim-input" value="3.3" min="1" max="10" step="0.1">
+                            </div>
+                            <div class="trade-sim-row">
+                                <label class="trade-sim-label">Max Loss ($)</label>
+                                <input type="number" id="tradeSim8MaxLoss" class="trade-sim-input" value="100" min="1" step="1">
+                            </div>
+                            <div class="coinbase-status-row">
+                                <span id="tradeSim8CoinbaseStatus" class="coinbase-status-dot status-disconnected"></span>
+                                <span id="tradeSim8CoinbaseStatusText" class="coinbase-status-text">—</span>
+                                <span id="tradeSim8CoinbaseBalance" class="coinbase-balance"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Max Trades Limiter -->
+                        <div class="trade-sim-row max-trades-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim8LimitMaxTrades" class="trade-sim-checkbox">
+                                Limit Trades
+                            </label>
+                            <input type="number" id="tradeSim8MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
+                        </div>
+                        
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim8Start">Start</button>
                             <button class="trade-sim-btn stop" id="tradeSim8Stop" disabled>Stop</button>
@@ -1316,6 +1906,46 @@
                             <div class="summary-stat">
                                 <span class="stat-label">P&L</span>
                                 <span class="stat-value" id="tradeSim8Pnl">$0.00</span>
+                            </div>
+                            <div class="summary-stat-row pnl-breakdown">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Short P&L</span>
+                                    <span class="stat-value" id="tradeSim8ShortPnl">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Long P&L</span>
+                                    <span class="stat-value" id="tradeSim8LongPnl">$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Profit</span>
+                                    <span class="stat-value positive" id="tradeSim8PeakProfit">+$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Peak Loss</span>
+                                    <span class="stat-value negative" id="tradeSim8PeakLoss">-$0.00</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Session</span>
+                                    <span class="stat-value" id="tradeSim8SessionTime">—</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">Avg Trade</span>
+                                    <span class="stat-value" id="tradeSim8AvgTradeLength">—</span>
+                                </div>
+                            </div>
+                            <div class="summary-stat-row metrics-row">
+                                <div class="summary-stat half">
+                                    <span class="stat-label">30m P&L</span>
+                                    <span class="stat-value" id="tradeSim8Pnl30min">$0.00</span>
+                                </div>
+                                <div class="summary-stat half">
+                                    <span class="stat-label">60m P&L</span>
+                                    <span class="stat-value" id="tradeSim8Pnl60min">$0.00</span>
+                                </div>
                             </div>
                             <div class="summary-stat">
                                 <span class="stat-label">Wins</span>
@@ -1839,7 +2469,15 @@
                 <span class="footer-sep">·</span>
                 <span class="footer-disclaimer" title="Educational use only · Not financial advice · Crypto trading involves substantial risk · Personal non-commercial use only · Contact daniel.boorn@gmail.com for commercial licensing">Not Financial Advice. Trading has Risks. Use at Own Risk.</span>
                 <span class="footer-sep">·</span>
-                <span class="footer-version">v20251218.4</span>
+                <span class="footer-storage" id="footerStorage" title="Storage usage (localStorage + IndexedDB)">
+                    <span class="storage-icon">⛽</span>
+                    <span class="storage-meter">
+                        <span class="storage-meter-fill" id="storageMeterFill"></span>
+                    </span>
+                    <span class="storage-text" id="storageText">--</span>
+                </span>
+                <span class="footer-sep">·</span>
+                <span class="footer-version">v20251219.7</span>
             </div>
             <div class="footer-links">
                 <a href="analysis.html" class="footer-link" title="Analysis Dashboard">
@@ -2734,21 +3372,31 @@
         </div>
     </div>
 
-    <script src="js/db.js?v=20251218.4"></script>
-    <script src="js/trade-aggregator.js?v=20251218.4"></script>
-    <script src="js/websocket-orderbook.js?v=20251218.4"></script>
+    <!-- 
+        Cache Buster Version Format: YYYYMMDD.increment
+        Update these versions when modifying JS/CSS files to force browser cache refresh.
+        The footer version should match: v20251218.40
+    -->
+    <script src="js/db.js?v=20251218.39"></script>
+    <script src="js/trade-aggregator.js?v=20251218.36"></script>
+    <script src="js/websocket-orderbook.js?v=20251218.34"></script>
     <script src="js/orderbook-aggregator.js?v=20251218.4"></script>
     <script src="js/api.js?v=20251218.4"></script>
-    <script src="js/websocket.js?v=20251218.4"></script>
+    <script src="js/websocket.js?v=20251218.34"></script>
     <script src="js/bb-pulse.js?v=20251218.4"></script>
-    <script src="js/chart.js?v=20251218.4"></script>
+    <script src="js/chart.js?v=20251218.40"></script>
     <script src="js/depth.js?v=20251218.4"></script>
     <script src="js/direction.js?v=20251218.4"></script>
     <script src="js/alpha-strike.js?v=20251218.4"></script>
     <script src="js/whale-flow.js?v=20251218.4"></script>
     <script src="js/flow-forecast.js?v=20251218.4"></script>
-    <script src="js/trade-panel.js?v=20251218.4"></script>
-    <script src="js/app.js?v=20251218.4"></script>
+    <script src="js/trade-panel.js?v=20251219.7"></script>
+    <!-- Coinbase API Integration -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.5.25/jsrsasign-all-min.js"></script>
+    <script src="js/coinbase-api.js?v=20251219.7"></script>
+    <script src="js/coinbase-websocket.js?v=20251218.34"></script>
+    <script src="js/coinbase-settings.js?v=20251218.34"></script>
+    <script src="js/app.js?v=20251218.40"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>

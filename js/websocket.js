@@ -292,6 +292,14 @@ class WebSocketManager {
             ws.onclose = () => {
                 console.log('[Coinbase] WebSocket closed');
                 delete this.connections.coinbase;
+                
+                // Auto-reconnect after delay
+                setTimeout(() => {
+                    if (!this.connections.coinbase && this.enabledExchanges.includes('coinbase')) {
+                        console.log('[Coinbase] Auto-reconnecting...');
+                        this.connectCoinbase();
+                    }
+                }, this.reconnectDelay);
             };
 
             this.connections.coinbase = ws;
@@ -350,6 +358,14 @@ class WebSocketManager {
             ws.onclose = () => {
                 console.log('[Kraken Ticker] WebSocket closed');
                 delete this.connections.krakenTicker;
+                
+                // Auto-reconnect after delay
+                setTimeout(() => {
+                    if (!this.connections.krakenTicker && this.enabledExchanges.includes('kraken')) {
+                        console.log('[Kraken Ticker] Auto-reconnecting...');
+                        this.connectKrakenTicker();
+                    }
+                }, this.reconnectDelay);
             };
 
             this.connections.krakenTicker = ws;
@@ -405,6 +421,14 @@ class WebSocketManager {
             ws.onclose = () => {
                 console.log('[Bitstamp] WebSocket closed');
                 delete this.connections.bitstamp;
+                
+                // Auto-reconnect after delay
+                setTimeout(() => {
+                    if (!this.connections.bitstamp && this.enabledExchanges.includes('bitstamp')) {
+                        console.log('[Bitstamp] Auto-reconnecting...');
+                        this.connectBitstamp();
+                    }
+                }, this.reconnectDelay);
             };
 
             this.connections.bitstamp = ws;

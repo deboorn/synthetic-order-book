@@ -2,7 +2,7 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251218.4-green) ![Status](https://img.shields.io/badge/Status-BETA-orange)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251219.7-green) ![Status](https://img.shields.io/badge/Status-BETA-orange)
 
 > ⚠️ **BETA SOFTWARE** - This project is under active development and changes daily as research and new features are implemented. Expect frequent updates, breaking changes, and evolving functionality. Use at your own discretion.
 
@@ -19,7 +19,6 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
 ## 🔗 Quick Links
 
 - **[Live Demo](https://deboorn.github.io/synthetic-order-book/)** - GitHub Pages deployment
-- **[Backend / Replay](./backend/README.md)** - Record data & replay historical sessions
 
 ---
 
@@ -32,7 +31,7 @@ A real-time, multi-exchange cryptocurrency order book visualization and analysis
    - [Alpha Strike Panel](#10-alpha-strike-panel)
    - [Trade Simulators](#17-trade-simulators)
 4. [Installation](#installation)
-5. [Backend & Replay](#backend--replay)
+5. [Coinbase Advanced Trading](#coinbase-advanced-trading)
 6. [Configuration](#configuration)
 7. [Alerts](#alerts)
 8. [License](#license)
@@ -1009,7 +1008,7 @@ The Trade Simulators allow **paper trading** based on live order book signals. T
 │ ▼ Trade Simulator 1         Idle │
 ├───────────────────────────────────┤
 │ Signal     [l-drift          ▼]  │
-│ Threshold  [2.0] seconds         │
+│ Threshold  [5.0] seconds         │
 │ Mode       [Both             ▼]  │
 │                                  │
 │ [Start] [Stop] [Clear]           │
@@ -1165,38 +1164,74 @@ open http://localhost:8888
 
 ---
 
-## 🔄 Backend & Replay
+## 🔗 Coinbase Advanced Trading
 
-The `backend/` folder contains a Node.js toolkit for recording and replaying historical order book data.
+> ⚠️ **DISCLAIMER:** This is **BETA software** for **educational and research purposes only**. **Do NOT use this live trading feature unless you are a developer who fully understands the code and accepts all risks.** Even then, **this software is NOT intended for live trading and should NOT be used with real funds.** This is **NOT financial advice (NFA)**. Cryptocurrency trading involves substantial risk of loss. Use at your own risk. The authors are not responsible for any financial losses incurred. Always conduct your own research and consult qualified financial advisors before trading.
 
-### Features
+The Trade Simulators support **live trading** on Coinbase Advanced using CFM Nano Perpetual Futures (BTC/ETH). This requires a PHP proxy for secure JWT authentication.
 
-- **Record** live WebSocket data from multiple exchanges
-- **Process** raw data into derived candle feeds
-- **Replay** historical sessions with all metrics computed client-side
-- **Analyze** predictive signals with adjustable alpha sensitivity
+### Supported Products
 
-### Quick Start
+| Product | Contract Size | Price Increment | Description |
+|---------|---------------|-----------------|-------------|
+| **BIP-PERP** | 1/100 BTC | $5 | Nano Bitcoin Perpetual |
+| **ETP-PERP** | 1/10 ETH | $1 | Nano Ethereum Perpetual |
+
+### Setup Requirements
+
+1. **Coinbase Advanced Account** with CFM Futures enabled
+2. **CDP API Key** from [Coinbase Developer Platform](https://portal.cdp.coinbase.com/)
+3. **PHP Server** with OpenSSL extension (for JWT signing)
+
+### Proxy Installation
+
+The `coinbase-advanced/` folder contains the PHP proxy for API authentication:
 
 ```bash
-cd backend
-npm install
+# Copy to your PHP-enabled server
+cp -r coinbase-advanced/ /var/www/html/
 
-# Record a session
-npm run recorder -- --symbols=BTC --enabled=kraken_ohlc,kraken_book,coinbase_level2 --session=my-session
-
-# Process candles
-npm run processor -- --session=my-session --symbols=BTC
-
-# Generate snapshots for replay
-npm run snapshots -- --session=my-session --symbol=BTC --timeframe=1m
-
-# Start replay server
-npm run server
-# Open http://127.0.0.1:8787/
+# Or use PHP built-in server for local development
+cd order-book
+php -S localhost:8888
 ```
 
-See **[backend/README.md](./backend/README.md)** for full documentation.
+**Required PHP Extensions:**
+- `openssl` - For EC key signing
+- `curl` - For API requests
+- `json` - For request/response handling
+
+**For Windows IIS (PHP 8.5+):** Use `proxy85.php` which includes SSL certificate configuration.
+
+### Configuration
+
+1. Click the **⚙️ gear icon** in the Trade Simulator panel
+2. Enter your CDP API credentials:
+   - **API Key Name**: `organizations/{org_id}/apiKeys/{key_id}`
+   - **Private Key**: EC Private Key in PEM format
+3. Click **Test Connection** to verify and auto-discover your portfolio
+4. Click **Save Settings**
+
+### Security Notes
+
+- Credentials are stored in **browser localStorage only** (never sent to third parties)
+- The PHP proxy generates JWTs server-side for each API call
+- Private keys are transmitted to your proxy via HTTPS (ensure SSL is configured)
+- No credentials are stored on the server
+
+### Trading Modes
+
+| Mode | Description |
+|------|-------------|
+| **Simulation** | Paper trading with simulated fills (default) |
+| **Perp-Live** | Real trading on Coinbase CFM Futures |
+
+### Order Execution
+
+- **Limit Orders (GTC)** with configurable timeout
+- **Conservative pricing** for reliable fills
+- **Automatic retry** on partial fills or timeouts
+- **Signal validation** - aborts if signal changes during order
 
 ---
 

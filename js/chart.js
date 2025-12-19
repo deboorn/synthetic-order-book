@@ -164,7 +164,7 @@ class OrderBookChart {
         this.clusterProximity = {
             enabled: localStorage.getItem('showClusterProximity') === 'true', // Default OFF
             threshold: parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'), // 20% default
-            lockTime: parseInt(localStorage.getItem('clusterProximityLockTime') || '10'), // 10 seconds default
+            lockTime: parseInt(localStorage.getItem('clusterProximityLockTime') || '5'), // 5 seconds default
             markers: [],              // Historical frozen markers
             liveMarker: null,         // Current bar's live marker
             lastBarTime: null,        // Track which bar we're on
@@ -180,7 +180,7 @@ class OrderBookChart {
         // Cluster Drift Signal - measures directional movement of closest clusters
         this.clusterDrift = {
             enabled: localStorage.getItem('showClusterDrift') === 'true', // Default OFF
-            lockTime: parseInt(localStorage.getItem('clusterDriftLockTime') || '10'), // 10 seconds default
+            lockTime: parseInt(localStorage.getItem('clusterDriftLockTime') || '5'), // 5 seconds default
             markers: [],              // Historical frozen markers
             liveMarker: null,         // Current bar's live marker
             lastBarTime: null,        // Track which bar we're on
@@ -3544,16 +3544,16 @@ class OrderBookChart {
     }
     
     /**
-     * Load Bulls vs Bears history from localStorage
+     * Load Bulls vs Bears history from IndexedDB
      * NOTE: Level tracking now handled by levelHistory system - only loading markers here
      */
-    loadBullsBearsHistory() {
+    async loadBullsBearsHistory() {
         try {
-            // Load markers only (level tracking now handled by levelHistory)
-            const savedMarkers = localStorage.getItem('bullsBearsMarkers');
-            if (savedMarkers) {
-                this.bullsBears.markers = JSON.parse(savedMarkers);
-                console.log('[Chart] Loaded', this.bullsBears.markers.length, 'Bulls vs Bears markers from localStorage');
+            // Load markers from IndexedDB
+            const markers = await db.getSignalMarkers('bullsBears');
+            if (markers && markers.length > 0) {
+                this.bullsBears.markers = markers;
+                console.log('[Chart] Loaded', this.bullsBears.markers.length, 'Bulls vs Bears markers from IndexedDB');
             }
         } catch (e) {
             console.warn('[Chart] Error loading Bulls vs Bears history:', e);
@@ -3561,12 +3561,12 @@ class OrderBookChart {
     }
     
     /**
-     * Save Bulls vs Bears history to localStorage
+     * Save Bulls vs Bears history to IndexedDB
      * NOTE: Level tracking now handled by levelHistory system - only saving markers here
      */
     saveBullsBearsHistory() {
         try {
-            localStorage.setItem('bullsBearsMarkers', JSON.stringify(this.bullsBears.markers));
+            db.saveSignalMarkers('bullsBears', this.bullsBears.markers);
         } catch (e) {
             console.warn('[Chart] Error saving Bulls vs Bears history:', e);
         }
@@ -4016,25 +4016,25 @@ class OrderBookChart {
     }
     
     /**
-     * Save Cluster Proximity markers to localStorage
+     * Save Cluster Proximity markers to IndexedDB
      */
     saveClusterProximityHistory() {
         try {
-            localStorage.setItem('clusterProximityMarkers', JSON.stringify(this.clusterProximity.markers));
+            db.saveSignalMarkers('clusterProximity', this.clusterProximity.markers);
         } catch (e) {
             console.warn('[Chart] Error saving Cluster Proximity history:', e);
         }
     }
     
     /**
-     * Load Cluster Proximity markers from localStorage
+     * Load Cluster Proximity markers from IndexedDB
      */
-    loadClusterProximityHistory() {
+    async loadClusterProximityHistory() {
         try {
-            const savedMarkers = localStorage.getItem('clusterProximityMarkers');
-            if (savedMarkers) {
-                this.clusterProximity.markers = JSON.parse(savedMarkers);
-                console.log('[Chart] Loaded', this.clusterProximity.markers.length, 'Cluster Proximity markers');
+            const markers = await db.getSignalMarkers('clusterProximity');
+            if (markers && markers.length > 0) {
+                this.clusterProximity.markers = markers;
+                console.log('[Chart] Loaded', this.clusterProximity.markers.length, 'Cluster Proximity markers from IndexedDB');
             }
         } catch (e) {
             console.warn('[Chart] Error loading Cluster Proximity history:', e);
@@ -4084,7 +4084,7 @@ class OrderBookChart {
      * Set Cluster Drift lock time
      */
     setClusterDriftLockTime(seconds) {
-        this.clusterDrift.lockTime = parseInt(seconds) || 10;
+        this.clusterDrift.lockTime = parseInt(seconds) || 5;
         localStorage.setItem('clusterDriftLockTime', this.clusterDrift.lockTime);
         console.log('[Chart] setClusterDriftLockTime:', this.clusterDrift.lockTime, 'seconds');
     }
@@ -4271,14 +4271,14 @@ class OrderBookChart {
     }
     
     /**
-     * Load Cluster Drift history from localStorage
+     * Load Cluster Drift history from IndexedDB
      */
-    loadClusterDriftHistory() {
+    async loadClusterDriftHistory() {
         try {
-            const stored = localStorage.getItem('clusterDriftMarkers');
-            if (stored) {
-                this.clusterDrift.markers = JSON.parse(stored);
-                console.log('[Chart] Loaded', this.clusterDrift.markers.length, 'Cluster Drift markers');
+            const markers = await db.getSignalMarkers('clusterDrift');
+            if (markers && markers.length > 0) {
+                this.clusterDrift.markers = markers;
+                console.log('[Chart] Loaded', this.clusterDrift.markers.length, 'Cluster Drift markers from IndexedDB');
             }
         } catch (e) {
             console.error('[Chart] Error loading Cluster Drift history:', e);
@@ -4287,11 +4287,11 @@ class OrderBookChart {
     }
     
     /**
-     * Save Cluster Drift history to localStorage
+     * Save Cluster Drift history to IndexedDB
      */
     saveClusterDriftHistory() {
         try {
-            localStorage.setItem('clusterDriftMarkers', JSON.stringify(this.clusterDrift.markers));
+            db.saveSignalMarkers('clusterDrift', this.clusterDrift.markers);
         } catch (e) {
             console.error('[Chart] Error saving Cluster Drift history:', e);
         }
@@ -4422,25 +4422,25 @@ class OrderBookChart {
     }
     
     /**
-     * Save Live Proximity markers to localStorage
+     * Save Live Proximity markers to IndexedDB
      */
     saveLiveProximityHistory() {
-        if (this.liveProximity.markers.length > 0) {
-            localStorage.setItem('liveProximityMarkers', JSON.stringify(this.liveProximity.markers));
-        } else {
-            localStorage.removeItem('liveProximityMarkers');
+        try {
+            db.saveSignalMarkers('liveProximity', this.liveProximity.markers);
+        } catch (e) {
+            console.error('[Chart] Error saving Live Proximity history:', e);
         }
     }
     
     /**
-     * Load Live Proximity markers from localStorage
+     * Load Live Proximity markers from IndexedDB
      */
-    loadLiveProximityHistory() {
+    async loadLiveProximityHistory() {
         try {
-            const saved = localStorage.getItem('liveProximityMarkers');
-            if (saved) {
-                this.liveProximity.markers = JSON.parse(saved);
-                console.log('[Chart] Loaded', this.liveProximity.markers.length, 'Live Proximity markers');
+            const markers = await db.getSignalMarkers('liveProximity');
+            if (markers && markers.length > 0) {
+                this.liveProximity.markers = markers;
+                console.log('[Chart] Loaded', this.liveProximity.markers.length, 'Live Proximity markers from IndexedDB');
             }
         } catch (e) {
             console.error('[Chart] Error loading Live Proximity history:', e);
@@ -4583,25 +4583,25 @@ class OrderBookChart {
     }
     
     /**
-     * Save Live Drift markers to localStorage
+     * Save Live Drift markers to IndexedDB
      */
     saveLiveDriftHistory() {
-        if (this.liveDrift.markers.length > 0) {
-            localStorage.setItem('liveDriftMarkers', JSON.stringify(this.liveDrift.markers));
-        } else {
-            localStorage.removeItem('liveDriftMarkers');
+        try {
+            db.saveSignalMarkers('liveDrift', this.liveDrift.markers);
+        } catch (e) {
+            console.error('[Chart] Error saving Live Drift history:', e);
         }
     }
     
     /**
-     * Load Live Drift markers from localStorage
+     * Load Live Drift markers from IndexedDB
      */
-    loadLiveDriftHistory() {
+    async loadLiveDriftHistory() {
         try {
-            const saved = localStorage.getItem('liveDriftMarkers');
-            if (saved) {
-                this.liveDrift.markers = JSON.parse(saved);
-                console.log('[Chart] Loaded', this.liveDrift.markers.length, 'Live Drift markers');
+            const markers = await db.getSignalMarkers('liveDrift');
+            if (markers && markers.length > 0) {
+                this.liveDrift.markers = markers;
+                console.log('[Chart] Loaded', this.liveDrift.markers.length, 'Live Drift markers from IndexedDB');
             }
         } catch (e) {
             console.error('[Chart] Error loading Live Drift history:', e);
@@ -5771,7 +5771,9 @@ class OrderBookChart {
      */
     _setupLevelHistoryPersistence() {
         // Save before page unload (refresh/close)
+        // Skip if cache clear is in progress
         window.addEventListener('beforeunload', () => {
+            if (window._skipSaveOnUnload) return;
             this.saveLevelHistory();
         });
         

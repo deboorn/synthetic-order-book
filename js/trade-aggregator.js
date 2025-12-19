@@ -267,17 +267,16 @@ class TradeAggregator {
     }
     
     /**
-     * Get storage key for persistence
+     * Get storage key for persistence (kept for backwards compatibility)
      */
     getStorageKey() {
         return `tradeFootprint_${this.symbol}_${this.interval}`;
     }
     
     /**
-     * Save to localStorage
+     * Serialize bars data for storage
      */
-    saveToStorage() {
-        try {
+    serializeBars() {
             const data = {};
             this.bars.forEach((barData, barTime) => {
                 const levels = [];
@@ -296,23 +295,13 @@ class TradeAggregator {
                     tc: barData.tradeCount
                 };
             });
-            
-            localStorage.setItem(this.getStorageKey(), JSON.stringify(data));
-        } catch (e) {
-            console.warn('[TradeAggregator] Failed to save to storage:', e);
-        }
+        return data;
     }
     
     /**
-     * Load from localStorage
+     * Deserialize bars data from storage
      */
-    loadFromStorage() {
-        try {
-            const saved = localStorage.getItem(this.getStorageKey());
-            if (!saved) return;
-            
-            const data = JSON.parse(saved);
-            
+    deserializeBars(data) {
             Object.entries(data).forEach(([barTime, barData]) => {
                 const priceLevels = new Map();
                 barData.l.forEach(level => {
@@ -330,10 +319,42 @@ class TradeAggregator {
                     tradeCount: barData.tc
                 });
             });
-            
-            console.log(`[TradeAggregator] Loaded ${this.bars.size} bars from storage`);
+    }
+    
+    /**
+     * Save to IndexedDB
+     */
+    saveToStorage() {
+        try {
+            const data = this.serializeBars();
+            // Temporarily set db symbol, then restore
+            const prevSymbol = db.symbol;
+            db.setSymbol(this.symbol);
+            db.saveTradeFootprint(this.interval, data);
+            db.setSymbol(prevSymbol);
         } catch (e) {
-            console.warn('[TradeAggregator] Failed to load from storage:', e);
+            console.warn('[TradeAggregator] Failed to save to IndexedDB:', e);
+        }
+    }
+    
+    /**
+     * Load from IndexedDB
+     */
+    async loadFromStorage() {
+        try {
+            // Temporarily set db symbol, then restore
+            const prevSymbol = db.symbol;
+            db.setSymbol(this.symbol);
+            const data = await db.getTradeFootprint(this.interval);
+            db.setSymbol(prevSymbol);
+            
+            if (!data) return;
+            
+            this.deserializeBars(data);
+            
+            console.log(`[TradeAggregator] Loaded ${this.bars.size} bars from IndexedDB`);
+        } catch (e) {
+            console.warn('[TradeAggregator] Failed to load from IndexedDB:', e);
         }
     }
     

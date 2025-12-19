@@ -1,6 +1,8 @@
 /**
  * Trade Panel - Simulated Trading based on Live Signals
  * 
+ * Supports simulation mode and live Coinbase perpetual futures trading.
+ * 
  * @copyright 2025 Daniel Boorn <daniel.boorn@gmail.com>
  * @license Personal use only. Not for commercial reproduction.
  */
@@ -17,6 +19,7 @@ class TradePanel {
         this.position = null; // null, 'long', or 'short'
         this.entryPrice = null;
         this.entryTime = null;
+        this.openPositionContracts = null; // Actual contracts in open position (may differ from config on partial fills)
         
         // Signal tracking for debounce
         this.lastSignalDirection = null;
@@ -31,14 +34,45 @@ class TradePanel {
         
         // Config
         this.signalSource = 'l-drift'; // 'l-drift' or 'l-prox'
-        this.threshold = 2.0; // seconds
+        this.threshold = 5.0; // seconds
         this.tradeMode = 'both'; // 'both', 'long', 'short'
+        
+        // Trading mode config (NEW)
+        this.tradingMode = 'simulation'; // 'simulation' or 'perp-live'
+        this.contracts = 1;              // Number of contracts per trade
+        this.orderTimeout = 10;          // Seconds to wait for limit order fill
+        this.leverage = 3.3;             // Default leverage
+        this.maxLoss = 100;              // Max cumulative loss in USD
+        this.maxLossTriggered = false;   // Flag when max loss is hit
+        
+        // Max trades limiter (for dev/testing)
+        this.limitMaxTrades = false;     // Enable/disable max trades limit
+        this.maxTrades = 1;              // Max number of complete trades
+        this.maxTradesTriggered = false; // Flag when max trades is hit
+        
+        // Coinbase API instance (for perp modes)
+        this.coinbaseApi = null;
+        
+        // Coinbase WebSocket for real-time order updates
+        this.coinbaseWs = null;
+        this.coinbaseStatus = 'disconnected'; // disconnected, connecting, ready, ordering, error
+        this.useWebSocket = true; // Toggle WebSocket vs REST polling
+        
+        // Real-time balance from WebSocket
+        this.liveBalanceSummary = null;
         
         // Trade history
         this.trades = [];
         this.totalPnl = 0;
+        this.shortPnl = 0;
+        this.longPnl = 0;
         this.wins = 0;
         this.losses = 0;
+        
+        // Session metrics
+        this.sessionStartTime = null;    // When trading session started
+        this.peakProfit = 0;             // Max profit during session
+        this.peakLoss = 0;               // Max loss during session (stored as positive)
         
         // DOM Elements
         this.elements = {};
@@ -63,6 +97,21 @@ class TradePanel {
             signalSelect: document.getElementById(`tradeSim${id}Signal`),
             thresholdInput: document.getElementById(`tradeSim${id}Threshold`),
             modeSelect: document.getElementById(`tradeSim${id}Mode`),
+            // Perp trading elements (NEW)
+            tradingModeSelect: document.getElementById(`tradeSim${id}TradingMode`),
+            perpConfig: document.getElementById(`tradeSim${id}PerpConfig`),
+            contractsInput: document.getElementById(`tradeSim${id}Contracts`),
+            orderTimeoutInput: document.getElementById(`tradeSim${id}OrderTimeout`),
+            leverageInput: document.getElementById(`tradeSim${id}Leverage`),
+            maxLossInput: document.getElementById(`tradeSim${id}MaxLoss`),
+            // Order progress display
+            orderProgress: document.getElementById(`tradeSim${id}OrderProgress`),
+            orderProgressText: document.getElementById(`tradeSim${id}OrderProgressText`),
+            orderProgressCount: document.getElementById(`tradeSim${id}OrderProgressCount`),
+            // Max trades limiter
+            limitMaxTradesCheckbox: document.getElementById(`tradeSim${id}LimitMaxTrades`),
+            maxTradesInput: document.getElementById(`tradeSim${id}MaxTrades`),
+            // Control buttons
             startBtn: document.getElementById(`tradeSim${id}Start`),
             stopBtn: document.getElementById(`tradeSim${id}Stop`),
             clearBtn: document.getElementById(`tradeSim${id}Clear`),
@@ -70,9 +119,22 @@ class TradePanel {
             positionValue: document.getElementById(`tradeSim${id}PositionValue`),
             entryPrice: document.getElementById(`tradeSim${id}EntryPrice`),
             pnl: document.getElementById(`tradeSim${id}Pnl`),
+            shortPnl: document.getElementById(`tradeSim${id}ShortPnl`),
+            longPnl: document.getElementById(`tradeSim${id}LongPnl`),
+            // Session metrics
+            peakProfit: document.getElementById(`tradeSim${id}PeakProfit`),
+            peakLoss: document.getElementById(`tradeSim${id}PeakLoss`),
+            sessionTime: document.getElementById(`tradeSim${id}SessionTime`),
+            avgTradeLength: document.getElementById(`tradeSim${id}AvgTradeLength`),
+            pnl30min: document.getElementById(`tradeSim${id}Pnl30min`),
+            pnl60min: document.getElementById(`tradeSim${id}Pnl60min`),
             wins: document.getElementById(`tradeSim${id}Wins`),
             losses: document.getElementById(`tradeSim${id}Losses`),
-            log: document.getElementById(`tradeSim${id}Log`)
+            log: document.getElementById(`tradeSim${id}Log`),
+            // Coinbase status indicator
+            coinbaseStatus: document.getElementById(`tradeSim${id}CoinbaseStatus`),
+            coinbaseStatusText: document.getElementById(`tradeSim${id}CoinbaseStatusText`),
+            coinbaseBalance: document.getElementById(`tradeSim${id}CoinbaseBalance`)
         };
     }
     
@@ -107,16 +169,70 @@ class TradePanel {
             }
         }
         
-        // Load trade history
-        const savedTrades = localStorage.getItem(`${this.storagePrefix}Trades`);
-        if (savedTrades) {
-            try {
-                this.trades = JSON.parse(savedTrades);
-                this.recalculateStats();
-            } catch (e) {
-                this.trades = [];
+        // Load trading mode (perp config)
+        const savedTradingMode = localStorage.getItem(`${this.storagePrefix}TradingMode`);
+        if (savedTradingMode) {
+            this.tradingMode = savedTradingMode;
+            if (this.elements.tradingModeSelect) {
+                this.elements.tradingModeSelect.value = savedTradingMode;
             }
         }
+        
+        const savedContracts = localStorage.getItem(`${this.storagePrefix}Contracts`);
+        if (savedContracts) {
+            this.contracts = parseInt(savedContracts);
+            if (this.elements.contractsInput) {
+                this.elements.contractsInput.value = this.contracts;
+            }
+        }
+        
+        const savedOrderTimeout = localStorage.getItem(`${this.storagePrefix}OrderTimeout`);
+        if (savedOrderTimeout) {
+            this.orderTimeout = parseInt(savedOrderTimeout);
+            if (this.elements.orderTimeoutInput) {
+                this.elements.orderTimeoutInput.value = this.orderTimeout;
+            }
+        }
+        
+        const savedLeverage = localStorage.getItem(`${this.storagePrefix}Leverage`);
+        if (savedLeverage) {
+            this.leverage = parseFloat(savedLeverage);
+            if (this.elements.leverageInput) {
+                this.elements.leverageInput.value = this.leverage;
+            }
+        }
+        
+        const savedMaxLoss = localStorage.getItem(`${this.storagePrefix}MaxLoss`);
+        if (savedMaxLoss) {
+            this.maxLoss = parseFloat(savedMaxLoss);
+            if (this.elements.maxLossInput) {
+                this.elements.maxLossInput.value = this.maxLoss;
+            }
+        }
+        
+        // Load max trades limiter settings
+        const savedLimitMaxTrades = localStorage.getItem(`${this.storagePrefix}LimitMaxTrades`);
+        if (savedLimitMaxTrades !== null) {
+            this.limitMaxTrades = savedLimitMaxTrades === 'true';
+            if (this.elements.limitMaxTradesCheckbox) {
+                this.elements.limitMaxTradesCheckbox.checked = this.limitMaxTrades;
+            }
+        }
+        
+        const savedMaxTrades = localStorage.getItem(`${this.storagePrefix}MaxTrades`);
+        if (savedMaxTrades) {
+            this.maxTrades = parseInt(savedMaxTrades);
+            if (this.elements.maxTradesInput) {
+                this.elements.maxTradesInput.value = this.maxTrades;
+            }
+        }
+        this.updateMaxTradesInputVisibility();
+        
+        // Update perp config visibility
+        this.updatePerpConfigVisibility();
+        
+        // Load trade history from IndexedDB (async)
+        this.loadTradesFromDB();
         
         // Load and restore active position state
         const activeState = this.loadActivePosition();
@@ -130,6 +246,28 @@ class TradePanel {
             this.signalStartTime = activeState.signalStartTime;
             this.signalConfirmed = activeState.signalConfirmed;
             
+            // Restore perp mode state
+            if (activeState.tradingMode) {
+                this.tradingMode = activeState.tradingMode;
+                if (this.elements.tradingModeSelect) {
+                    this.elements.tradingModeSelect.value = activeState.tradingMode;
+                }
+            }
+            if (activeState.contracts) this.contracts = activeState.contracts;
+            if (activeState.leverage) this.leverage = activeState.leverage;
+            if (activeState.maxLoss) this.maxLoss = activeState.maxLoss;
+            if (activeState.maxLossTriggered) this.maxLossTriggered = activeState.maxLossTriggered;
+            
+            // Restore max trades limiter state
+            if (activeState.limitMaxTrades !== undefined) this.limitMaxTrades = activeState.limitMaxTrades;
+            if (activeState.maxTrades) this.maxTrades = activeState.maxTrades;
+            if (activeState.maxTradesTriggered) this.maxTradesTriggered = activeState.maxTradesTriggered;
+            
+            // Restore session metrics
+            if (activeState.sessionStartTime) this.sessionStartTime = activeState.sessionStartTime;
+            if (activeState.peakProfit) this.peakProfit = activeState.peakProfit;
+            if (activeState.peakLoss) this.peakLoss = activeState.peakLoss;
+            
             // Auto-resume if simulator was running
             if (activeState.isRunning) {
                 // Defer start until after DOM is ready
@@ -141,8 +279,21 @@ class TradePanel {
     /**
      * Resume simulator from saved state (after page refresh)
      */
-    resumeFromSavedState() {
+    async resumeFromSavedState() {
         if (this.isRunning) return; // Already running
+        
+        // For perp modes, reinitialize API and sync with Coinbase
+        if (this.isPerpMode()) {
+            try {
+                await this.initCoinbaseApi();
+                await this.syncWithCoinbase();
+            } catch (error) {
+                console.error('[TradePanel] Failed to resume perp mode:', error);
+                alert(`Failed to resume ${this.tradingMode}: ${error.message}`);
+                this.clearActivePosition();
+                return;
+            }
+        }
         
         this.isRunning = true;
         
@@ -152,9 +303,22 @@ class TradePanel {
         if (this.elements.signalSelect) this.elements.signalSelect.disabled = true;
         if (this.elements.thresholdInput) this.elements.thresholdInput.disabled = true;
         if (this.elements.modeSelect) this.elements.modeSelect.disabled = true;
+        if (this.elements.tradingModeSelect) this.elements.tradingModeSelect.disabled = true;
+        
+        // Lock contracts, leverage, and timeout for perp modes
+        if (this.isPerpMode()) {
+            if (this.elements.contractsInput) this.elements.contractsInput.disabled = true;
+            if (this.elements.orderTimeoutInput) this.elements.orderTimeoutInput.disabled = true;
+            if (this.elements.leverageInput) this.elements.leverageInput.disabled = true;
+        }
+        
         if (this.elements.status) {
-            this.elements.status.textContent = 'Running';
+            this.elements.status.textContent = this.isPerpMode() ? 
+                (this.tradingMode === 'perp-live' ? 'LIVE' : 'SANDBOX') : 'Running';
             this.elements.status.classList.add('running');
+            if (this.tradingMode === 'perp-live') {
+                this.elements.status.classList.add('live-mode');
+            }
         }
         
         // Render current state
@@ -162,10 +326,78 @@ class TradePanel {
         this.renderPosition();
         this.renderLog();
         
-        // Start polling
+        // Start polling (clear any existing interval first to prevent stacking)
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+        }
         this.updateInterval = setInterval(() => this.checkSignal(), 100);
         
-        console.log('[TradePanel] Resumed from saved state - position:', this.position || 'none', 'lockedSignal:', this.lockedSignal || 'none');
+        const modeInfo = this.isPerpMode() ? this.tradingMode : 'simulation';
+        console.log('[TradePanel] Resumed from saved state -', modeInfo, 'position:', this.position || 'none', 'lockedSignal:', this.lockedSignal || 'none');
+    }
+    
+    /**
+     * Sync local state with Coinbase position (for resume after page refresh)
+     */
+    async syncWithCoinbase() {
+        if (!this.coinbaseApi) return;
+        
+        const productId = this.getProductId();
+        const actualPosition = await this.coinbaseApi.getPosition(productId);
+        
+        if (this.position && !actualPosition) {
+            // Local shows position, Coinbase has none (closed/liquidated externally)
+            console.warn('[TradePanel] Position desync: local has position, Coinbase has none');
+            this.handlePositionDesync('Position closed externally');
+        } else if (!this.position && actualPosition) {
+            // Coinbase has position we don't know about
+            console.warn('[TradePanel] External position detected on Coinbase');
+            // Just warn, don't adopt the position
+        } else if (this.position && actualPosition) {
+            // Both have position - verify direction matches
+            if (this.position !== actualPosition.side) {
+                console.warn('[TradePanel] Position direction mismatch');
+                this.handlePositionDesync('Position direction mismatch');
+            }
+        }
+        // If both null, we're in sync - continue normally
+    }
+    
+    /**
+     * Handle position desync between local and Coinbase state
+     */
+    handlePositionDesync(reason) {
+        console.log('[TradePanel] Handling desync:', reason);
+        
+        // Close local position with the desync reason
+        if (this.position) {
+            // Find open trade and close it
+            const openTrade = this.trades.find(t => t.id === this.openTradeId);
+            if (openTrade) {
+                const exitPrice = this.app?.currentPrice || openTrade.entryPrice;
+                let pnl;
+                if (openTrade.type === 'long') {
+                    pnl = exitPrice - openTrade.entryPrice;
+                } else {
+                    pnl = openTrade.entryPrice - exitPrice;
+                }
+                
+                openTrade.exitPrice = exitPrice;
+                openTrade.pnl = pnl;
+                openTrade.exitTime = Date.now();
+                openTrade.isOpen = false;
+                openTrade.closeReason = reason;
+            }
+            
+            this.position = null;
+            this.entryPrice = null;
+            this.entryTime = null;
+            this.openTradeId = null;
+            this.openPositionContracts = null;
+            
+            this.recalculateStats();
+            this.saveState();
+        }
     }
     
     migrateOldStorage() {
@@ -186,8 +418,47 @@ class TradePanel {
         localStorage.setItem(`${this.storagePrefix}Signal`, this.signalSource);
         localStorage.setItem(`${this.storagePrefix}Threshold`, this.threshold.toString());
         localStorage.setItem(`${this.storagePrefix}Mode`, this.tradeMode);
-        // Save all trades including open ones
-        localStorage.setItem(`${this.storagePrefix}Trades`, JSON.stringify(this.trades));
+        // Save perp config
+        localStorage.setItem(`${this.storagePrefix}TradingMode`, this.tradingMode);
+        localStorage.setItem(`${this.storagePrefix}Contracts`, this.contracts.toString());
+        localStorage.setItem(`${this.storagePrefix}OrderTimeout`, this.orderTimeout.toString());
+        localStorage.setItem(`${this.storagePrefix}Leverage`, this.leverage.toString());
+        localStorage.setItem(`${this.storagePrefix}MaxLoss`, this.maxLoss.toString());
+        // Save max trades limiter
+        localStorage.setItem(`${this.storagePrefix}LimitMaxTrades`, this.limitMaxTrades.toString());
+        localStorage.setItem(`${this.storagePrefix}MaxTrades`, this.maxTrades.toString());
+        // Save all trades to IndexedDB (async, fire-and-forget)
+        this.saveTradesToDB();
+    }
+    
+    /**
+     * Save trades to IndexedDB
+     */
+    async saveTradesToDB() {
+        try {
+            await db.saveTradePanelTrades(this.instanceId, this.trades);
+        } catch (e) {
+            console.warn(`[TradePanel ${this.instanceId}] Failed to save trades to IndexedDB:`, e);
+        }
+    }
+    
+    /**
+     * Load trades from IndexedDB
+     */
+    async loadTradesFromDB() {
+        try {
+            const trades = await db.getTradePanelTrades(this.instanceId);
+            if (trades && trades.length > 0) {
+                this.trades = trades;
+                this.recalculateStats();
+                this.renderLog();
+                this.renderSummary();
+                console.log(`[TradePanel ${this.instanceId}] Loaded ${trades.length} trades from IndexedDB`);
+            }
+        } catch (e) {
+            console.warn(`[TradePanel ${this.instanceId}] Failed to load trades from IndexedDB:`, e);
+            this.trades = [];
+        }
     }
     
     /**
@@ -203,7 +474,21 @@ class TradePanel {
             lockedSignal: this.lockedSignal,
             lastSignalDirection: this.lastSignalDirection,
             signalStartTime: this.signalStartTime,
-            signalConfirmed: this.signalConfirmed
+            signalConfirmed: this.signalConfirmed,
+            // Perp mode state
+            tradingMode: this.tradingMode,
+            contracts: this.contracts,
+            leverage: this.leverage,
+            maxLoss: this.maxLoss,
+            maxLossTriggered: this.maxLossTriggered,
+            // Max trades limiter state
+            limitMaxTrades: this.limitMaxTrades,
+            maxTrades: this.maxTrades,
+            maxTradesTriggered: this.maxTradesTriggered,
+            // Session metrics
+            sessionStartTime: this.sessionStartTime,
+            peakProfit: this.peakProfit,
+            peakLoss: this.peakLoss
         };
         localStorage.setItem(`${this.storagePrefix}ActivePosition`, JSON.stringify(activeState));
     }
@@ -241,7 +526,7 @@ class TradePanel {
         // Threshold change
         if (this.elements.thresholdInput) {
             this.elements.thresholdInput.addEventListener('change', (e) => {
-                this.threshold = parseFloat(e.target.value) || 2.0;
+                this.threshold = parseFloat(e.target.value) || 5.0;
                 if (this.threshold < 0.1) this.threshold = 0.1;
                 if (this.threshold > 60) this.threshold = 60;
                 e.target.value = this.threshold;
@@ -254,6 +539,82 @@ class TradePanel {
             this.elements.modeSelect.addEventListener('change', (e) => {
                 this.tradeMode = e.target.value;
                 this.saveState();
+            });
+        }
+        
+        // Trading mode change (simulation/perp-live)
+        if (this.elements.tradingModeSelect) {
+            this.elements.tradingModeSelect.addEventListener('change', (e) => {
+                this.tradingMode = e.target.value;
+                this.updatePerpConfigVisibility();
+                this.saveState();
+            });
+        }
+        
+        // Contracts change
+        if (this.elements.contractsInput) {
+            this.elements.contractsInput.addEventListener('change', (e) => {
+                this.contracts = Math.max(1, parseInt(e.target.value) || 1);
+                e.target.value = this.contracts;
+                this.saveState();
+            });
+        }
+        
+        // Order timeout change
+        if (this.elements.orderTimeoutInput) {
+            this.elements.orderTimeoutInput.addEventListener('change', (e) => {
+                this.orderTimeout = Math.min(60, Math.max(1, parseInt(e.target.value) || 10));
+                e.target.value = this.orderTimeout;
+                localStorage.setItem(`${this.storagePrefix}OrderTimeout`, this.orderTimeout);
+            });
+        }
+        
+        // Leverage change
+        if (this.elements.leverageInput) {
+            this.elements.leverageInput.addEventListener('change', (e) => {
+                this.leverage = Math.min(10, Math.max(1, parseFloat(e.target.value) || 3.3));
+                e.target.value = this.leverage;
+                this.saveState();
+            });
+        }
+        
+        // Max loss change (can be changed during trading)
+        if (this.elements.maxLossInput) {
+            this.elements.maxLossInput.addEventListener('change', (e) => {
+                this.maxLoss = Math.max(1, parseFloat(e.target.value) || 100);
+                e.target.value = this.maxLoss;
+                this.saveState();
+                // Reset max loss trigger if we increased the limit
+                if (this.maxLossTriggered && this.totalPnl > -this.maxLoss) {
+                    this.maxLossTriggered = false;
+                }
+            });
+        }
+        
+        // Max trades limiter checkbox
+        if (this.elements.limitMaxTradesCheckbox) {
+            this.elements.limitMaxTradesCheckbox.addEventListener('change', (e) => {
+                this.limitMaxTrades = e.target.checked;
+                this.updateMaxTradesInputVisibility();
+                this.saveState();
+                // Reset max trades trigger if we disabled the limit
+                if (!this.limitMaxTrades) {
+                    this.maxTradesTriggered = false;
+                }
+            });
+        }
+        
+        // Max trades input
+        if (this.elements.maxTradesInput) {
+            this.elements.maxTradesInput.addEventListener('change', (e) => {
+                this.maxTrades = Math.max(1, parseInt(e.target.value) || 1);
+                e.target.value = this.maxTrades;
+                this.saveState();
+                // Reset trigger if we increased the limit
+                const completedTrades = this.wins + this.losses;
+                if (this.maxTradesTriggered && completedTrades < this.maxTrades) {
+                    this.maxTradesTriggered = false;
+                }
             });
         }
         
@@ -273,12 +634,101 @@ class TradePanel {
         }
     }
     
-    start() {
+    /**
+     * Show/hide perp config section based on trading mode
+     */
+    updatePerpConfigVisibility() {
+        if (!this.elements.perpConfig) return;
+        
+        const isPerpMode = this.tradingMode === 'perp-live';
+        this.elements.perpConfig.style.display = isPerpMode ? 'block' : 'none';
+        
+        // Update panel styling to indicate mode
+        const panel = document.getElementById(`tradeSim${this.instanceId}Panel`);
+        if (panel) {
+            panel.classList.remove('mode-simulation', 'mode-perp-live');
+            panel.classList.add(`mode-${this.tradingMode}`);
+        }
+    }
+    
+    /**
+     * Show/hide max trades input based on checkbox
+     */
+    updateMaxTradesInputVisibility() {
+        if (this.elements.maxTradesInput) {
+            this.elements.maxTradesInput.style.display = this.limitMaxTrades ? 'inline-block' : 'none';
+        }
+    }
+    
+    /**
+     * Check if perp mode (live trading)
+     */
+    isPerpMode() {
+        return this.tradingMode === 'perp-live';
+    }
+    
+    /**
+     * Get product ID for Coinbase API
+     */
+    getProductId() {
+        // Coinbase US perpetual futures product IDs
+        // Format: {PREFIX}-{EXPIRY}-CDE (e.g., BIP-20DEC30-CDE for BTC, ETP-20DEC30-CDE for ETH)
+        const perpProductIds = {
+            'BTC': 'BIP-20DEC30-CDE',
+            'ETH': 'ETP-20DEC30-CDE'
+        };
+        
+        const productId = perpProductIds[this.currentSymbol];
+        if (!productId) {
+            console.warn(`[TradePanel] No perpetual product ID mapped for ${this.currentSymbol}`);
+            return null;
+        }
+        return productId;
+    }
+    
+    async start() {
         if (this.isRunning) return;
+        
+        // Check storage usage before starting
+        try {
+            const storageUsage = await db.getStorageUsage();
+            if (storageUsage.percentage > 95) {
+                const proceed = confirm(
+                    `⚠️ Storage Critical (${storageUsage.percentage.toFixed(1)}% full)\n\n` +
+                    `Used: ${db.formatBytes(storageUsage.used)} / ${db.formatBytes(storageUsage.quota)}\n\n` +
+                    `Trade data may not be saved properly.\n` +
+                    `Consider clearing old data or refreshing the browser cache.\n\n` +
+                    `Start trading session anyway?`
+                );
+                if (!proceed) return;
+            } else if (storageUsage.percentage > 80) {
+                console.warn(`[TradePanel ${this.instanceId}] Storage warning: ${storageUsage.percentage.toFixed(1)}% full`);
+            }
+        } catch (e) {
+            console.warn('[TradePanel] Failed to check storage:', e);
+        }
+        
+        // Reset max loss trigger on fresh start
+        this.maxLossTriggered = false;
+        
+        // For perp modes, validate and initialize API
+        if (this.isPerpMode()) {
+            try {
+                await this.initCoinbaseApi();
+            } catch (error) {
+                alert(`Cannot start: ${error.message}`);
+                return;
+            }
+        }
         
         this.isRunning = true;
         this.signalConfirmed = false;
         this.lockedSignal = null;
+        
+        // Start session timer if not already running
+        if (!this.sessionStartTime) {
+            this.sessionStartTime = Date.now();
+        }
         
         // Check if there's already a signal - start threshold timer immediately
         const currentSignal = this.getCurrentSignal();
@@ -296,27 +746,199 @@ class TradePanel {
         this.elements.signalSelect.disabled = true;
         this.elements.thresholdInput.disabled = true;
         if (this.elements.modeSelect) this.elements.modeSelect.disabled = true;
-        this.elements.status.textContent = 'Running';
+        if (this.elements.tradingModeSelect) this.elements.tradingModeSelect.disabled = true;
+        
+        // Lock contracts, leverage, and timeout for perp modes (max loss can still be changed)
+        if (this.isPerpMode()) {
+            if (this.elements.contractsInput) this.elements.contractsInput.disabled = true;
+            if (this.elements.orderTimeoutInput) this.elements.orderTimeoutInput.disabled = true;
+            if (this.elements.leverageInput) this.elements.leverageInput.disabled = true;
+        }
+        
+        // Update status with mode indicator
+        this.elements.status.textContent = this.isPerpMode() ? 
+            (this.tradingMode === 'perp-live' ? 'LIVE' : 'SANDBOX') : 'Running';
         this.elements.status.classList.add('running');
+        if (this.tradingMode === 'perp-live') {
+            this.elements.status.classList.add('live-mode');
+        }
         
         // Render locked signal indicator
         this.renderLockedSignal();
         
-        // Start polling
+        // Start polling (clear any existing interval first to prevent stacking)
+        if (this.updateInterval) {
+            clearInterval(this.updateInterval);
+        }
         this.updateInterval = setInterval(() => this.checkSignal(), 100);
         
         // Save running state for persistence
         this.saveActivePosition();
         
-        console.log('[TradePanel] Started monitoring', this.signalSource, 'mode:', this.tradeMode, 'initial signal:', currentSignal || 'none');
+        const modeInfo = this.isPerpMode() ? 
+            `${this.tradingMode} (${this.contracts} contracts @ ${this.leverage}x)` : 
+            this.tradingMode;
+        console.log('[TradePanel] Started monitoring', this.signalSource, 'trading:', modeInfo, 'initial signal:', currentSignal || 'none');
     }
     
-    stop() {
+    /**
+     * Initialize Coinbase API for live trading mode
+     */
+    async initCoinbaseApi() {
+        if (!window.coinbaseSettings) {
+            throw new Error('Coinbase settings not available. Please refresh the page.');
+        }
+        
+        // Check credentials exist
+        if (!window.coinbaseSettings.hasCredentials(this.tradingMode)) {
+            throw new Error('No Live API credentials configured. Click the gear icon to set them up.');
+        }
+        
+        // Update status
+        this.setCoinbaseStatus('connecting', 'Initializing...');
+        
+        // Create API instance
+        this.coinbaseApi = window.coinbaseSettings.createAPI(this.tradingMode);
+        
+        // Discover portfolio
+        await this.coinbaseApi.discoverPortfolio();
+        console.log(`[TradePanel] Portfolio discovered:`, this.coinbaseApi.portfolioUuid);
+        
+        // Validate product exists
+        const productId = this.getProductId();
+        this.setCoinbaseStatus('connecting', 'Validating product...');
+        const productValid = await this.coinbaseApi.validateProduct(productId);
+        if (!productValid) {
+            this.setCoinbaseStatus('error', 'Product not found');
+            throw new Error(`Product ${productId} not found on Coinbase. Make sure ${this.currentSymbol} perpetuals are available.`);
+        }
+        
+        // Check for existing position (live mode only)
+        const existingPosition = await this.coinbaseApi.getPosition(productId);
+        if (existingPosition) {
+            const confirmSync = confirm(
+                `Warning: You have an existing ${existingPosition.side.toUpperCase()} position for ${productId} on Coinbase.\n\n` +
+                `Size: ${existingPosition.size} contracts\n` +
+                `Entry: $${existingPosition.entryPrice.toFixed(2)}\n` +
+                `Unrealized P&L: $${existingPosition.unrealizedPnl.toFixed(2)}\n\n` +
+                `Click OK to continue (trades will add to this position) or Cancel to abort.`
+            );
+            if (!confirmSync) {
+                this.setCoinbaseStatus('disconnected', 'Cancelled');
+                throw new Error('User cancelled due to existing position');
+            }
+        }
+        
+        // Initialize WebSocket for real-time order updates
+        if (this.useWebSocket && window.CoinbaseWebSocket) {
+            this.setCoinbaseStatus('connecting', 'Connecting WebSocket...');
+            try {
+                await this.initCoinbaseWebSocket(productId);
+                console.log(`[TradePanel] WebSocket connected for ${productId}`);
+            } catch (wsError) {
+                console.warn('[TradePanel] WebSocket failed, will use REST polling fallback:', wsError.message);
+                this.useWebSocket = false;
+                this.setCoinbaseStatus('ready', 'REST Mode');
+            }
+        } else {
+            this.useWebSocket = false;
+            this.setCoinbaseStatus('ready', 'REST Mode');
+        }
+        
+        // Log available margin info (but don't block - let Coinbase reject if insufficient)
+        try {
+            const summary = await this.coinbaseApi.getPortfolioSummary();
+            const bs = summary.balance_summary || summary;
+            const buyingPower = parseFloat(bs.futures_buying_power?.value || '0');
+            console.log(`[TradePanel] Futures buying power: $${buyingPower.toFixed(2)}`);
+            this.updateBalanceDisplay(bs);
+            
+            // Nano BTC perps: 1 contract = 1/100th BTC
+            const currentPrice = this.app?.currentPrice || 100000;
+            const contractValue = currentPrice / 100; // 1/100th BTC per contract
+            const marginPerContract = contractValue / this.leverage;
+            console.log(`[TradePanel] Estimated margin per contract: ~$${marginPerContract.toFixed(2)} (at ${this.leverage}x leverage)`);
+        } catch (e) {
+            console.warn('[TradePanel] Could not fetch margin info:', e.message);
+        }
+        
+        console.log(`[TradePanel] Coinbase API initialized for ${this.tradingMode}`, 
+            'portfolio:', this.coinbaseApi.portfolioUuid,
+            'websocket:', this.useWebSocket ? 'enabled' : 'disabled (REST fallback)');
+    }
+    
+    /**
+     * Initialize Coinbase WebSocket for real-time order updates
+     */
+    async initCoinbaseWebSocket(productId) {
+        const credentials = window.coinbaseSettings.getCredentials();
+        
+        this.coinbaseWs = new CoinbaseWebSocket(credentials.apiKey, credentials.privateKey, {
+            debug: this.coinbaseApi?.debug || false,
+            onStatusChange: (status, message) => {
+                console.log(`[TradePanel] WebSocket status: ${status} - ${message}`);
+                if (status === 'ready') {
+                    this.setCoinbaseStatus('ready', 'WS Connected');
+                } else if (status === 'error') {
+                    this.setCoinbaseStatus('error', message || 'WS Error');
+                } else if (status === 'connecting') {
+                    this.setCoinbaseStatus('connecting', message || 'Connecting...');
+                }
+            },
+            onOrderUpdate: (order) => {
+                console.log(`[TradePanel] Order update received:`, order.order_id, order.status);
+            },
+            onBalanceUpdate: (balance) => {
+                this.liveBalanceSummary = balance;
+                this.updateBalanceDisplay(balance);
+            }
+        });
+        
+        // Connect and subscribe to product
+        await this.coinbaseWs.connect([productId]);
+    }
+    
+    /**
+     * Update Coinbase status indicator
+     */
+    setCoinbaseStatus(status, message = '') {
+        this.coinbaseStatus = status;
+        
+        if (this.elements.coinbaseStatus) {
+            // Update status dot color
+            this.elements.coinbaseStatus.className = `coinbase-status-dot status-${status}`;
+        }
+        
+        if (this.elements.coinbaseStatusText) {
+            this.elements.coinbaseStatusText.textContent = message || status;
+        }
+    }
+    
+    /**
+     * Update balance display from WebSocket or REST data
+     */
+    updateBalanceDisplay(balanceSummary) {
+        if (!this.elements.coinbaseBalance) return;
+        
+        const buyingPower = parseFloat(balanceSummary?.futures_buying_power?.value || '0');
+        const unrealizedPnl = parseFloat(balanceSummary?.unrealized_pnl?.value || '0');
+        
+        let html = `$${buyingPower.toFixed(0)}`;
+        if (unrealizedPnl !== 0) {
+            const pnlClass = unrealizedPnl >= 0 ? 'positive' : 'negative';
+            const pnlSign = unrealizedPnl >= 0 ? '+' : '';
+            html += ` <span class="${pnlClass}">(${pnlSign}$${unrealizedPnl.toFixed(2)})</span>`;
+        }
+        
+        this.elements.coinbaseBalance.innerHTML = html;
+    }
+    
+    async stop() {
         if (!this.isRunning) return;
         
-        // Close any open position
+        // Close any open position (use await for live modes)
         if (this.position) {
-            this.closePosition('Stop clicked');
+            await this.closePosition('Stop clicked');
         }
         
         this.isRunning = false;
@@ -333,14 +955,29 @@ class TradePanel {
         this.signalConfirmed = false;
         this.lockedSignal = null;
         
+        // Disconnect WebSocket
+        if (this.coinbaseWs) {
+            this.coinbaseWs.disconnect();
+            this.coinbaseWs = null;
+        }
+        
+        // Clear Coinbase API instance
+        this.coinbaseApi = null;
+        this.setCoinbaseStatus('disconnected', '');
+        
         // Update UI
         this.elements.startBtn.disabled = false;
         this.elements.stopBtn.disabled = true;
         this.elements.signalSelect.disabled = false;
         this.elements.thresholdInput.disabled = false;
         if (this.elements.modeSelect) this.elements.modeSelect.disabled = false;
+        if (this.elements.tradingModeSelect) this.elements.tradingModeSelect.disabled = false;
+        if (this.elements.contractsInput) this.elements.contractsInput.disabled = false;
+        if (this.elements.orderTimeoutInput) this.elements.orderTimeoutInput.disabled = false;
+        if (this.elements.leverageInput) this.elements.leverageInput.disabled = false;
+        
         this.elements.status.textContent = 'Idle';
-        this.elements.status.classList.remove('running');
+        this.elements.status.classList.remove('running', 'live-mode');
         
         // Clear locked signal indicator
         this.renderLockedSignal();
@@ -362,12 +999,24 @@ class TradePanel {
         this.entryPrice = null;
         this.entryTime = null;
         this.openTradeId = null;
+        this.openPositionContracts = null;
         
         // Clear history
         this.trades = [];
         this.totalPnl = 0;
+        this.shortPnl = 0;
+        this.longPnl = 0;
         this.wins = 0;
         this.losses = 0;
+        
+        // Reset session metrics
+        this.sessionStartTime = null;
+        this.peakProfit = 0;
+        this.peakLoss = 0;
+        
+        // Reset limiters
+        this.maxLossTriggered = false;
+        this.maxTradesTriggered = false;
         
         // Clear active position storage and save
         this.clearActivePosition();
@@ -378,7 +1027,15 @@ class TradePanel {
     }
     
     getCurrentSignal() {
-        if (!this.app || !this.app.chart) return null;
+        if (!this.app || !this.app.chart) {
+            // Only log this once per 5 seconds to avoid spam
+            const now = Date.now();
+            if (!this.lastNoChartLog || now - this.lastNoChartLog >= 5000) {
+                this.lastNoChartLog = now;
+                console.warn(`[TradePanel ${this.instanceId}] getCurrentSignal: app=${!!this.app} chart=${!!this.app?.chart}`);
+            }
+            return null;
+        }
         
         const chart = this.app.chart;
         
@@ -468,9 +1125,35 @@ class TradePanel {
         const currentSignal = this.getCurrentSignal();
         const now = Date.now();
         
+        // Debug: Log signal state every 5 seconds
+        if (!this.lastSignalDebug || now - this.lastSignalDebug >= 5000) {
+            this.lastSignalDebug = now;
+            const elapsed = this.signalStartTime ? ((now - this.signalStartTime) / 1000).toFixed(1) : 0;
+            const blockers = [];
+            if (this.maxLossTriggered) blockers.push('maxLoss');
+            if (this.maxTradesTriggered) blockers.push('maxTrades');
+            console.log(`[TradePanel ${this.instanceId}] Signal: ${currentSignal || 'none'} | Locked: ${this.lockedSignal || 'none'} | Confirmed: ${this.signalConfirmed} | Elapsed: ${elapsed}s / ${this.threshold}s | Position: ${this.position || 'none'}${blockers.length ? ' | BLOCKED: ' + blockers.join(',') : ''}`);
+        }
+        
+        // Check if max trades limit hit
+        if (this.maxTradesTriggered) {
+            return; // Don't process signals if max trades reached
+        }
+        
         // Update live P&L for open trades
         if (this.openTradeId) {
             this.renderLog();
+        }
+        
+        // Update session timer and rolling PNL metrics (throttled to ~1Hz)
+        if (!this.lastSummaryRender || now - this.lastSummaryRender >= 1000) {
+            this.lastSummaryRender = now;
+            this.renderSummary();
+        }
+        
+        // Check max loss (for perp modes)
+        if (this.isPerpMode() && !this.checkMaxLoss()) {
+            return; // Max loss triggered, stop processing
         }
         
         // No signal - reset tracking but keep locked signal
@@ -499,18 +1182,24 @@ class TradePanel {
                 // Only trigger trade if this is a NEW locked signal (different from current lock)
                 // This provides signal persistence - signal stays locked until opposing threshold met
                 if (this.lockedSignal !== currentSignal) {
+                    console.log(`[TradePanel ${this.instanceId}] THRESHOLD MET! Signal: ${currentSignal} | Previous Lock: ${this.lockedSignal} → New Lock: ${currentSignal}`);
                     this.lockedSignal = currentSignal;
                     this.renderLockedSignal();
                     this.saveActivePosition(); // Save signal state changes
                     this.onSignalConfirmed(currentSignal);
+                } else {
+                    console.log(`[TradePanel ${this.instanceId}] Threshold met but signal already locked: ${currentSignal}`);
                 }
             }
         }
     }
     
-    onSignalConfirmed(signalDirection) {
+    async onSignalConfirmed(signalDirection) {
         const price = this.app?.currentPrice;
-        if (!price) return;
+        if (!price) {
+            console.warn(`[TradePanel ${this.instanceId}] onSignalConfirmed: No price available!`);
+            return;
+        }
         
         // Determine trade direction from signal
         // 'buy' signal = go long, 'sell' signal = go short
@@ -519,18 +1208,23 @@ class TradePanel {
         // Check if this trade direction is allowed by mode
         const canTrade = this.canTradeDirection(tradeDirection);
         
+        console.log(`[TradePanel ${this.instanceId}] onSignalConfirmed: signal=${signalDirection} → trade=${tradeDirection} | canTrade=${canTrade} | currentPosition=${this.position || 'none'} | price=$${price.toFixed(2)}`);
+        
         if (!this.position) {
             // No position - open one if allowed
             if (canTrade) {
-                this.openPosition(tradeDirection, price);
+                console.log(`[TradePanel ${this.instanceId}] Opening ${tradeDirection} position...`);
+                await this.openPosition(tradeDirection, price);
+            } else {
+                console.log(`[TradePanel ${this.instanceId}] Cannot trade ${tradeDirection} - mode restriction`);
             }
         } else if (this.position !== tradeDirection) {
             // Opposite signal - close current position
-            this.closePosition('Signal reversed');
+            await this.closePosition('Signal reversed');
             
             // Open new position if allowed
             if (canTrade) {
-                this.openPosition(tradeDirection, price);
+                await this.openPosition(tradeDirection, price);
             }
         }
         // Same direction - do nothing (already in position)
@@ -543,12 +1237,51 @@ class TradePanel {
         return false;
     }
     
-    openPosition(direction, price) {
+    async openPosition(direction, price) {
+        console.log(`[TradePanel ${this.instanceId}] openPosition: direction=${direction} price=${price} isPerpMode=${this.isPerpMode()} hasAPI=${!!this.coinbaseApi}`);
+        
+        // Track actual filled contracts for this trade (may differ from config on partial fills)
+        let actualContracts = this.contracts;
+        
+        // For perp modes, execute live order
+        if (this.isPerpMode() && this.coinbaseApi) {
+            console.log(`[TradePanel ${this.instanceId}] openPosition: Executing live order...`);
+            try {
+                const result = await this.executeLiveOrder(direction, price, 'open');
+                console.log(`[TradePanel ${this.instanceId}] openPosition: Live order result:`, result);
+                
+                if (!result.success) {
+                    // Check for partial fill - we have a real position on Coinbase!
+                    if (result.partial && result.filledContracts > 0) {
+                        console.warn(`[TradePanel] PARTIAL FILL: ${result.filledContracts}/${result.totalContracts} contracts filled`);
+                        // Track partial fill for THIS trade only (don't modify config)
+                        actualContracts = result.filledContracts;
+                        price = result.fillPrice || price;
+                        // Alert user but continue with partial position
+                        alert(`⚠️ Partial fill: ${result.filledContracts}/${result.totalContracts} contracts opened @ $${price.toFixed(2)}\n\nError: ${result.error}`);
+                    } else {
+                        console.error('[TradePanel] Live order failed:', result.error);
+                        return; // Don't open local position if no contracts filled
+                    }
+                } else {
+                    // Use actual fill price if available
+                    price = result.fillPrice || price;
+                    actualContracts = result.filledContracts || this.contracts;
+                }
+            } catch (error) {
+                console.error('[TradePanel] Live order error:', error);
+                return;
+            }
+        }
+        
         this.position = direction;
         this.entryPrice = price;
         this.entryTime = Date.now();
+        this.openPositionContracts = this.isPerpMode() ? actualContracts : null; // Track for closing
         
         // Add open trade to log immediately
+        const tradeContracts = this.openPositionContracts;
+        
         const openTrade = {
             id: Date.now(), // Unique ID to find it later
             type: direction,
@@ -557,12 +1290,17 @@ class TradePanel {
             pnl: null,
             entryTime: this.entryTime,
             exitTime: null,
-            isOpen: true
+            isOpen: true,
+            // Perp mode additions
+            tradingMode: this.tradingMode,
+            contracts: tradeContracts,
+            leverage: this.isPerpMode() ? this.leverage : null
         };
         this.trades.unshift(openTrade);
         this.openTradeId = openTrade.id;
         
-        console.log(`[TradePanel] Opened ${direction.toUpperCase()} @ $${price.toFixed(2)}`);
+        const modeInfo = this.isPerpMode() ? ` [${this.tradingMode}]` : '';
+        console.log(`[TradePanel]${modeInfo} Opened ${direction.toUpperCase()} @ $${price.toFixed(2)}`);
         
         // Save active position state for persistence
         this.saveActivePosition();
@@ -572,10 +1310,33 @@ class TradePanel {
         this.renderLog();
     }
     
-    closePosition(reason = '') {
+    async closePosition(reason = '') {
         if (!this.position || !this.entryPrice) return;
         
-        const exitPrice = this.app?.currentPrice || this.entryPrice;
+        let exitPrice = this.app?.currentPrice || this.entryPrice;
+        
+        // For perp modes, execute live close order
+        if (this.isPerpMode() && this.coinbaseApi) {
+            // Use actual open position contracts (not config, in case of partial fills)
+            const closeContracts = this.openPositionContracts || this.contracts;
+            const savedContracts = this.contracts;
+            this.contracts = closeContracts; // Temporarily set for executeLiveOrder
+            
+            try {
+                const result = await this.executeLiveOrder(this.position, exitPrice, 'close');
+                if (!result.success) {
+                    console.error('[TradePanel] Live close order failed:', result.error);
+                    // Still close locally but log the failure
+                } else if (result.fillPrice) {
+                    exitPrice = result.fillPrice;
+                }
+            } catch (error) {
+                console.error('[TradePanel] Live close order error:', error);
+            } finally {
+                this.contracts = savedContracts; // Restore config value
+            }
+        }
+        
         const exitTime = Date.now();
         
         // Calculate P&L
@@ -601,46 +1362,559 @@ class TradePanel {
             openTrade.exitTime = exitTime;
             openTrade.duration = duration;
             openTrade.isOpen = false;
+            openTrade.closeReason = reason;
         }
         this.openTradeId = null;
         
         // Update stats
         this.totalPnl += pnl;
+        if (this.position === 'short') {
+            this.shortPnl += pnl;
+        } else {
+            this.longPnl += pnl;
+        }
         if (pnl >= 0) {
             this.wins++;
         } else {
             this.losses++;
         }
         
-        console.log(`[TradePanel] Closed ${this.position.toUpperCase()} @ $${exitPrice.toFixed(2)} | P&L: $${pnl.toFixed(2)} | ${reason}`);
+        // Track peak profit and loss
+        if (this.totalPnl > this.peakProfit) {
+            this.peakProfit = this.totalPnl;
+        }
+        if (this.totalPnl < 0 && Math.abs(this.totalPnl) > this.peakLoss) {
+            this.peakLoss = Math.abs(this.totalPnl);
+        }
+        
+        const modeInfo = this.isPerpMode() ? ` [${this.tradingMode}]` : '';
+        console.log(`[TradePanel]${modeInfo} Closed ${this.position.toUpperCase()} @ $${exitPrice.toFixed(2)} | P&L: $${pnl.toFixed(2)} | ${reason}`);
         
         // Reset position
         this.position = null;
         this.entryPrice = null;
         this.entryTime = null;
+        this.openPositionContracts = null;
         
         // Save state (including updated active position)
         this.saveActivePosition();
         this.saveState();
         this.render();
+        
+        // Check if max trades limit reached
+        if (this.limitMaxTrades && !this.maxTradesTriggered) {
+            const completedTrades = this.wins + this.losses;
+            if (completedTrades >= this.maxTrades) {
+                this.maxTradesTriggered = true;
+                console.log(`[TradePanel] MAX TRADES LIMIT (${this.maxTrades}) reached! Stopping.`);
+                this.stop();
+            }
+        }
+    }
+    
+    /**
+     * Execute live order on Coinbase (for perp modes)
+     * Uses LIMIT orders with timeout and retry for reliable fills.
+     * 
+     * Flow:
+     * 1. Place limit order for full amount
+     * 2. Poll status for orderTimeout seconds
+     * 3. If filled → done
+     * 4. If partial → cancel remaining, retry for unfilled
+     * 5. If open → cancel all, retry with fresh price
+     * 6. For opens: check signal validity before each retry
+     * 7. For closes: always complete (unlimited retries)
+     */
+    async executeLiveOrder(direction, price, action = 'open') {
+        console.log(`[TradePanel ${this.instanceId}] executeLiveOrder: direction=${direction} price=${price} action=${action}`);
+        
+        if (!this.coinbaseApi) {
+            console.error(`[TradePanel ${this.instanceId}] executeLiveOrder: Coinbase API not initialized!`);
+            throw new Error('Coinbase API not initialized');
+        }
+        
+        // Check max loss before opening new positions
+        if (action === 'open') {
+            if (!this.checkMaxLoss()) {
+                console.log(`[TradePanel ${this.instanceId}] executeLiveOrder: MAX_LOSS_EXCEEDED`);
+                return { success: false, error: 'MAX_LOSS_EXCEEDED' };
+            }
+        }
+        
+        const productId = this.getProductId();
+        const totalContracts = this.contracts;
+        const timeoutMs = this.orderTimeout * 1000; // Convert to milliseconds
+        
+        // Determine side for Coinbase API
+        let side;
+        if (action === 'open') {
+            side = direction === 'long' ? 'BUY' : 'SELL';
+        } else {
+            side = direction === 'long' ? 'SELL' : 'BUY';
+        }
+        
+        // Get price callback (always use latest market price)
+        const getPriceCallback = () => this.app?.currentPrice || price;
+        
+        console.log(`[TradePanel ${this.instanceId}] ${action.toUpperCase()} ${direction}: ${totalContracts} contracts (timeout: ${this.orderTimeout}s)`);
+        
+        // Show progress
+        this.showOrderProgress(action, 0, totalContracts);
+        
+        let filledContracts = 0;
+        let totalAttempts = 0;
+        let fillPriceSum = 0;
+        let orderIds = [];
+        
+        try {
+            // Loop until all contracts filled
+            while (filledContracts < totalContracts) {
+                const remaining = totalContracts - filledContracts;
+                totalAttempts++;
+                
+                // For opens: check if signal is still valid before each attempt
+                if (action === 'open' && totalAttempts > 1) {
+                    if (!this.isSignalStillValid(direction)) {
+                        console.log(`[TradePanel ${this.instanceId}] Signal changed - aborting order`);
+                        this.hideOrderProgress();
+                        
+                        // If we have a partial fill, report it
+                        if (filledContracts > 0) {
+                            const avgFillPrice = fillPriceSum / filledContracts;
+                            this.setCoinbaseStatus('ready', `Partial ${filledContracts}/${totalContracts}`);
+                            return {
+                                success: false,
+                                partial: true,
+                                filledContracts: filledContracts,
+                                totalContracts: totalContracts,
+                                fillPrice: avgFillPrice,
+                                orderIds: orderIds,
+                                error: 'SIGNAL_CHANGED',
+                                attempts: totalAttempts
+                            };
+                        }
+                        
+                        this.setCoinbaseStatus('ready', 'Signal changed');
+                        return { success: false, error: 'SIGNAL_CHANGED', attempts: totalAttempts };
+                    }
+                }
+                
+                console.log(`[TradePanel ${this.instanceId}] Attempt ${totalAttempts}: ${remaining} contracts remaining`);
+                
+                // Execute limit order with timeout
+                const orderResult = await this.executeLimitOrderWithTimeout(
+                    productId, side, remaining, getPriceCallback, timeoutMs, action
+                );
+                
+                if (orderResult.filledSize > 0) {
+                    filledContracts += orderResult.filledSize;
+                    fillPriceSum += (orderResult.averageFilledPrice || getPriceCallback()) * orderResult.filledSize;
+                    if (orderResult.orderId) orderIds.push(orderResult.orderId);
+                    
+                    // Update progress
+                    this.showOrderProgress(action, filledContracts, totalContracts);
+                    console.log(`[TradePanel ${this.instanceId}] ✓ Filled ${orderResult.filledSize} @ $${orderResult.averageFilledPrice} (${filledContracts}/${totalContracts})`);
+                }
+                
+                if (orderResult.fatal) {
+                    // Fatal error - stop everything
+                    console.error(`[TradePanel ${this.instanceId}] ✗ Fatal error:`, orderResult.error);
+                    this.hideOrderProgress();
+                    this.setCoinbaseStatus('error', orderResult.error);
+                    
+                    if (filledContracts > 0) {
+                        const avgFillPrice = fillPriceSum / filledContracts;
+                        return {
+                            success: false,
+                            partial: true,
+                            filledContracts: filledContracts,
+                            totalContracts: totalContracts,
+                            fillPrice: avgFillPrice,
+                            orderIds: orderIds,
+                            error: orderResult.error,
+                            attempts: totalAttempts
+                        };
+                    }
+                    
+                    return {
+                        success: false,
+                        error: orderResult.error,
+                        message: orderResult.message,
+                        attempts: totalAttempts
+                    };
+                }
+                
+                // Small delay between retry attempts
+                if (filledContracts < totalContracts) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+            
+            // All contracts filled!
+            const avgFillPrice = fillPriceSum / totalContracts;
+            this.hideOrderProgress();
+            this.setCoinbaseStatus('ready', `Filled ${totalContracts}@$${avgFillPrice.toFixed(0)}`);
+            
+            console.log(`[TradePanel ${this.instanceId}] ✓ ALL FILLED: ${totalContracts} contracts @ avg $${avgFillPrice.toFixed(2)} (${totalAttempts} attempts)`);
+            
+            return {
+                success: true,
+                orderId: orderIds[orderIds.length - 1],
+                orderIds: orderIds,
+                fillPrice: avgFillPrice,
+                filledContracts: totalContracts,
+                attempts: totalAttempts
+            };
+            
+        } catch (orderError) {
+            console.error(`[TradePanel ${this.instanceId}] executeLiveOrder error:`, orderError);
+            this.hideOrderProgress();
+            this.setCoinbaseStatus('error', orderError.message);
+            
+            if (action === 'open') {
+                this.showOrderFailedNotification(direction, { error: orderError.message, attempts: totalAttempts });
+            }
+            
+            return { success: false, error: orderError.message };
+        }
+    }
+    
+    /**
+     * Execute a single limit order and wait for fill with timeout
+     * 
+     * @param {string} productId - Product to trade
+     * @param {string} side - 'BUY' or 'SELL'
+     * @param {number} size - Number of contracts
+     * @param {function} getPriceCallback - Get current market price
+     * @param {number} timeoutMs - Max time to wait for fill
+     * @param {string} action - 'open' or 'close'
+     * @returns {object} { filledSize, averageFilledPrice, orderId, fatal?, error? }
+     */
+    async executeLimitOrderWithTimeout(productId, side, size, getPriceCallback, timeoutMs, action) {
+        // Get current price with conservative rounding
+        let currentPrice = getPriceCallback();
+        currentPrice = this.coinbaseApi.roundToTickSize(productId, currentPrice, side, false);
+        
+        console.log(`[TradePanel ${this.instanceId}] Placing LIMIT ${side} ${size} @ $${currentPrice} (timeout: ${timeoutMs/1000}s)`);
+        this.setCoinbaseStatus('ordering', `Limit ${side}...`);
+        
+        // Build limit order (GTC - Good Till Cancelled)
+        const clientOrderId = `ob-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const orderBody = {
+            client_order_id: clientOrderId,
+            product_id: productId,
+            side: side.toUpperCase(),
+            order_configuration: {
+                limit_limit_gtc: {
+                    base_size: size.toString(),
+                    limit_price: currentPrice.toString(),
+                    post_only: false
+                }
+            }
+        };
+        
+        // INTX perpetuals support leverage/margin in order
+        if (!this.coinbaseApi.isCFMFutures(productId) && this.leverage) {
+            orderBody.leverage = this.leverage.toString();
+            orderBody.margin_type = 'CROSS';
+        }
+        
+        let orderId = null;
+        
+        try {
+            // Place the order
+            const data = await this.coinbaseApi.callAPI('POST', '/api/v3/brokerage/orders', orderBody);
+            
+            if (!data.success || !data.success_response?.order_id) {
+                const reason = data.failure_reason || data.error_response?.error || 'Unknown';
+                const message = data.error_response?.message || reason;
+                
+                // Fatal errors
+                if (['INSUFFICIENT_FUND', 'MARGIN_INSUFFICIENT', 'INVALID_PRODUCT', 'INVALID_ORDER_CONFIG'].includes(reason)) {
+                    return { filledSize: 0, fatal: true, error: reason, message: message };
+                }
+                
+                return { filledSize: 0, error: reason, message: message };
+            }
+            
+            orderId = data.success_response.order_id;
+            console.log(`[TradePanel ${this.instanceId}] Order placed: ${orderId}`);
+            
+            // Poll for fill status until timeout
+            const startTime = Date.now();
+            const pollInterval = 500; // Poll every 500ms
+            let lastFilledSize = 0;
+            let isFirstPoll = true;
+            
+            while (Date.now() - startTime < timeoutMs) {
+                // First poll is immediate, subsequent polls wait
+                if (!isFirstPoll) {
+                    await new Promise(resolve => setTimeout(resolve, pollInterval));
+                }
+                isFirstPoll = false;
+                
+                const status = await this.coinbaseApi.getOrderStatus(orderId);
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                
+                // Handle NOT_FOUND - order may not be indexed yet, keep polling
+                if (status.status === 'NOT_FOUND') {
+                    console.log(`[TradePanel ${this.instanceId}] Order not indexed yet, retrying... (${elapsed}s)`);
+                    continue;
+                }
+                
+                if (status.status === 'FILLED') {
+                    console.log(`[TradePanel ${this.instanceId}] Order FILLED after ${elapsed}s`);
+                    return {
+                        filledSize: status.filledSize || size,
+                        averageFilledPrice: status.averageFilledPrice || currentPrice,
+                        orderId: orderId
+                    };
+                }
+                
+                // Track partial fills
+                if (status.filledSize > lastFilledSize) {
+                    lastFilledSize = status.filledSize;
+                    console.log(`[TradePanel ${this.instanceId}] Partial fill: ${lastFilledSize}/${size} after ${elapsed}s`);
+                    this.setCoinbaseStatus('ordering', `${lastFilledSize}/${size}...`);
+                }
+                
+                // Check if order was cancelled externally
+                if (['CANCELLED', 'EXPIRED', 'FAILED'].includes(status.status)) {
+                    console.log(`[TradePanel ${this.instanceId}] Order ${status.status} after ${elapsed}s`);
+                    return {
+                        filledSize: status.filledSize || 0,
+                        averageFilledPrice: status.averageFilledPrice,
+                        orderId: orderId,
+                        error: status.status
+                    };
+                }
+            }
+            
+            // Timeout reached - cancel unfilled portion
+            console.log(`[TradePanel ${this.instanceId}] Timeout reached, cancelling order...`);
+            
+            // Get status before cancel attempt
+            let finalStatus = await this.coinbaseApi.getOrderStatus(orderId);
+            
+            // Cancel the order if still open (or NOT_FOUND which means not indexed yet)
+            if (finalStatus.status === 'OPEN' || finalStatus.status === 'PENDING' || finalStatus.status === 'NOT_FOUND') {
+                const cancelResult = await this.coinbaseApi.cancelOrder(orderId);
+                
+                // Check if order already filled (cancel fails with ORDER_IS_FULLY_FILLED)
+                if (!cancelResult.success && cancelResult.failureReason === 'ORDER_IS_FULLY_FILLED') {
+                    console.log(`[TradePanel ${this.instanceId}] Order already FILLED (cancel reported ORDER_IS_FULLY_FILLED)`);
+                    
+                    // Poll until we get accurate fill data (Coinbase indexing delay)
+                    for (let retry = 0; retry < 10; retry++) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        finalStatus = await this.coinbaseApi.getOrderStatus(orderId);
+                        if (finalStatus.status === 'FILLED' && finalStatus.filledSize > 0) {
+                            break;
+                        }
+                    }
+                    
+                    // If still can't get accurate data, assume full fill
+                    if (finalStatus.status !== 'FILLED' || !finalStatus.filledSize) {
+                        console.log(`[TradePanel ${this.instanceId}] Assuming full fill of ${size} (indexing delay)`);
+                        return {
+                            filledSize: size,
+                            averageFilledPrice: currentPrice,
+                            orderId: orderId
+                        };
+                    }
+                } else {
+                    // Cancel succeeded or failed for other reason - re-check status
+                    finalStatus = await this.coinbaseApi.getOrderStatus(orderId);
+                }
+            }
+            
+            const actualFilled = finalStatus.filledSize || 0;
+            console.log(`[TradePanel ${this.instanceId}] Order cancelled/completed (final: ${actualFilled}/${size}, status: ${finalStatus.status})`);
+            
+            return {
+                filledSize: actualFilled,
+                averageFilledPrice: finalStatus.averageFilledPrice,
+                orderId: orderId,
+                timedOut: actualFilled < size
+            };
+            
+        } catch (error) {
+            console.error(`[TradePanel ${this.instanceId}] Limit order error:`, error.message);
+            
+            // Try to cancel if we have an order ID and check final fill status
+            if (orderId) {
+                try {
+                    const cancelResult = await this.coinbaseApi.cancelOrder(orderId);
+                    
+                    // If cancel failed because order filled, recover the fill
+                    if (!cancelResult.success && cancelResult.failureReason === 'ORDER_IS_FULLY_FILLED') {
+                        console.log(`[TradePanel ${this.instanceId}] Order filled despite error - recovering`);
+                        // Poll for accurate fill data
+                        for (let retry = 0; retry < 10; retry++) {
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            const status = await this.coinbaseApi.getOrderStatus(orderId);
+                            if (status.status === 'FILLED' && status.filledSize > 0) {
+                                return {
+                                    filledSize: status.filledSize,
+                                    averageFilledPrice: status.averageFilledPrice,
+                                    orderId: orderId
+                                };
+                            }
+                        }
+                        // Assume full fill if can't get data
+                        return {
+                            filledSize: size,
+                            averageFilledPrice: currentPrice,
+                            orderId: orderId
+                        };
+                    }
+                    
+                    // Check if anything was filled before the error
+                    const status = await this.coinbaseApi.getOrderStatus(orderId);
+                    if (status.filledSize > 0) {
+                        console.log(`[TradePanel ${this.instanceId}] Recovered ${status.filledSize} filled contracts after error`);
+                        return {
+                            filledSize: status.filledSize,
+                            averageFilledPrice: status.averageFilledPrice,
+                            orderId: orderId,
+                            error: error.message
+                        };
+                    }
+                } catch (cancelError) {
+                    console.warn(`[TradePanel ${this.instanceId}] Cancel/status check failed:`, cancelError.message);
+                }
+            }
+            
+            return { filledSize: 0, error: error.message };
+        }
+    }
+    
+    /**
+     * Check if the trading signal is still valid for this direction
+     * Used to abort orders when signal changes to opposing direction
+     * 
+     * @param {string} direction - 'long' or 'short'
+     * @returns {boolean} - true if signal is still valid (or neutral), false if opposing
+     */
+    isSignalStillValid(direction) {
+        const currentSignal = this.getCurrentSignal();
+        const oppositeSignal = direction === 'long' ? 'sell' : 'buy';
+        
+        // Signal is invalid ONLY if it's the opposing direction
+        // null, 'flat', or matching signal = continue with order
+        return currentSignal !== oppositeSignal;
+    }
+    
+    /**
+     * Show order progress indicator
+     */
+    showOrderProgress(action, filled, total) {
+        if (this.elements.orderProgress) {
+            this.elements.orderProgress.style.display = 'flex';
+        }
+        if (this.elements.orderProgressText) {
+            this.elements.orderProgressText.textContent = action === 'open' ? 'Opening...' : 'Closing...';
+        }
+        if (this.elements.orderProgressCount) {
+            this.elements.orderProgressCount.textContent = `${filled}/${total}`;
+        }
+        this.setCoinbaseStatus('ordering', `${filled}/${total}`);
+    }
+    
+    /**
+     * Hide order progress indicator
+     */
+    hideOrderProgress() {
+        if (this.elements.orderProgress) {
+            this.elements.orderProgress.style.display = 'none';
+        }
+    }
+    
+    /**
+     * Confirm order fill status using REST API
+     * 
+     * FOK orders complete instantly (within milliseconds), so we use REST polling
+     * as the primary method. WebSocket is used for real-time balance updates
+     * but not for FOK order confirmation due to race conditions.
+     * 
+     * @param {string} orderId - Order ID to confirm
+     * @returns {object} Confirmation result with status and fill details
+     */
+    async confirmOrderFill(orderId) {
+        // FOK orders complete instantly - use REST API for confirmation
+        // WebSocket has race conditions for FOK (order done before we can listen)
+        
+        // Small delay to let Coinbase process the order
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Poll REST API - FOK should be done, so short timeout
+        const restResult = await this.coinbaseApi.pollOrderUntilComplete(orderId, 2000, 50);
+        
+        return {
+            success: restResult.status === 'FILLED',
+            status: restResult.status,
+            averageFilledPrice: restResult.averageFilledPrice,
+            filledSize: restResult.filledSize,
+            source: 'rest'
+        };
+    }
+    
+    /**
+     * Show notification when order fails to fill
+     */
+    showOrderFailedNotification(direction, result) {
+        const message = `⚠️ Failed to ${direction.toUpperCase()} after ${result.attempts || 0} attempts.\n\n` +
+            `Error: ${result.error || 'Unknown'}\n` +
+            `${result.message || ''}\n\n` +
+            `The signal may be stale or liquidity low. Trading will continue when next signal triggers.`;
+        
+        // Show alert and log
+        console.error(`[TradePanel ${this.instanceId}] ORDER FAILED:`, message);
+        alert(message);
     }
     
     recalculateStats() {
         this.totalPnl = 0;
+        this.shortPnl = 0;
+        this.longPnl = 0;
         this.wins = 0;
         this.losses = 0;
+        this.peakProfit = 0;
+        this.peakLoss = 0;
         
-        for (const trade of this.trades) {
-            // Only count closed trades for stats
-            if (trade.isOpen || trade.pnl === null) continue;
+        // Sort trades by exit time to simulate running total for peak calculation
+        const closedTrades = this.trades
+            .filter(t => !t.isOpen && t.pnl !== null && t.exitTime)
+            .sort((a, b) => a.exitTime - b.exitTime);
+        
+        let runningPnl = 0;
+        
+        for (const trade of closedTrades) {
+            runningPnl += trade.pnl;
             
-            this.totalPnl += trade.pnl;
+            // Track P&L by trade type
+            if (trade.type === 'short') {
+                this.shortPnl += trade.pnl;
+            } else if (trade.type === 'long') {
+                this.longPnl += trade.pnl;
+            }
+            
             if (trade.pnl >= 0) {
                 this.wins++;
             } else {
                 this.losses++;
             }
+            
+            // Track peak profit and loss based on running total
+            if (runningPnl > this.peakProfit) {
+                this.peakProfit = runningPnl;
+            }
+            if (runningPnl < 0 && Math.abs(runningPnl) > this.peakLoss) {
+                this.peakLoss = Math.abs(runningPnl);
+            }
         }
+        
+        this.totalPnl = runningPnl;
     }
     
     render() {
@@ -673,6 +1947,66 @@ class TradePanel {
             this.elements.pnl.className = 'stat-value ' + (this.totalPnl >= 0 ? 'positive' : 'negative');
         }
         
+        if (this.elements.shortPnl) {
+            const shortSign = this.shortPnl >= 0 ? '+' : '';
+            this.elements.shortPnl.textContent = `${shortSign}$${this.shortPnl.toFixed(2)}`;
+            this.elements.shortPnl.className = 'stat-value ' + (this.shortPnl >= 0 ? 'positive' : 'negative');
+        }
+        
+        if (this.elements.longPnl) {
+            const longSign = this.longPnl >= 0 ? '+' : '';
+            this.elements.longPnl.textContent = `${longSign}$${this.longPnl.toFixed(2)}`;
+            this.elements.longPnl.className = 'stat-value ' + (this.longPnl >= 0 ? 'positive' : 'negative');
+        }
+        
+        // Peak Profit / Peak Loss
+        if (this.elements.peakProfit) {
+            this.elements.peakProfit.textContent = `+$${this.peakProfit.toFixed(2)}`;
+            this.elements.peakProfit.className = 'stat-value positive';
+        }
+        
+        if (this.elements.peakLoss) {
+            this.elements.peakLoss.textContent = `-$${this.peakLoss.toFixed(2)}`;
+            this.elements.peakLoss.className = 'stat-value negative';
+        }
+        
+        // Session Time
+        if (this.elements.sessionTime) {
+            if (this.sessionStartTime) {
+                const elapsed = Date.now() - this.sessionStartTime;
+                this.elements.sessionTime.textContent = this.formatDuration(elapsed);
+            } else {
+                this.elements.sessionTime.textContent = '—';
+            }
+        }
+        
+        // Average Trade Length
+        if (this.elements.avgTradeLength) {
+            const closedTrades = this.trades.filter(t => !t.isOpen && t.duration);
+            if (closedTrades.length > 0) {
+                const totalDuration = closedTrades.reduce((sum, t) => sum + t.duration, 0);
+                const avgDuration = totalDuration / closedTrades.length;
+                this.elements.avgTradeLength.textContent = this.formatDuration(avgDuration);
+            } else {
+                this.elements.avgTradeLength.textContent = '—';
+            }
+        }
+        
+        // 30 min PNL / 60 min PNL
+        if (this.elements.pnl30min) {
+            const pnl30 = this.calculateRecentPnl(30);
+            const sign30 = pnl30 >= 0 ? '+' : '';
+            this.elements.pnl30min.textContent = `${sign30}$${pnl30.toFixed(2)}`;
+            this.elements.pnl30min.className = 'stat-value ' + (pnl30 >= 0 ? 'positive' : 'negative');
+        }
+        
+        if (this.elements.pnl60min) {
+            const pnl60 = this.calculateRecentPnl(60);
+            const sign60 = pnl60 >= 0 ? '+' : '';
+            this.elements.pnl60min.textContent = `${sign60}$${pnl60.toFixed(2)}`;
+            this.elements.pnl60min.className = 'stat-value ' + (pnl60 >= 0 ? 'positive' : 'negative');
+        }
+        
         if (this.elements.wins) {
             this.elements.wins.textContent = this.wins.toString();
         }
@@ -680,6 +2014,22 @@ class TradePanel {
         if (this.elements.losses) {
             this.elements.losses.textContent = this.losses.toString();
         }
+    }
+    
+    /**
+     * Calculate PNL for trades closed within the last N minutes
+     */
+    calculateRecentPnl(minutes) {
+        const cutoffTime = Date.now() - (minutes * 60 * 1000);
+        let pnl = 0;
+        
+        for (const trade of this.trades) {
+            if (!trade.isOpen && trade.exitTime && trade.exitTime >= cutoffTime) {
+                pnl += trade.pnl || 0;
+            }
+        }
+        
+        return pnl;
     }
     
     renderLog() {
@@ -691,7 +2041,7 @@ class TradePanel {
         }
         
         let html = '';
-        for (const trade of this.trades.slice(0, 20)) { // Show last 20
+        for (const trade of this.trades) { // Show all trades in session
             if (trade.isOpen) {
                 // Open trade - show live P&L and duration
                 const currentPrice = this.app?.currentPrice || trade.entryPrice;
@@ -901,6 +2251,59 @@ class TradePanel {
      */
     getSymbol() {
         return this.currentSymbol;
+    }
+    
+    /**
+     * Check if max loss has been exceeded
+     * Returns true if trading can continue, false if max loss hit
+     */
+    checkMaxLoss() {
+        if (!this.isPerpMode()) return true; // No limit for simulation
+        
+        // Check cumulative P&L against max loss
+        if (this.totalPnl <= -this.maxLoss) {
+            if (!this.maxLossTriggered) {
+                this.maxLossTriggered = true;
+                this.onMaxLossTriggered();
+            }
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Handle max loss being triggered
+     */
+    async onMaxLossTriggered() {
+        console.error('[TradePanel] MAX LOSS HIT:', this.totalPnl, 'limit:', -this.maxLoss);
+        
+        // Close any open position immediately
+        if (this.position) {
+            await this.closePosition('MAX LOSS HIT');
+        }
+        
+        // Stop the simulator
+        await this.stop();
+        
+        // Alert user
+        alert(`MAX LOSS TRIGGERED!\n\nYour cumulative P&L ($${this.totalPnl.toFixed(2)}) has exceeded your max loss limit ($${this.maxLoss}).\n\nThe simulator has been stopped.`);
+        
+        // Add max loss event to trade log
+        const maxLossEntry = {
+            id: Date.now(),
+            type: 'system',
+            entryPrice: null,
+            exitPrice: null,
+            pnl: null,
+            entryTime: Date.now(),
+            exitTime: Date.now(),
+            isOpen: false,
+            closeReason: `MAX LOSS HIT: $${this.totalPnl.toFixed(2)} exceeded -$${this.maxLoss}`
+        };
+        this.trades.unshift(maxLossEntry);
+        this.saveState();
+        this.renderLog();
     }
 }
 
