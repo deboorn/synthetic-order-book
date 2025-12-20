@@ -2,7 +2,7 @@
 
 A real-time, multi-exchange cryptocurrency order book visualization and analysis tool. Aggregates order book data from Kraken, Coinbase, and Bitstamp via WebSocket connections to provide institutional-grade market insights.
 
-![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251219.7-green) ![Status](https://img.shields.io/badge/Status-BETA-orange)
+![Synthetic Order Book](https://img.shields.io/badge/License-Personal%20Use-blue) ![Version](https://img.shields.io/badge/Version-20251219.47-green) ![Status](https://img.shields.io/badge/Status-BETA-orange)
 
 > ⚠️ **BETA SOFTWARE** - This project is under active development and changes daily as research and new features are implemented. Expect frequent updates, breaking changes, and evolving functionality. Use at your own discretion.
 

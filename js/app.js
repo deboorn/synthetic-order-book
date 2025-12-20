@@ -663,6 +663,9 @@ class AlertMetricRegistry {
         this.sections = [
             { key: 'chart', label: 'Main Chart' },
             { key: 'cluster', label: 'Cluster Signals' },
+            { key: 'bbl', label: 'BB%B & Lighting' },
+            { key: 'lv', label: 'Liquidity Vacuum' },
+            { key: 'alphalead', label: 'Alpha Lead' },
             { key: 'depth', label: 'Market Depth' },
             { key: 'orderflow', label: 'Order Flow' },
             { key: 'forecast', label: 'Price Forecast' },
@@ -1172,6 +1175,100 @@ class AlertMetricRegistry {
                     format: (v) => Number(v).toFixed(2) + '%'
                 }
             },
+            bbl: {
+                'signal': {
+                    key: 'signal',
+                    label: 'Combined Signal',
+                    type: 'enum',
+                    options: ['BUY', 'SELL', 'FLAT'],
+                    getValue: (_s) => {
+                        const el = document.getElementById('bblSignalMain');
+                        const label = el?.querySelector('.bbl-label')?.textContent?.trim();
+                        return label || 'FLAT';
+                    },
+                    format: (v) => String(v || 'FLAT').toUpperCase()
+                },
+                'bbPercentB': {
+                    key: 'bbPercentB',
+                    label: 'BB%B Signal',
+                    type: 'enum',
+                    options: ['BUY', 'SELL', 'FLAT'],
+                    getValue: (_s) => {
+                        const el = document.querySelector('.bbl-bb-signal');
+                        return el?.textContent?.trim() || 'FLAT';
+                    },
+                    format: (v) => String(v || 'FLAT').toUpperCase()
+                },
+                'lighting': {
+                    key: 'lighting',
+                    label: 'Lighting Signal',
+                    type: 'enum',
+                    options: ['BUY', 'SELL', 'NONE'],
+                    getValue: (_s) => {
+                        const el = document.querySelector('.bbl-lighting-signal');
+                        return el?.textContent?.trim() || 'NONE';
+                    },
+                    format: (v) => String(v || 'NONE').toUpperCase()
+                }
+            },
+            lv: {
+                'signal': {
+                    key: 'signal',
+                    label: 'LV Signal',
+                    type: 'enum',
+                    options: ['BUY', 'SELL', 'FLAT'],
+                    getValue: (_s) => {
+                        const el = document.getElementById('lvSignalMain');
+                        const label = el?.querySelector('.lv-label')?.textContent?.trim();
+                        return label || 'FLAT';
+                    },
+                    format: (v) => String(v || 'FLAT').toUpperCase()
+                },
+                'aboveCount': {
+                    key: 'aboveCount',
+                    label: 'Levels Above',
+                    type: 'number',
+                    getValue: (_s) => {
+                        const el = document.querySelector('.lv-above-count');
+                        return parseInt(el?.textContent) || 0;
+                    },
+                    format: (v) => String(v || 0)
+                },
+                'belowCount': {
+                    key: 'belowCount',
+                    label: 'Levels Below',
+                    type: 'number',
+                    getValue: (_s) => {
+                        const el = document.querySelector('.lv-below-count');
+                        return parseInt(el?.textContent) || 0;
+                    },
+                    format: (v) => String(v || 0)
+                }
+            },
+            alphalead: {
+                'signal': {
+                    key: 'signal',
+                    label: 'Lead Signal',
+                    type: 'enum',
+                    options: ['BULLISH', 'BEARISH', 'NEUTRAL'],
+                    getValue: (_s) => {
+                        const el = document.getElementById('lvAlphaLeadSignal');
+                        const label = el?.querySelector('.lead-label')?.textContent?.trim();
+                        return label || 'NEUTRAL';
+                    },
+                    format: (v) => String(v || 'NEUTRAL').toUpperCase()
+                },
+                'score': {
+                    key: 'score',
+                    label: 'Alpha Lead Score',
+                    type: 'number',
+                    getValue: (_s) => {
+                        const el = document.getElementById('lvAlphaLeadValue');
+                        return parseInt(el?.textContent) || 50;
+                    },
+                    format: (v) => String(v || 50)
+                }
+            },
             alphastrike: {
                 'direction': {
                     key: 'direction',
@@ -1621,6 +1718,12 @@ class OrderBookApp {
         
         // Setup sidebar collapse functionality
         this.setupSidebarCollapse();
+        
+        // Setup LV ratio threshold
+        this.setupLVRatioThreshold();
+        
+        // Setup Alpha Lead thresholds
+        this.setupAlphaLeadThresholds();
         
         // Set initial symbol in UI
         this.elements.symbolInput.value = this.currentSymbol;
@@ -2193,6 +2296,109 @@ class OrderBookApp {
             });
         }
         
+        // BB %B Direction toggle
+        const showBBPercentBDirectionEl = document.getElementById('showBBPercentBDirection');
+        if (showBBPercentBDirectionEl) {
+            showBBPercentBDirectionEl.addEventListener('change', (e) => {
+                this.chart.toggleBBPercentBDirection(e.target.checked);
+            });
+        }
+        
+        // LV Signal toggle
+        const showLVSignalEl = document.getElementById('showLVSignal');
+        if (showLVSignalEl) {
+            showLVSignalEl.addEventListener('change', (e) => {
+                this.chart.toggleLVSignal(e.target.checked);
+            });
+        }
+        
+        // LV Signal History toggle (circles showing both buy/sell per bar)
+        const showLVSignalHistoryEl = document.getElementById('showLVSignalHistory');
+        if (showLVSignalHistoryEl) {
+            showLVSignalHistoryEl.addEventListener('change', (e) => {
+                this.chart.toggleLVSignalHistory(e.target.checked);
+            });
+        }
+        
+        // Alpha Lead Signal toggle
+        const showAlphaLeadSignalEl = document.getElementById('showAlphaLeadSignal');
+        if (showAlphaLeadSignalEl) {
+            showAlphaLeadSignalEl.addEventListener('change', (e) => {
+                this.chart.toggleAlphaLeadSignal(e.target.checked);
+            });
+        }
+        
+        // AL Signal History toggle (circles showing both buy/sell per bar)
+        const showALSignalHistoryEl = document.getElementById('showALSignalHistory');
+        if (showALSignalHistoryEl) {
+            showALSignalHistoryEl.addEventListener('change', (e) => {
+                this.chart.toggleALSignalHistory(e.target.checked);
+            });
+        }
+        
+        const showDBSCEl = document.getElementById('showDBSC');
+        if (showDBSCEl) {
+            showDBSCEl.addEventListener('change', (e) => {
+                this.chart.setDBSCEnabled(e.target.checked);
+                // Show/hide sub-settings
+                const subSettings = document.getElementById('dbscSubSettings');
+                if (subSettings) {
+                    subSettings.style.display = e.target.checked ? 'block' : 'none';
+                }
+            });
+        }
+        
+        // DB SC sub-settings
+        const dbscShowSetupEl = document.getElementById('dbscShowSetup');
+        if (dbscShowSetupEl) {
+            dbscShowSetupEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('showSetup', e.target.checked);
+            });
+        }
+        
+        const dbscShowTDSTEl = document.getElementById('dbscShowTDST');
+        if (dbscShowTDSTEl) {
+            dbscShowTDSTEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('showTDST', e.target.checked);
+            });
+        }
+        
+        const dbscShowSequentialEl = document.getElementById('dbscShowSequential');
+        if (dbscShowSequentialEl) {
+            dbscShowSequentialEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('showSequential', e.target.checked);
+            });
+        }
+        
+        const dbscShowComboEl = document.getElementById('dbscShowCombo');
+        if (dbscShowComboEl) {
+            dbscShowComboEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('showCombo', e.target.checked);
+            });
+        }
+        
+        const dbscCleanModeEl = document.getElementById('dbscCleanMode');
+        if (dbscCleanModeEl) {
+            dbscCleanModeEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('cleanMode', e.target.checked);
+            });
+        }
+        
+        const dbscShowAllCountsEl = document.getElementById('dbscShowAllCounts');
+        if (dbscShowAllCountsEl) {
+            dbscShowAllCountsEl.addEventListener('change', (e) => {
+                this.chart.setDBSCSetting('showAllCounts', e.target.checked);
+            });
+        }
+        
+        // DB SC MTF Timeframe dropdown
+        const dbscMtfTimeframeEl = document.getElementById('dbscMtfTimeframe');
+        if (dbscMtfTimeframeEl) {
+            dbscMtfTimeframeEl.addEventListener('change', (e) => {
+                this.chart.setDBSCMTFTimeframe(e.target.value);
+            });
+        }
+        
         // Cluster Proximity Signal toggle
         const showClusterProximityEl = document.getElementById('showClusterProximity');
         if (showClusterProximityEl) {
@@ -2401,15 +2607,17 @@ class OrderBookApp {
         const savedShowEmaGrid = localStorage.getItem('showEmaGrid') === 'true';
         const savedShowZemaGrid = localStorage.getItem('showZemaGrid') === 'true';
         const savedShowBBPulse = localStorage.getItem('showBBPulse') === 'true';
-        const savedShowClusterProximity = localStorage.getItem('showClusterProximity') !== 'false'; // Default ON
+        const savedShowBBPercentBDirection = localStorage.getItem('showBBPercentBDirection') === 'true'; // Default OFF
+        const savedShowLVSignal = localStorage.getItem('showLVSignal') === 'true'; // Default OFF
+        const savedShowClusterProximity = localStorage.getItem('showClusterProximity') === 'true'; // Default OFF
         const savedClusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20'); // 20% default
         const savedClusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '5'); // 5 seconds default
-        const savedShowClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
+        const savedShowClusterDrift = localStorage.getItem('showClusterDrift') === 'true'; // Default OFF
         const savedClusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '5'); // 5 seconds default
-        const savedShowLiveProximity = localStorage.getItem('showLiveProximity') !== 'false'; // Default ON
+        const savedShowLiveProximity = localStorage.getItem('showLiveProximity') === 'true'; // Default OFF
         const savedLiveProximityThreshold = parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20'); // 20% default
-        const savedShowLiveDrift = localStorage.getItem('showLiveDrift') !== 'false'; // Default ON
-        const savedShowBullsBears = localStorage.getItem('showBullsBears') === 'true';
+        const savedShowLiveDrift = localStorage.getItem('showLiveDrift') === 'true'; // Default OFF
+        const savedShowBullsBears = localStorage.getItem('showBullsBears') !== 'false'; // Default ON
         const savedBullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
         const savedShowTradeFootprint = localStorage.getItem('showTradeFootprint') === 'true'; // Default OFF
         const savedTradeFootprintBucketSize = localStorage.getItem('tradeFootprintBucketSize') || '10';
@@ -2477,6 +2685,71 @@ class OrderBookApp {
         if (showLiveDriftCheckbox) {
             showLiveDriftCheckbox.checked = savedShowLiveDrift;
         }
+        const showBBPulseCheckbox = document.getElementById('showBBPulse');
+        if (showBBPulseCheckbox) {
+            showBBPulseCheckbox.checked = savedShowBBPulse;
+        }
+        const showBBPercentBDirectionCheckbox = document.getElementById('showBBPercentBDirection');
+        if (showBBPercentBDirectionCheckbox) {
+            showBBPercentBDirectionCheckbox.checked = savedShowBBPercentBDirection;
+        }
+        const showLVSignalCheckbox = document.getElementById('showLVSignal');
+        if (showLVSignalCheckbox) {
+            showLVSignalCheckbox.checked = savedShowLVSignal;
+        }
+        const showLVSignalHistoryCheckbox = document.getElementById('showLVSignalHistory');
+        if (showLVSignalHistoryCheckbox) {
+            showLVSignalHistoryCheckbox.checked = localStorage.getItem('showLVSignalHistory') === 'true';
+        }
+        const savedShowAlphaLeadSignal = localStorage.getItem('showAlphaLeadSignal') === 'true';
+        const showAlphaLeadSignalCheckbox = document.getElementById('showAlphaLeadSignal');
+        if (showAlphaLeadSignalCheckbox) {
+            showAlphaLeadSignalCheckbox.checked = savedShowAlphaLeadSignal;
+        }
+        const showALSignalHistoryCheckbox = document.getElementById('showALSignalHistory');
+        if (showALSignalHistoryCheckbox) {
+            showALSignalHistoryCheckbox.checked = localStorage.getItem('showALSignalHistory') === 'true';
+        }
+        
+        // DB SC settings
+        const savedShowDBSC = localStorage.getItem('showDBSC') === 'true';
+        const showDBSCCheckbox = document.getElementById('showDBSC');
+        if (showDBSCCheckbox) {
+            showDBSCCheckbox.checked = savedShowDBSC;
+        }
+        const dbscSubSettings = document.getElementById('dbscSubSettings');
+        if (dbscSubSettings) {
+            dbscSubSettings.style.display = savedShowDBSC ? 'block' : 'none';
+        }
+        const dbscShowSetupCheckbox = document.getElementById('dbscShowSetup');
+        if (dbscShowSetupCheckbox) {
+            dbscShowSetupCheckbox.checked = localStorage.getItem('dbscShowSetup') !== 'false';
+        }
+        const dbscShowTDSTCheckbox = document.getElementById('dbscShowTDST');
+        if (dbscShowTDSTCheckbox) {
+            dbscShowTDSTCheckbox.checked = localStorage.getItem('dbscShowTDST') !== 'false';
+        }
+        const dbscShowSequentialCheckbox = document.getElementById('dbscShowSequential');
+        if (dbscShowSequentialCheckbox) {
+            dbscShowSequentialCheckbox.checked = localStorage.getItem('dbscShowSequential') !== 'false';
+        }
+        const dbscShowComboCheckbox = document.getElementById('dbscShowCombo');
+        if (dbscShowComboCheckbox) {
+            dbscShowComboCheckbox.checked = localStorage.getItem('dbscShowCombo') === 'true';
+        }
+        const dbscCleanModeCheckbox = document.getElementById('dbscCleanMode');
+        if (dbscCleanModeCheckbox) {
+            dbscCleanModeCheckbox.checked = localStorage.getItem('dbscCleanMode') === 'true';
+        }
+        const dbscShowAllCountsCheckbox = document.getElementById('dbscShowAllCounts');
+        if (dbscShowAllCountsCheckbox) {
+            dbscShowAllCountsCheckbox.checked = localStorage.getItem('dbscShowAllCounts') === 'true';
+        }
+        const dbscMtfTimeframeSelect = document.getElementById('dbscMtfTimeframe');
+        if (dbscMtfTimeframeSelect) {
+            dbscMtfTimeframeSelect.value = localStorage.getItem('dbscMtfTimeframe') || '';
+        }
+        
         const showBullsBearsCheckbox = document.getElementById('showBullsBears');
         if (showBullsBearsCheckbox) {
             showBullsBearsCheckbox.checked = savedShowBullsBears;
@@ -2919,6 +3192,7 @@ class OrderBookApp {
                         if (this.chart.clusterDrift) this.chart.clusterDrift.markers = [];
                         if (this.chart.liveProximity) this.chart.liveProximity.markers = [];
                         if (this.chart.liveDrift) this.chart.liveDrift.markers = [];
+                        if (this.chart.lvSignal) this.chart.lvSignal.markers = [];
                         if (this.chart.bullsBears) this.chart.bullsBears.markers = [];
                     }
                     
@@ -3013,6 +3287,16 @@ class OrderBookApp {
                     this.chart.bbPulse.liveMarker = null;
                     this.chart.bbPulse.lastBarTime = null;
                     localStorage.removeItem('bbPulseMarkers');
+                }
+                
+                // Clear LV (Liquidity Vacuum) signals
+                if (this.chart?.clearLVSignals) {
+                    this.chart.clearLVSignals();
+                }
+                
+                // Clear Alpha Lead signals
+                if (this.chart?.clearAlphaLeadSignals) {
+                    this.chart.clearAlphaLeadSignals();
                 }
                 
                 // Update markers display
@@ -3957,6 +4241,36 @@ class OrderBookApp {
             this.chart.toggleBBPulse(showBBPulse);
         }
         
+        // Apply BB %B Direction toggle
+        const showBBPercentBDirection = document.getElementById('showBBPercentBDirection').checked;
+        localStorage.setItem('showBBPercentBDirection', showBBPercentBDirection);
+        if (this.chart.toggleBBPercentBDirection) {
+            this.chart.toggleBBPercentBDirection(showBBPercentBDirection);
+        }
+        
+        // Apply LV Signal toggle
+        const showLVSignal = document.getElementById('showLVSignal').checked;
+        localStorage.setItem('showLVSignal', showLVSignal);
+        if (this.chart.toggleLVSignal) {
+            this.chart.toggleLVSignal(showLVSignal);
+        }
+        
+        // Apply Alpha Lead Signal toggle
+        const showAlphaLeadSignal = document.getElementById('showAlphaLeadSignal').checked;
+        localStorage.setItem('showAlphaLeadSignal', showAlphaLeadSignal);
+        if (this.chart.toggleAlphaLeadSignal) {
+            this.chart.toggleAlphaLeadSignal(showAlphaLeadSignal);
+        }
+        
+        const showDBSCEl = document.getElementById('showDBSC');
+        if (showDBSCEl) {
+            const showDBSC = showDBSCEl.checked;
+            localStorage.setItem('showDBSC', showDBSC);
+            if (this.chart.setDBSCEnabled) {
+                this.chart.setDBSCEnabled(showDBSC);
+            }
+        }
+        
         document.getElementById('settingsModal').classList.remove('open');
         this.loadData(); // Refresh with new settings
     }
@@ -4230,6 +4544,16 @@ class OrderBookApp {
             if (response.data) {
                 this.chart.setData(response.data);
                 await db.saveKlines(timeframe, response.data);
+                
+                // Update BB Pulse indicator if enabled (needs recalculation for new timeframe)
+                if (this.chart.bbPulse && this.chart.bbPulse.enabled) {
+                    this.chart.updateBBPulse();
+                }
+                
+                // Update BB %B Direction if enabled
+                if (this.chart.bbPercentBDirection && this.chart.bbPercentBDirection.enabled) {
+                    this.chart.updateBBPercentBDirection();
+                }
             }
         } catch (error) {
             console.error('Failed to load klines:', error);
@@ -4637,10 +4961,438 @@ class OrderBookApp {
             strikeZones.update(strikeZonesData);
         }
         
+        // Update BB%B & Lighting panel
+        this.updateBBLightingPanel();
+        
+        // Update LV (Liquidity Vacuum) panel
+        this.updateLVPanel();
+        
         // Log data source for debugging
         const source = this.useFullBookForAnalytics ? 'Full Book' : 'Visible Only';
         const levelCount = analyticsLevels.length;
         console.log(`[Analytics] Using ${source}: ${levelCount} levels`);
+    }
+    
+    /**
+     * Update the BB%B & Lighting panel with current state
+     */
+    updateBBLightingPanel() {
+        if (!this.chart || !this.chart.getBBLightingState) return;
+        
+        const state = this.chart.getBBLightingState();
+        
+        // Update main signal display
+        const signalMain = document.getElementById('bblSignalMain');
+        if (signalMain) {
+            // Remove all state classes
+            signalMain.classList.remove('long', 'short', 'both', 'flat');
+            
+            // Add appropriate class and content
+            signalMain.classList.add(state.mode);
+            
+            const arrow = signalMain.querySelector('.bbl-arrow');
+            const label = signalMain.querySelector('.bbl-label');
+            
+            if (arrow && label) {
+                switch (state.mode) {
+                    case 'long':
+                        arrow.textContent = '↑';
+                        label.textContent = 'LONG ONLY';
+                        break;
+                    case 'short':
+                        arrow.textContent = '↓';
+                        label.textContent = 'SHORT ONLY';
+                        break;
+                    case 'both':
+                        arrow.textContent = '↕';
+                        label.textContent = 'BOTH';
+                        break;
+                    default:
+                        arrow.textContent = '―';
+                        label.textContent = 'FLAT';
+                }
+            }
+        }
+        
+        // Update BB%B direction component
+        const bbDirectionValue = document.getElementById('bblDirectionValue');
+        if (bbDirectionValue) {
+            bbDirectionValue.classList.remove('up', 'down', 'flat');
+            switch (state.bbDirection) {
+                case 'up':
+                    bbDirectionValue.textContent = '▲ UP';
+                    bbDirectionValue.classList.add('up');
+                    break;
+                case 'down':
+                    bbDirectionValue.textContent = '▼ DOWN';
+                    bbDirectionValue.classList.add('down');
+                    break;
+                default:
+                    bbDirectionValue.textContent = '― FLAT';
+                    bbDirectionValue.classList.add('flat');
+            }
+        }
+        
+        // Update Lighting component
+        const lightingValue = document.getElementById('bblLightingValue');
+        if (lightingValue) {
+            lightingValue.classList.remove('up', 'down', 'flat');
+            switch (state.lighting) {
+                case 'buy':
+                    lightingValue.textContent = '▲ BUY';
+                    lightingValue.classList.add('up');
+                    break;
+                case 'sell':
+                    lightingValue.textContent = '▼ SELL';
+                    lightingValue.classList.add('down');
+                    break;
+                default:
+                    lightingValue.textContent = '― NONE';
+                    lightingValue.classList.add('flat');
+            }
+        }
+        
+        // Store state for trade panel access
+        this.lastBBLightingState = state;
+        
+        // Update header badge with signal
+        const bblBadge = document.querySelector('#bblPanel .panel-badge');
+        if (bblBadge) {
+            bblBadge.classList.remove('bullish', 'bearish', 'neutral');
+            switch (state.mode) {
+                case 'long':
+                    bblBadge.textContent = 'LONG';
+                    bblBadge.classList.add('bullish');
+                    break;
+                case 'short':
+                    bblBadge.textContent = 'SHORT';
+                    bblBadge.classList.add('bearish');
+                    break;
+                case 'both':
+                    bblBadge.textContent = 'BOTH';
+                    bblBadge.classList.add('neutral');
+                    break;
+                default:
+                    bblBadge.textContent = 'FLAT';
+                    bblBadge.classList.add('neutral');
+            }
+        }
+    }
+    
+    /**
+     * Update the LV (Liquidity Vacuum) panel with current state
+     */
+    updateLVPanel() {
+        if (!this.chart || !this.chart.calculateLiquidityVacuum) return;
+        
+        // Get order book levels
+        const levels = this.chart.orderFlowPressure?.levels || [];
+        const currentPrice = this.currentPrice || 0;
+        
+        if (!levels.length || !currentPrice) return;
+        
+        // Calculate LV signal
+        const lv = this.chart.calculateLiquidityVacuum(levels, currentPrice);
+        
+        // Initialize signal tracking if not exists
+        if (!this.lvSignalTracking) {
+            this.lvSignalTracking = {
+                pendingSignal: null,
+                pendingStartTime: null,
+                confirmedSignal: 'flat'
+            };
+        }
+        
+        // Get confirmation time (in seconds)
+        const confirmTime = this.lvConfirmTime || 0;
+        const now = Date.now();
+        
+        // Track signal changes for confirmation
+        let displaySignal = lv.signal;
+        
+        if (confirmTime > 0) {
+            // Check if signal changed
+            if (lv.signal !== this.lvSignalTracking.pendingSignal) {
+                // Signal changed - start new pending period
+                this.lvSignalTracking.pendingSignal = lv.signal;
+                this.lvSignalTracking.pendingStartTime = now;
+            }
+            
+            // Check if pending signal has been stable long enough
+            const elapsed = (now - this.lvSignalTracking.pendingStartTime) / 1000;
+            if (elapsed >= confirmTime) {
+                // Signal confirmed!
+                this.lvSignalTracking.confirmedSignal = lv.signal;
+            }
+            
+            // Use confirmed signal for display
+            displaySignal = this.lvSignalTracking.confirmedSignal;
+        }
+        
+        // Update main signal display (hero box)
+        const signalMain = document.getElementById('lvSignalMain');
+        if (signalMain) {
+            signalMain.classList.remove('buy', 'sell', 'flat');
+            signalMain.classList.add(displaySignal);
+            
+            const arrow = signalMain.querySelector('.lv-arrow');
+            const label = signalMain.querySelector('.lv-label');
+            
+            if (arrow && label) {
+                switch (displaySignal) {
+                    case 'buy':
+                        arrow.textContent = '↑';
+                        label.textContent = 'BUY';
+                        break;
+                    case 'sell':
+                        arrow.textContent = '↓';
+                        label.textContent = 'SELL';
+                        break;
+                    default:
+                        arrow.textContent = '―';
+                        label.textContent = 'FLAT';
+                }
+            }
+        }
+        
+        // Update vacuum bar
+        const barFill = document.getElementById('lvBarFill');
+        if (barFill) {
+            barFill.classList.remove('buy', 'sell');
+            
+            if (lv.signal === 'buy') {
+                barFill.classList.add('buy');
+                barFill.style.width = `${lv.strength / 2}%`;  // 0-50% width
+            } else if (lv.signal === 'sell') {
+                barFill.classList.add('sell');
+                barFill.style.width = `${lv.strength / 2}%`;
+            } else {
+                barFill.style.width = '0%';
+            }
+        }
+        
+        // Update detail values
+        const aboveValue = document.getElementById('lvAboveValue');
+        const belowValue = document.getElementById('lvBelowValue');
+        
+        // Format large numbers
+        const formatVolume = (v) => {
+            if (v >= 1000000) return (v / 1000000).toFixed(1) + 'M';
+            if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+            return v.toFixed(0);
+        };
+        
+        if (aboveValue) {
+            aboveValue.textContent = formatVolume(lv.aboveLiq);
+            aboveValue.classList.remove('thin', 'thick');
+            // Thin above = vacuum above = price goes up
+            if (lv.signal === 'buy') {
+                aboveValue.classList.add('thin');
+            }
+        }
+        
+        if (belowValue) {
+            belowValue.textContent = formatVolume(lv.belowLiq);
+            belowValue.classList.remove('thin', 'thick');
+            // Thin below = vacuum below = price goes down
+            if (lv.signal === 'sell') {
+                belowValue.classList.add('thin');
+            }
+        }
+        
+        // Update dynamic ratio display
+        const currentRatioEl = document.getElementById('lvCurrentRatio');
+        const thresholdValueEl = document.getElementById('lvThresholdValue');
+        const confirmTimerEl = document.getElementById('lvConfirmTimer');
+        
+        if (currentRatioEl) {
+            // Calculate actual ratio from Above/Below values (larger / smaller)
+            const above = lv.aboveLiq || 0;
+            const below = lv.belowLiq || 0;
+            const larger = Math.max(above, below);
+            const smaller = Math.min(above, below) || 0.001;
+            const actualRatio = larger / smaller;
+            
+            currentRatioEl.textContent = actualRatio.toFixed(2);
+            
+            // Color based on signal direction (matches the signal it's leaning toward)
+            const threshold = this.chart?.lvRatioThreshold || 1.01;
+            currentRatioEl.classList.remove('buy-signal', 'sell-signal', 'flat-signal');
+            
+            if (actualRatio >= threshold) {
+                // Signal is active - color based on direction
+                if (below > above) {
+                    currentRatioEl.classList.add('buy-signal');  // Green - vacuum above
+                } else {
+                    currentRatioEl.classList.add('sell-signal'); // Red - vacuum below
+                }
+            } else {
+                currentRatioEl.classList.add('flat-signal');
+            }
+        }
+        
+        if (thresholdValueEl) {
+            const threshold = this.chart?.lvRatioThreshold || 1.01;
+            thresholdValueEl.textContent = threshold.toFixed(2);
+        }
+        
+        // Update confirmation timer if signal is pending
+        if (confirmTimerEl && this.lvSignalTracking) {
+            const confirmTime = this.lvConfirmTime || 30;
+            if (confirmTime > 0 && this.lvSignalTracking.pendingStartTime) {
+                const elapsed = (Date.now() - this.lvSignalTracking.pendingStartTime) / 1000;
+                const remaining = Math.max(0, confirmTime - elapsed);
+                if (remaining > 0 && lv.signal !== 'flat') {
+                    confirmTimerEl.textContent = `(${remaining.toFixed(1)}s)`;
+                } else {
+                    confirmTimerEl.textContent = '';
+                }
+            } else {
+                confirmTimerEl.textContent = '';
+            }
+        }
+        
+        // Store state for trade panel access
+        this.lastLVState = lv;
+        
+        // Update header badge with CONFIRMED signal (matches hero)
+        const lvBadge = document.querySelector('#lvPanel .panel-badge');
+        if (lvBadge) {
+            lvBadge.classList.remove('bullish', 'bearish', 'neutral');
+            switch (displaySignal) {
+                case 'buy':
+                    lvBadge.textContent = 'BUY';
+                    lvBadge.classList.add('bullish');
+                    break;
+                case 'sell':
+                    lvBadge.textContent = 'SELL';
+                    lvBadge.classList.add('bearish');
+                    break;
+                default:
+                    lvBadge.textContent = 'FLAT';
+                    lvBadge.classList.add('neutral');
+            }
+        }
+        
+        // Update chart signal markers - pass the confirmed/display signal to match the panel
+        if (this.chart.updateLVSignal && this.chart.lastCandle) {
+            // Create modified LV data with the display signal (which matches the panel)
+            const lvForChart = { ...lv, signal: displaySignal };
+            this.chart.updateLVSignal(lvForChart, this.chart.lastCandle.time);
+        }
+        
+        // Calculate Alpha Lead (leading indicator)
+        if (this.chart.calculateAlphaLead && this.chart.regimeEngine?.signals) {
+            const signals = this.chart.regimeEngine.signals;
+            const alphaLead = this.chart.calculateAlphaLead(lv, signals);
+            
+            // Update Alpha Lead score display
+            const leadValue = document.getElementById('lvAlphaLeadValue');
+            const leadSignal = document.getElementById('lvAlphaLeadSignal');
+            
+            if (leadValue) {
+                leadValue.textContent = alphaLead.score;
+                leadValue.classList.remove('bullish', 'bearish', 'neutral');
+                if (alphaLead.signal === 'buy') {
+                    leadValue.classList.add('bullish');
+                } else if (alphaLead.signal === 'sell') {
+                    leadValue.classList.add('bearish');
+                } else {
+                    leadValue.classList.add('neutral');
+                }
+            }
+            
+            if (leadSignal) {
+                leadSignal.classList.remove('buy', 'sell', 'flat');
+                leadSignal.classList.add(alphaLead.signal === 'buy' ? 'buy' : alphaLead.signal === 'sell' ? 'sell' : 'flat');
+                
+                const arrow = leadSignal.querySelector('.lead-arrow');
+                const label = leadSignal.querySelector('.lead-label');
+                if (arrow && label) {
+                    if (alphaLead.signal === 'buy') {
+                        arrow.textContent = '↑';
+                        label.textContent = 'LEAD BUY';
+                    } else if (alphaLead.signal === 'sell') {
+                        arrow.textContent = '↓';
+                        label.textContent = 'LEAD SELL';
+                    } else {
+                        arrow.textContent = '―';
+                        label.textContent = 'NEUTRAL';
+                    }
+                }
+            }
+            
+            // Update component breakdown bars
+            const components = alphaLead.components || {};
+            const updateComponent = (id, value) => {
+                const fill = document.getElementById(id + 'Fill');
+                const valueEl = document.getElementById(id + 'Value');
+                if (fill) {
+                    fill.style.width = value + '%';
+                    fill.classList.remove('bullish', 'bearish');
+                    if (value >= 60) fill.classList.add('bullish');
+                    else if (value <= 40) fill.classList.add('bearish');
+                }
+                if (valueEl) {
+                    valueEl.textContent = value;
+                }
+            };
+            
+            updateComponent('alphaLeadLv', components.lv || 50);
+            updateComponent('alphaLeadLdMom', components.ldMom || 50);
+            updateComponent('alphaLeadBprMom', components.bprMom || 50);
+            updateComponent('alphaLeadGap', components.gap || 50);
+            
+            // Update header badge with signal
+            const alphaLeadBadge = document.querySelector('#alphaLeadPanel .panel-badge');
+            if (alphaLeadBadge) {
+                alphaLeadBadge.classList.remove('bullish', 'bearish', 'neutral');
+                if (alphaLead.signal === 'buy') {
+                    alphaLeadBadge.textContent = 'BULLISH';
+                    alphaLeadBadge.classList.add('bullish');
+                } else if (alphaLead.signal === 'sell') {
+                    alphaLeadBadge.textContent = 'BEARISH';
+                    alphaLeadBadge.classList.add('bearish');
+                } else {
+                    alphaLeadBadge.textContent = 'NEUTRAL';
+                    alphaLeadBadge.classList.add('neutral');
+                }
+            }
+            
+            // Update dynamic score display
+            const scoreDisplay = document.getElementById('alphaLeadCurrentScore');
+            if (scoreDisplay) {
+                scoreDisplay.textContent = alphaLead.score;
+                scoreDisplay.classList.remove('above-threshold', 'below-threshold', 'neutral-threshold');
+                if (alphaLead.rawSignal === 'buy') {
+                    scoreDisplay.classList.add('above-threshold');
+                } else if (alphaLead.rawSignal === 'sell') {
+                    scoreDisplay.classList.add('below-threshold');
+                } else {
+                    scoreDisplay.classList.add('neutral-threshold');
+                }
+            }
+            
+            // Update confirmation timer display
+            const timerDisplay = document.getElementById('alphaLeadTimer');
+            if (timerDisplay && alphaLead.pendingSignal && alphaLead.pendingStartTime) {
+                const elapsed = Date.now() - alphaLead.pendingStartTime;
+                const remaining = Math.max(0, Math.ceil((alphaLead.confirmTimeMs - elapsed) / 1000));
+                timerDisplay.textContent = `(${remaining}s)`;
+                timerDisplay.classList.add('active');
+            } else if (timerDisplay) {
+                timerDisplay.textContent = '';
+                timerDisplay.classList.remove('active');
+            }
+            
+            // Store for trade panel access
+            this.lastAlphaLead = alphaLead;
+            
+            // Update chart signal markers (always update, display controlled by toggle)
+            if (this.chart.updateAlphaLeadSignal && this.chart.lastCandle) {
+                this.chart.updateAlphaLeadSignal(alphaLead, this.chart.lastCandle.time);
+            }
+        }
     }
 
     /**
@@ -4783,8 +5535,38 @@ class OrderBookApp {
             }
         }
         
-        // Apply Cluster Proximity signal settings (default ON, 20% threshold, 5s lock)
-        const showClusterProximity = localStorage.getItem('showClusterProximity') !== 'false';
+        // Apply BB %B Direction settings (default OFF)
+        const showBBPercentBDirection = localStorage.getItem('showBBPercentBDirection') === 'true';
+        if (this.chart.toggleBBPercentBDirection) {
+            if (showBBPercentBDirection) {
+                this.chart.toggleBBPercentBDirection(true);
+            }
+        }
+        
+        // Apply LV Signal settings (default OFF)
+        const showLVSignal = localStorage.getItem('showLVSignal') === 'true';
+        if (this.chart.toggleLVSignal) {
+            if (showLVSignal) {
+                this.chart.toggleLVSignal(true);
+            }
+        }
+        
+        const showDBSC = localStorage.getItem('showDBSC') === 'true';
+        if (this.chart.setDBSCEnabled) {
+            if (showDBSC) {
+                this.chart.setDBSCEnabled(true);
+                // Fetch MTF candles if MTF timeframe is set
+                const mtfTimeframe = localStorage.getItem('dbscMtfTimeframe');
+                if (mtfTimeframe && this.chart.fetchDBSCMTFCandles) {
+                    this.chart.fetchDBSCMTFCandles().then(() => {
+                        this.chart.updateDBSCSignals();
+                    });
+                }
+            }
+        }
+        
+        // Apply Cluster Proximity signal settings (default OFF, 20% threshold, 5s lock)
+        const showClusterProximity = localStorage.getItem('showClusterProximity') === 'true';
         const clusterProximityThreshold = parseFloat(localStorage.getItem('clusterProximityThreshold') || '0.20');
         const clusterProximityLockTime = parseInt(localStorage.getItem('clusterProximityLockTime') || '5');
         if (this.chart.setClusterProximityThreshold) {
@@ -4798,7 +5580,7 @@ class OrderBookApp {
         }
         
         // Apply Cluster Drift signal settings
-        const showClusterDrift = localStorage.getItem('showClusterDrift') !== 'false'; // Default ON
+        const showClusterDrift = localStorage.getItem('showClusterDrift') === 'true'; // Default OFF
         const clusterDriftLockTime = parseInt(localStorage.getItem('clusterDriftLockTime') || '5');
         if (this.chart.setClusterDriftLockTime) {
             this.chart.setClusterDriftLockTime(clusterDriftLockTime);
@@ -4808,7 +5590,7 @@ class OrderBookApp {
         }
         
         // Apply Live Proximity signal settings
-        const showLiveProximity = localStorage.getItem('showLiveProximity') !== 'false'; // Default ON
+        const showLiveProximity = localStorage.getItem('showLiveProximity') === 'true'; // Default OFF
         const liveProximityThreshold = parseFloat(localStorage.getItem('liveProximityThreshold') || '0.20');
         if (this.chart.setLiveProximityThreshold) {
             this.chart.setLiveProximityThreshold(liveProximityThreshold);
@@ -4818,13 +5600,13 @@ class OrderBookApp {
         }
         
         // Apply Live Drift signal settings
-        const showLiveDrift = localStorage.getItem('showLiveDrift') !== 'false'; // Default ON
+        const showLiveDrift = localStorage.getItem('showLiveDrift') === 'true'; // Default OFF
         if (this.chart.toggleLiveDrift) {
             this.chart.toggleLiveDrift(showLiveDrift);
         }
         
-        // Apply Bulls vs Bears signal settings
-        const showBullsBears = localStorage.getItem('showBullsBears') === 'true';
+        // Apply Bulls vs Bears signal settings (Support/Resistance Levels - default ON)
+        const showBullsBears = localStorage.getItem('showBullsBears') !== 'false';
         const bullsBearsMethod = localStorage.getItem('bullsBearsMethod') || 'firstLevel';
         if (this.chart.setBullsBearsMethod) {
             this.chart.setBullsBearsMethod(bullsBearsMethod);
@@ -4975,6 +5757,12 @@ class OrderBookApp {
     setupSidebarCollapse() {
         const leftSidebar = document.getElementById('sidebarLeft');
         const rightSidebar = document.getElementById('sidebarRight');
+        
+        // New toolbar toggle buttons
+        const toggleLeftBtn = document.getElementById('toggleLeftSidebar');
+        const toggleRightBtn = document.getElementById('toggleRightSidebar');
+        
+        // Legacy handles (hidden but still functional for backwards compat)
         const collapseLeft = document.getElementById('collapseLeftSidebar');
         const collapseRight = document.getElementById('collapseRightSidebar');
         
@@ -4990,43 +5778,290 @@ class OrderBookApp {
             rightSidebar.classList.add('collapsed');
         }
         
-        // Left sidebar toggle
-        if (collapseLeft && leftSidebar) {
-            collapseLeft.addEventListener('click', () => {
-                leftSidebar.classList.toggle('collapsed');
-                const isCollapsed = leftSidebar.classList.contains('collapsed');
-                localStorage.setItem('sidebarLeftCollapsed', isCollapsed);
+        // Left sidebar toggle function
+        const toggleLeft = () => {
+            if (!leftSidebar) return;
+            leftSidebar.classList.toggle('collapsed');
+            const isCollapsed = leftSidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarLeftCollapsed', isCollapsed);
+            
+            // Trigger chart resize after animation
+            setTimeout(() => {
+                if (this.chart && this.chart.chart) {
+                    this.chart.chart.resize(
+                        this.chart.container.clientWidth,
+                        this.chart.container.clientHeight
+                    );
+                }
+            }, 300);
+        };
+        
+        // Right sidebar toggle function
+        const toggleRight = () => {
+            if (!rightSidebar) return;
+            rightSidebar.classList.toggle('collapsed');
+            const isCollapsed = rightSidebar.classList.contains('collapsed');
+            localStorage.setItem('sidebarRightCollapsed', isCollapsed);
+            
+            // Trigger chart resize after animation
+            setTimeout(() => {
+                if (this.chart && this.chart.chart) {
+                    this.chart.chart.resize(
+                        this.chart.container.clientWidth,
+                        this.chart.container.clientHeight
+                    );
+                }
+            }, 300);
+        };
+        
+        // New toolbar buttons
+        if (toggleLeftBtn) {
+            toggleLeftBtn.addEventListener('click', toggleLeft);
+        }
+        if (toggleRightBtn) {
+            toggleRightBtn.addEventListener('click', toggleRight);
+        }
+        
+        // Legacy handles (backwards compat)
+        if (collapseLeft) {
+            collapseLeft.addEventListener('click', toggleLeft);
+        }
+        if (collapseRight) {
+            collapseRight.addEventListener('click', toggleRight);
+        }
+    }
+    
+    /**
+     * Setup LV Ratio Threshold control
+     */
+    setupLVRatioThreshold() {
+        const input = document.getElementById('lvRatioThreshold');
+        if (!input) return;
+        
+        // Load saved value (default 1.01)
+        const savedRatio = parseFloat(localStorage.getItem('lvRatioThreshold')) || 1.01;
+        input.value = savedRatio;
+        
+        // Apply to chart (will be re-applied when chart loads)
+        if (this.chart) {
+            this.chart.lvRatioThreshold = savedRatio;
+        }
+        
+        // Update display values
+        this.updateLVThresholdDisplay(savedRatio);
+        
+        // Handler function for changes
+        const handleChange = (e) => {
+            let ratio = parseFloat(e.target.value);
+            
+            // Validate
+            if (isNaN(ratio) || ratio <= 0) ratio = 1.01;
+            
+            // Save and apply
+            localStorage.setItem('lvRatioThreshold', ratio);
+            if (this.chart) {
+                this.chart.lvRatioThreshold = ratio;
+            }
+            
+            // Update display
+            this.updateLVThresholdDisplay(ratio);
+            
+            // Recalculate LV immediately
+            this.updateLVPanel();
+            
+            console.log('[LV] Ratio threshold updated:', ratio);
+        };
+        
+        // Listen to both input (immediate) and change (on blur) events
+        input.addEventListener('input', handleChange);
+        input.addEventListener('change', (e) => {
+            // On change, validate value
+            let ratio = parseFloat(e.target.value);
+            if (isNaN(ratio) || ratio <= 0) {
+                ratio = 1.01;
+                e.target.value = ratio;
+            }
+            handleChange(e);
+        });
+        
+        // Setup confirmation time input
+        const confirmInput = document.getElementById('lvConfirmTime');
+        if (confirmInput) {
+            // Load saved value (default 5 seconds)
+            const savedConfirmTime = parseInt(localStorage.getItem('lvConfirmTime')) || 30;
+            confirmInput.value = savedConfirmTime;
+            this.lvConfirmTime = savedConfirmTime;
+            
+            // Handle changes
+            const handleConfirmChange = (e) => {
+                let seconds = parseInt(e.target.value);
+                if (isNaN(seconds)) seconds = 0;
+                seconds = Math.max(0, Math.min(60, seconds));
                 
-                // Trigger chart resize after animation
-                setTimeout(() => {
-                    if (this.chart && this.chart.chart) {
-                        this.chart.chart.resize(
-                            this.chart.container.clientWidth,
-                            this.chart.container.clientHeight
-                        );
+                localStorage.setItem('lvConfirmTime', seconds);
+                this.lvConfirmTime = seconds;
+                
+                // Reset panel tracking when setting changes
+                if (this.lvSignalTracking) {
+                    this.lvSignalTracking.pendingSignal = null;
+                    this.lvSignalTracking.pendingStartTime = null;
+                }
+                
+                // Reset chart tracking when setting changes
+                if (this.chart && this.chart.lvSignal) {
+                    this.chart.lvConfirmTime = seconds;
+                    this.chart.lvSignal.pendingSignal = null;
+                    this.chart.lvSignal.pendingStartTime = null;
+                }
+                
+                console.log('[LV] Confirm time updated:', seconds, 'seconds');
+            };
+            
+            confirmInput.addEventListener('input', handleConfirmChange);
+            confirmInput.addEventListener('change', (e) => {
+                let seconds = parseInt(e.target.value);
+                if (isNaN(seconds)) seconds = 0;
+                seconds = Math.max(0, Math.min(60, seconds));
+                e.target.value = seconds;
+                handleConfirmChange(e);
+            });
+        }
+    }
+    
+    /**
+     * Update LV threshold display values in help section
+     */
+    updateLVThresholdDisplay(ratio) {
+        // Calculate percentage from ratio: ratio / (1 + ratio) * 100
+        const percent = Math.round((ratio / (1 + ratio)) * 100);
+        
+        // Update percentage display elements in help section
+        ['lvThresholdDisplay', 'lvThresholdDisplay2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = percent;
+        });
+        
+        // Update threshold value span (NOT the whole display div!)
+        const thresholdValue = document.getElementById('lvThresholdValue');
+        if (thresholdValue) thresholdValue.textContent = ratio.toFixed(2);
+    }
+    
+    /**
+     * Setup Alpha Lead Score Threshold and Confirmation Time controls
+     */
+    setupAlphaLeadThresholds() {
+        // Score Threshold Input
+        const scoreInput = document.getElementById('alphaLeadScoreThreshold');
+        if (scoreInput) {
+            // Load saved value (default 10 means BUY at 60+, SELL at 40-)
+            const savedThreshold = parseInt(localStorage.getItem('alphaLeadScoreThreshold')) || 1;
+            scoreInput.value = savedThreshold;
+            this.alphaLeadScoreThreshold = savedThreshold;
+            
+            // Update display
+            this.updateAlphaLeadThresholdDisplay(savedThreshold);
+            
+            // Apply to chart
+            if (this.chart) {
+                this.chart.alphaLeadScoreThreshold = savedThreshold;
+            }
+            
+            // Handler for changes
+            const handleScoreChange = (e) => {
+                let threshold = parseInt(e.target.value);
+                if (isNaN(threshold)) threshold = 10;
+                threshold = Math.max(1, Math.min(49, threshold));
+                
+                localStorage.setItem('alphaLeadScoreThreshold', threshold);
+                this.alphaLeadScoreThreshold = threshold;
+                
+                if (this.chart) {
+                    this.chart.alphaLeadScoreThreshold = threshold;
+                    // Reset tracking when threshold changes
+                    if (this.chart._alphaLeadSignalState) {
+                        this.chart._alphaLeadSignalState.pendingSignal = null;
+                        this.chart._alphaLeadSignalState.pendingStartTime = null;
                     }
-                }, 300);
+                }
+                
+                // Update display
+                this.updateAlphaLeadThresholdDisplay(threshold);
+                
+                console.log('[Alpha Lead] Score threshold updated:', threshold, '(BUY at', 50 + threshold, ', SELL at', 50 - threshold, ')');
+            };
+            
+            scoreInput.addEventListener('input', handleScoreChange);
+            scoreInput.addEventListener('change', (e) => {
+                let threshold = parseInt(e.target.value);
+                if (isNaN(threshold)) threshold = 10;
+                threshold = Math.max(1, Math.min(49, threshold));
+                e.target.value = threshold;
+                handleScoreChange(e);
             });
         }
         
-        // Right sidebar toggle
-        if (collapseRight && rightSidebar) {
-            collapseRight.addEventListener('click', () => {
-                rightSidebar.classList.toggle('collapsed');
-                const isCollapsed = rightSidebar.classList.contains('collapsed');
-                localStorage.setItem('sidebarRightCollapsed', isCollapsed);
+        // Confirmation Time Input
+        const confirmInput = document.getElementById('alphaLeadConfirmTime');
+        if (confirmInput) {
+            // Load saved value (default 6 seconds)
+            const savedConfirmTime = parseInt(localStorage.getItem('alphaLeadConfirmTime')) || 10;
+            confirmInput.value = savedConfirmTime;
+            this.alphaLeadConfirmTime = savedConfirmTime;
+            
+            // Apply to chart
+            if (this.chart) {
+                this.chart.alphaLeadConfirmTime = savedConfirmTime;
+            }
+            
+            // Handler for changes
+            const handleConfirmChange = (e) => {
+                let seconds = parseInt(e.target.value);
+                if (isNaN(seconds)) seconds = 6;
+                seconds = Math.max(0, Math.min(60, seconds));
                 
-                // Trigger chart resize after animation
-                setTimeout(() => {
-                    if (this.chart && this.chart.chart) {
-                        this.chart.chart.resize(
-                            this.chart.container.clientWidth,
-                            this.chart.container.clientHeight
-                        );
+                localStorage.setItem('alphaLeadConfirmTime', seconds);
+                this.alphaLeadConfirmTime = seconds;
+                
+                if (this.chart) {
+                    this.chart.alphaLeadConfirmTime = seconds;
+                    // Reset tracking when confirmation time changes
+                    if (this.chart._alphaLeadSignalState) {
+                        this.chart._alphaLeadSignalState.pendingSignal = null;
+                        this.chart._alphaLeadSignalState.pendingStartTime = null;
                     }
-                }, 300);
+                }
+                
+                console.log('[Alpha Lead] Confirm time updated:', seconds, 'seconds');
+            };
+            
+            confirmInput.addEventListener('input', handleConfirmChange);
+            confirmInput.addEventListener('change', (e) => {
+                let seconds = parseInt(e.target.value);
+                if (isNaN(seconds)) seconds = 6;
+                seconds = Math.max(0, Math.min(60, seconds));
+                e.target.value = seconds;
+                handleConfirmChange(e);
             });
         }
+    }
+    
+    /**
+     * Update Alpha Lead threshold display values in help section
+     */
+    updateAlphaLeadThresholdDisplay(threshold) {
+        const buyThreshold = 50 + threshold;
+        const sellThreshold = 50 - threshold;
+        
+        // Update display elements
+        const buyEl = document.getElementById('alphaLeadBuyThreshold');
+        if (buyEl) buyEl.textContent = buyThreshold;
+        
+        const sellEl = document.getElementById('alphaLeadSellThreshold');
+        if (sellEl) sellEl.textContent = sellThreshold;
+        
+        // Update header threshold display
+        const thresholdDisplay = document.getElementById('alphaLeadThresholdDisplay');
+        if (thresholdDisplay) thresholdDisplay.textContent = buyThreshold;
     }
 
     updateSymbolLabels() {

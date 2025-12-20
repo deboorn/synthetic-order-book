@@ -41,7 +41,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23111827'/%3E%3Cstop offset='100%25' stop-color='%230a0e17'/%3E%3C/linearGradient%3E%3ClinearGradient id='glow' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3ClinearGradient id='green' x1='0%25' y1='100%25' x2='0%25' y2='0%25'%3E%3Cstop offset='0%25' stop-color='%23059669'/%3E%3Cstop offset='100%25' stop-color='%2310b981'/%3E%3C/linearGradient%3E%3ClinearGradient id='red' x1='0%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23dc2626'/%3E%3Cstop offset='100%25' stop-color='%23ef4444'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23bg)' width='180' height='180' rx='36'/%3E%3Crect x='6' y='6' width='168' height='168' rx='32' fill='none' stroke='url(%23glow)' stroke-width='1.5' opacity='0.4'/%3E%3Crect x='28' y='90' width='15' height='48' rx='3' fill='url(%23green)'/%3E%3Crect x='31' y='76' width='9' height='14' fill='%2310b981'/%3E%3Crect x='31' y='138' width='9' height='11' fill='%2310b981'/%3E%3Crect x='50' y='52' width='15' height='66' rx='3' fill='url(%23red)'/%3E%3Crect x='53' y='42' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='53' y='118' width='9' height='14' fill='%23ef4444'/%3E%3Crect x='72' y='66' width='15' height='52' rx='3' fill='url(%23green)'/%3E%3Crect x='75' y='52' width='9' height='14' fill='%2310b981'/%3E%3Crect x='75' y='118' width='9' height='10' fill='%2310b981'/%3E%3Crect x='94' y='48' width='15' height='62' rx='3' fill='url(%23green)'/%3E%3Crect x='97' y='34' width='9' height='14' fill='%2310b981'/%3E%3Crect x='97' y='110' width='9' height='11' fill='%2310b981'/%3E%3Crect x='116' y='58' width='15' height='48' rx='3' fill='url(%23red)'/%3E%3Crect x='119' y='48' width='9' height='10' fill='%23ef4444'/%3E%3Crect x='119' y='106' width='9' height='16' fill='%23ef4444'/%3E%3Crect x='138' y='44' width='15' height='56' rx='3' fill='url(%23green)'/%3E%3Crect x='141' y='30' width='9' height='14' fill='%2310b981'/%3E%3Crect x='141' y='100' width='9' height='10' fill='%2310b981'/%3E%3Cpath d='M24 142 Q54 124 82 118 T138 90 T160 76' stroke='url(%23glow)' stroke-width='2.5' fill='none' stroke-linecap='round' opacity='0.8'/%3E%3Ccircle cx='160' cy='76' r='4' fill='%233b82f6'/%3E%3C/svg%3E">
     
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    <link rel="stylesheet" href="css/style.css?v=20251219.1">
+    <link rel="stylesheet" href="css/style.css?v=20251220.1">
 </head>
 <body>
     <div class="app">
@@ -127,6 +127,12 @@
             <!-- Chart Container -->
             <div class="chart-section">
                 <div class="chart-header">
+                    <button class="sidebar-toggle-btn" id="toggleLeftSidebar" title="Toggle Left Panel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M9 3v18"/>
+                        </svg>
+                    </button>
                     <div class="timeframe-selector">
                         <select id="timeframeSelect" class="tf-select">
                             <option value="1m">1m</option>
@@ -180,6 +186,12 @@
                             </svg>
                         </button>
                     </div>
+                    <button class="sidebar-toggle-btn" id="toggleRightSidebar" title="Toggle Right Panel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M15 3v18"/>
+                        </svg>
+                    </button>
                 </div>
                 <div class="chart-container" id="chartContainer"></div>
                 <button id="goToLatestBtn" class="chart-nav-btn" title="Go to latest bar">»</button>
@@ -194,8 +206,8 @@
                 <!-- Depth Chart -->
                 <div class="panel depth-panel collapsible expanded" data-panel="depth">
                     <div class="panel-header">
-                        <h3>Market Depth</h3>
-                        <div class="panel-header-actions">
+                        <div class="panel-header-top">
+                            <h3>Market Depth</h3>
                             <div class="exchange-selector">
                                 <span class="panel-badge clickable" id="depthSources">-</span>
                                 <div class="exchange-dropdown" id="exchangeDropdown">
@@ -244,9 +256,9 @@
                 <!-- Order Flow Pressure Panel -->
                 <div class="panel pressure-panel collapsible expanded" data-panel="orderflow">
                     <div class="panel-header">
-                        <h3>Order Flow</h3>
-                        <div class="panel-header-actions">
-                            <span class="panel-badge" id="pressureStatus">Live</span>
+                        <div class="panel-header-top">
+                            <h3>Order Flow</h3>
+                            <span class="panel-badge live" id="pressureStatus">Live</span>
                             <button class="panel-alert-btn" data-alert-section="orderflow" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
@@ -472,20 +484,8 @@
                 <!-- Whale Flow Tape Panel - Large Trade Detection -->
                 <div class="panel whale-flow-panel collapsible expanded" data-panel="whale-flow" id="whaleFlowPanel">
                     <div class="panel-header">
-                        <h3>Whale Flow
-                            <span class="info-icon">?
-                                <span class="info-tooltip">
-                                    <strong>Large Trade Detector</strong>
-                                    Tracks significant trades from "whales" (big players).<br><br>
-                                    <span class="tip-bullish">🟢 BUY = Large buyers accumulating</span><br>
-                                    <span class="tip-bearish">🔴 SELL = Large sellers distributing</span><br><br>
-                                    <strong>CVD:</strong> Cumulative Volume Delta<br>
-                                    Positive = More buying, Negative = More selling<br><br>
-                                    <strong>Smart Money Alert:</strong> Whales trading against retail!
-                                </span>
-                            </span>
-                        </h3>
-                        <div class="panel-header-actions">
+                        <div class="panel-header-top">
+                            <h3>Whale Flow</h3>
                             <span class="panel-badge live" id="whaleFlowStatus">Live</span>
                             <button class="panel-alert-btn" data-alert-section="whaleflow" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -538,9 +538,9 @@
                 <!-- Price Forecast Panel (moved from right sidebar) -->
                 <div class="panel direction-panel collapsible expanded" data-panel="forecast">
                     <div class="panel-header">
-                        <h3>Price Forecast</h3>
-                        <div class="panel-header-actions">
-                            <span class="panel-badge" id="forecastStatus">Live</span>
+                        <div class="panel-header-top">
+                            <h3>Price Forecast</h3>
+                            <span class="panel-badge live" id="forecastStatus">Live</span>
                             <button class="panel-alert-btn" data-alert-section="forecast" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
@@ -655,9 +655,9 @@
                 <!-- Fair Value Panel -->
                 <div class="panel fair-value-panel collapsible expanded" data-panel="fairvalue">
                     <div class="panel-header">
-                        <h3>Fair Value</h3>
-                        <div class="panel-header-actions">
-                            <span class="panel-badge" id="fvStatus">Live</span>
+                        <div class="panel-header-top">
+                            <h3>Fair Value</h3>
+                            <span class="panel-badge live" id="fvStatus">Live</span>
                             <button class="panel-alert-btn" data-alert-section="fairvalue" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
@@ -700,9 +700,9 @@
                 <!-- Trade Setup Panel -->
                 <div class="panel trade-setup-panel collapsible expanded" data-panel="trade-setup" id="tradeSetupPanel">
                     <div class="panel-header">
-                        <h3>Trade Setup</h3>
-                        <div class="panel-header-actions">
-                            <span class="panel-badge" id="tradeStatus">Live</span>
+                        <div class="panel-header-top">
+                            <h3>Trade Setup</h3>
+                            <span class="panel-badge live" id="tradeStatus">Live</span>
                             <button class="panel-alert-btn" data-alert-section="tradesetup" title="Create alert">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
@@ -759,8 +759,9 @@
                 <!-- Trade Simulator 1 Panel -->
                 <div class="panel trade-sim-panel collapsible expanded" data-panel="trade-sim-1" id="tradeSim1Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 1</h3>
+                        <h3>Trade 1</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim1Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim1Status">Idle</span>
                         </div>
                     </div>
@@ -778,6 +779,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -790,6 +792,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -844,6 +847,37 @@
                             </label>
                             <input type="number" id="tradeSim1MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim1OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim1MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim1FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim1TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim1TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim1TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <!-- Control Buttons -->
                         <div class="trade-sim-controls">
@@ -863,6 +897,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim1PositionValue">None</span>
                             <span class="position-entry" id="tradeSim1EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim1MinProfitRequired"></span>
                         </div>
                         
                         <!-- Summary Stats -->
@@ -931,8 +966,9 @@
                 <!-- Trade Simulator 2 Panel -->
                 <div class="panel trade-sim-panel collapsible expanded" data-panel="trade-sim-2" id="tradeSim2Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 2</h3>
+                        <h3>Trade 2</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim2Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim2Status">Idle</span>
                         </div>
                     </div>
@@ -950,6 +986,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -962,6 +999,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1002,6 +1040,37 @@
                             </label>
                             <input type="number" id="tradeSim2MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim2OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim2MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim2FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim2TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim2TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim2TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <!-- Control Buttons -->
                         <div class="trade-sim-controls">
@@ -1021,6 +1090,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim2PositionValue">None</span>
                             <span class="position-entry" id="tradeSim2EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim2MinProfitRequired"></span>
                         </div>
                         
                         <!-- Summary Stats -->
@@ -1089,8 +1159,9 @@
                 <!-- Trade Simulator 3 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-3" id="tradeSim3Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 3</h3>
+                        <h3>Trade 3</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim3Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim3Status">Idle</span>
                         </div>
                     </div>
@@ -1107,6 +1178,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1119,6 +1191,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1157,6 +1230,37 @@
                             </label>
                             <input type="number" id="tradeSim3MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim3OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim3MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim3FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim3TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim3TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim3TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim3Start">Start</button>
@@ -1171,6 +1275,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim3PositionValue">None</span>
                             <span class="position-entry" id="tradeSim3EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim3MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -1235,8 +1340,9 @@
                 <!-- Trade Simulator 4 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-4" id="tradeSim4Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 4</h3>
+                        <h3>Trade 4</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim4Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim4Status">Idle</span>
                         </div>
                     </div>
@@ -1253,6 +1359,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1265,6 +1372,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1303,6 +1411,37 @@
                             </label>
                             <input type="number" id="tradeSim4MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim4OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim4MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim4FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim4TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim4TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim4TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim4Start">Start</button>
@@ -1317,6 +1456,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim4PositionValue">None</span>
                             <span class="position-entry" id="tradeSim4EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim4MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -1381,8 +1521,9 @@
                 <!-- Trade Simulator 5 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-5" id="tradeSim5Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 5</h3>
+                        <h3>Trade 5</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim5Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim5Status">Idle</span>
                         </div>
                     </div>
@@ -1399,6 +1540,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1411,6 +1553,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1449,6 +1592,37 @@
                             </label>
                             <input type="number" id="tradeSim5MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim5OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim5MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim5FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim5TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim5TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim5TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim5Start">Start</button>
@@ -1463,6 +1637,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim5PositionValue">None</span>
                             <span class="position-entry" id="tradeSim5EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim5MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -1527,8 +1702,9 @@
                 <!-- Trade Simulator 6 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-6" id="tradeSim6Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 6</h3>
+                        <h3>Trade 6</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim6Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim6Status">Idle</span>
                         </div>
                     </div>
@@ -1545,6 +1721,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1557,6 +1734,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1595,6 +1773,37 @@
                             </label>
                             <input type="number" id="tradeSim6MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim6OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim6MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim6FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim6TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim6TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim6TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim6Start">Start</button>
@@ -1609,6 +1818,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim6PositionValue">None</span>
                             <span class="position-entry" id="tradeSim6EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim6MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -1673,8 +1883,9 @@
                 <!-- Trade Simulator 7 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-7" id="tradeSim7Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 7</h3>
+                        <h3>Trade 7</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim7Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim7Status">Idle</span>
                         </div>
                     </div>
@@ -1691,6 +1902,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1703,6 +1915,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1741,6 +1954,37 @@
                             </label>
                             <input type="number" id="tradeSim7MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim7OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim7MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim7FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim7TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim7TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim7TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim7Start">Start</button>
@@ -1755,6 +1999,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim7PositionValue">None</span>
                             <span class="position-entry" id="tradeSim7EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim7MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -1819,8 +2064,9 @@
                 <!-- Trade Simulator 8 Panel -->
                 <div class="panel trade-sim-panel collapsible" data-panel="trade-sim-8" id="tradeSim8Panel">
                     <div class="panel-header">
-                        <h3>Trade Simulator 8</h3>
+                        <h3>Trade 8</h3>
                         <div class="panel-header-actions">
+                            <button class="trade-sim-btn-xs export" id="tradeSim8Export" title="Export trades as JSON">↓</button>
                             <span class="panel-badge" id="tradeSim8Status">Idle</span>
                         </div>
                     </div>
@@ -1837,6 +2083,7 @@
                                     <option value="combo">prox + drift</option>
                                     <option value="3of4">3 out of 4</option>
                                     <option value="all4">all 4 signals</option>
+                                    <option value="lv">LV (Liquidity Vacuum)</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1849,6 +2096,7 @@
                                     <option value="both">Both</option>
                                     <option value="long">Long Only</option>
                                     <option value="short">Short Only</option>
+                                    <option value="bbl">BB%B & Lighting</option>
                                 </select>
                             </div>
                             <div class="trade-sim-row">
@@ -1887,6 +2135,37 @@
                             </label>
                             <input type="number" id="tradeSim8MaxTrades" class="trade-sim-input trade-sim-input-small" value="1" min="1" step="1" style="display: none;">
                         </div>
+                        <div class="trade-sim-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim8OnlyCloseInProfit" class="trade-sim-checkbox">
+                                Only close in profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row min-profit-input-row" style="display: none;">
+                            <div class="fee-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="tradeSim8MinProfitThreshold" class="trade-sim-input min-profit-input" value="0.10" min="0" step="0.01">
+                            </div>
+                            <div class="fee-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="tradeSim8FundingRatePerHour" class="trade-sim-input funding-rate-input" value="0.02" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <div class="trade-sim-row take-profit-row">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim8TakeProfitEnabled" class="trade-sim-checkbox">
+                                Take Profit
+                            </label>
+                        </div>
+                        <div class="trade-sim-row take-profit-input-row" style="display: none;">
+                            <input type="number" id="tradeSim8TakeProfitThreshold" class="trade-sim-input take-profit-input" value="" min="1" step="1" placeholder="Take profit $">
+                        </div>
+                        <div class="trade-sim-row take-profit-wait-row" style="display: none;">
+                            <label class="trade-sim-label">
+                                <input type="checkbox" id="tradeSim8TakeProfitWaitNextBar" class="trade-sim-checkbox">
+                                Wait for next bar
+                            </label>
+                        </div>
                         
                         <div class="trade-sim-controls">
                             <button class="trade-sim-btn start" id="tradeSim8Start">Start</button>
@@ -1901,6 +2180,7 @@
                             <span class="position-label">Position:</span>
                             <span class="position-value none" id="tradeSim8PositionValue">None</span>
                             <span class="position-entry" id="tradeSim8EntryPrice"></span>
+                            <span class="position-min-profit" id="tradeSim8MinProfitRequired"></span>
                         </div>
                         <div class="trade-sim-summary">
                             <div class="summary-stat">
@@ -2019,6 +2299,228 @@
                     </div>
                 </div>
                 
+                <!-- BB%B & Lighting Panel - Trend Direction Filter -->
+                <div class="panel bbl-panel collapsible expanded" data-panel="bbl" id="bblPanel">
+                    <div class="panel-header bbl-header" data-collapse-toggle>
+                        <div class="panel-header-top">
+                            <h3>BB%B & Lighting</h3>
+                            <span class="panel-badge live">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="bbl" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content bbl-content">
+                        <!-- Combined Signal Hero -->
+                        <div class="bbl-hero">
+                            <div class="bbl-signal-main" id="bblSignalMain">
+                                <span class="bbl-arrow">―</span>
+                                <span class="bbl-label">FLAT</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Component Breakdown -->
+                        <div class="bbl-components">
+                            <div class="bbl-component" id="bblDirectionComponent">
+                                <span class="bbl-comp-label">BB%B</span>
+                                <span class="bbl-comp-value" id="bblDirectionValue">—</span>
+                            </div>
+                            <div class="bbl-component" id="bblLightingComponent">
+                                <span class="bbl-comp-label">Lighting</span>
+                                <span class="bbl-comp-value" id="bblLightingValue">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- LV (Liquidity Vacuum) Panel - Leading Signal -->
+                <div class="panel lv-panel collapsible expanded" data-panel="lv" id="lvPanel">
+                    <div class="panel-header lv-header" data-collapse-toggle>
+                        <div class="panel-header-top">
+                            <h3>Liquidity Vacuum</h3>
+                            <span class="panel-badge live">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="lv" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content lv-content">
+                        <!-- LV Signal Hero -->
+                        <div class="lv-hero">
+                            <div class="lv-signal-main" id="lvSignalMain">
+                                <span class="lv-arrow">―</span>
+                                <span class="lv-label">FLAT</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Vacuum Strength Bar -->
+                        <div class="lv-vacuum-bar">
+                            <div class="lv-bar-label lv-bar-sell">SELL</div>
+                            <div class="lv-bar-container">
+                                <div class="lv-bar-fill" id="lvBarFill"></div>
+                                <div class="lv-bar-center"></div>
+                            </div>
+                            <div class="lv-bar-label lv-bar-buy">BUY</div>
+                        </div>
+                        
+                        <!-- Vacuum Details -->
+                        <div class="lv-details">
+                            <div class="lv-detail">
+                                <span class="lv-detail-label">Above</span>
+                                <span class="lv-detail-value" id="lvAboveValue">—</span>
+                            </div>
+                            <div class="lv-detail">
+                                <span class="lv-detail-label">Below</span>
+                                <span class="lv-detail-value" id="lvBelowValue">—</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Live Ratio Display -->
+                        <div class="lv-ratio-display" id="lvRatioDisplay">
+                            <span class="lv-ratio-label">Live:</span>
+                            <span class="lv-ratio-value" id="lvCurrentRatio">—</span>
+                            <span class="lv-ratio-threshold">/ <span id="lvThresholdValue">1.01</span>×</span>
+                            <span class="lv-ratio-timer" id="lvConfirmTimer"></span>
+                        </div>
+                        
+                        <!-- Help Section (collapsed by default) -->
+                        <details class="panel-help">
+                            <summary class="panel-help-toggle">How it works</summary>
+                            <div class="panel-help-content">
+                                <p><strong>Liquidity Vacuum</strong> finds the "path of least resistance" by analyzing order book depth within 2% of current price.</p>
+                                <div class="panel-help-setting">
+                                    <label>Signal Ratio Threshold:</label>
+                                    <input type="number" id="lvRatioThreshold" step="0.01" value="1.01">
+                                    <span class="setting-hint">× (default: 1.01)</span>
+                                </div>
+                                <div class="panel-help-setting">
+                                    <label>Signal Confirmation Time:</label>
+                                    <input type="number" id="lvConfirmTime" min="0" max="60" step="1" value="30">
+                                    <span class="setting-hint">seconds (default: 5)</span>
+                                </div>
+                                <p><strong>🟢 BUY:</strong> Below ≥ <span id="lvThresholdDisplay">55</span>% of total (Below is <span id="lvRatioDisplay">1.22</span>x Above).<br>
+                                <em>Example: Above=100, Below=122 → BUY</em></p>
+                                <p><strong>🔴 SELL:</strong> Above ≥ <span id="lvThresholdDisplay2">55</span>% of total (Above is <span id="lvRatioDisplay2">1.22</span>x Below).<br>
+                                <em>Example: Above=122, Below=100 → SELL</em></p>
+                                <p><strong>— FLAT:</strong> Neither side reaches the threshold.</p>
+                                <p class="panel-help-tip">💡 Lower ratio = more sensitive (more signals). Higher ratio = more selective (fewer signals).</p>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+                
+                <!-- Alpha Lead Panel - Leading Indicator -->
+                <div class="panel alpha-lead-panel collapsible expanded" data-panel="alpha-lead" id="alphaLeadPanel">
+                    <div class="panel-header alpha-lead-header-bar" data-collapse-toggle>
+                        <div class="panel-header-top">
+                            <h3>Alpha Lead</h3>
+                            <span class="panel-badge live">Live</span>
+                            <button class="panel-alert-btn" data-alert-section="alphalead" title="Create alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 7h18s-3 0-3-7"/>
+                                    <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                </svg>
+                                <span class="panel-alert-count" data-alert-count="0" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-content alpha-lead-content">
+                        <!-- Alpha Lead Hero -->
+                        <div class="alpha-lead-hero">
+                            <div class="alpha-lead-signal-main" id="lvAlphaLeadSignal">
+                                <span class="lead-arrow">―</span>
+                                <span class="lead-label">NEUTRAL</span>
+                            </div>
+                            <div class="alpha-lead-score-display">
+                                <span class="alpha-lead-score" id="lvAlphaLeadValue">50</span>
+                                <span class="alpha-lead-max">/100</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Component Breakdown -->
+                        <div class="alpha-lead-components">
+                            <div class="alpha-lead-component">
+                                <span class="component-label">LV</span>
+                                <div class="component-bar">
+                                    <div class="component-fill" id="alphaLeadLvFill" style="width: 50%;"></div>
+                                </div>
+                                <span class="component-value" id="alphaLeadLvValue">50</span>
+                            </div>
+                            <div class="alpha-lead-component">
+                                <span class="component-label">LD Mom</span>
+                                <div class="component-bar">
+                                    <div class="component-fill" id="alphaLeadLdMomFill" style="width: 50%;"></div>
+                                </div>
+                                <span class="component-value" id="alphaLeadLdMomValue">50</span>
+                            </div>
+                            <div class="alpha-lead-component">
+                                <span class="component-label">BPR Mom</span>
+                                <div class="component-bar">
+                                    <div class="component-fill" id="alphaLeadBprMomFill" style="width: 50%;"></div>
+                                </div>
+                                <span class="component-value" id="alphaLeadBprMomValue">50</span>
+                            </div>
+                            <div class="alpha-lead-component">
+                                <span class="component-label">Gap</span>
+                                <div class="component-bar">
+                                    <div class="component-fill" id="alphaLeadGapFill" style="width: 50%;"></div>
+                                </div>
+                                <span class="component-value" id="alphaLeadGapValue">50</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Dynamic Score Display -->
+                        <div class="alpha-lead-score-live" id="alphaLeadScoreDisplay">
+                            <span class="al-score-label">LIVE:</span>
+                            <span class="al-score-value" id="alphaLeadCurrentScore">50</span>
+                            <span class="al-score-threshold">/ <span id="alphaLeadThresholdDisplay">60</span></span>
+                            <span class="al-score-timer" id="alphaLeadTimer"></span>
+                        </div>
+                        
+                        <div class="alpha-lead-hint">Leading indicator • Predicts direction before move</div>
+                        
+                        <!-- Help Section (collapsed by default) -->
+                        <details class="panel-help">
+                            <summary class="panel-help-toggle">How it works</summary>
+                            <div class="panel-help-content">
+                                <p><strong>Alpha Lead</strong> combines 4 leading indicators to predict price direction BEFORE the move happens.</p>
+                                <p><strong>Components (0-100 scale):</strong></p>
+                                <ul>
+                                    <li><strong>LV (30%):</strong> Liquidity Vacuum — where is the path of least resistance?</li>
+                                    <li><strong>LD Mom (30%):</strong> Buying pressure momentum — is aggression accelerating?</li>
+                                    <li><strong>BPR Mom (20%):</strong> Bid/Ask ratio trend — are bids strengthening?</li>
+                                    <li><strong>Gap (20%):</strong> Gap asymmetry — more room to run up or down?</li>
+                                </ul>
+                                <p><strong>🟢 BULLISH:</strong> Score ≥ <span id="alphaLeadBuyThreshold">60</span> — Multiple signals agree price should rise.</p>
+                                <p><strong>🔴 BEARISH:</strong> Score ≤ <span id="alphaLeadSellThreshold">40</span> — Multiple signals agree price should fall.</p>
+                                <p><strong>— NEUTRAL:</strong> Score between thresholds — Mixed signals, no clear edge.</p>
+                                
+                                <!-- Settings -->
+                                <div class="panel-help-settings">
+                                    <div class="panel-help-setting">
+                                        <label for="alphaLeadScoreThreshold">Score Threshold (distance from 50):</label>
+                                        <input type="number" id="alphaLeadScoreThreshold" step="1" value="1">
+                                    </div>
+                                    <div class="panel-help-setting">
+                                        <label for="alphaLeadConfirmTime">Signal Confirmation Time (s):</label>
+                                        <input type="number" id="alphaLeadConfirmTime" min="0" max="60" step="1" value="10">
+                                    </div>
+                                </div>
+                                
+                                <p class="panel-help-tip">💡 This is a LEADING indicator — it often signals before price moves. Use with other confirmations.</p>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+                                
                 <!-- Alpha Strike Signal Panel - Pure Alpha Direction -->
                 <div class="panel alpha-strike-panel collapsible expanded" data-panel="alpha-strike" id="alphaStrikePanel">
                     <div class="panel-header alpha-strike-header">
@@ -2091,12 +2593,6 @@
 
                 <!-- Market Consensus Signal Panel -->
                 <div class="panel mcs-panel collapsible expanded" data-panel="mcs" id="mcsPanel">
-                    <!-- Trend Color Stripe (Enhancement #5) -->
-                    <div class="mcs-stripe" id="mcsStripe">
-                        <div class="stripe-segment neutral"></div>
-                        <div class="stripe-segment neutral"></div>
-                        <div class="stripe-segment neutral"></div>
-                    </div>
                     
                     <div class="panel-header">
                         <h3>Market Consensus</h3>
@@ -2477,7 +2973,7 @@
                     <span class="storage-text" id="storageText">--</span>
                 </span>
                 <span class="footer-sep">·</span>
-                <span class="footer-version">v20251219.7</span>
+                <span class="footer-version">v20251220.1</span>
             </div>
             <div class="footer-links">
                 <a href="analysis.html" class="footer-link" title="Analysis Dashboard">
@@ -2895,6 +3391,46 @@
                             <div class="toggle-info">
                                 <span class="toggle-label">BB Pulse Signals</span>
                                 <span class="toggle-hint">Buy/sell signal arrows on chart</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showBBPercentBDirection" checked>
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">BB %B Direction</span>
+                                <span class="toggle-hint">Yellow arrows showing BB%B momentum (no repaint)</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showLVSignal">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Liquidity Vacuum (LV)</span>
+                                <span class="toggle-hint">Arrows showing path of least resistance</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle sub-toggle">
+                            <input type="checkbox" id="showLVSignalHistory">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">LV Signal History</span>
+                                <span class="toggle-hint">Circles showing both buy/sell per bar</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="showAlphaLeadSignal">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">Alpha Lead</span>
+                                <span class="toggle-hint">Leading indicator arrows (LV + momentum)</span>
+                            </div>
+                        </label>
+                        <label class="settings-toggle sub-toggle">
+                            <input type="checkbox" id="showALSignalHistory">
+                            <span class="toggle-slider"></span>
+                            <div class="toggle-info">
+                                <span class="toggle-label">AL Signal History</span>
+                                <span class="toggle-hint">Circles showing both buy/sell per bar</span>
                             </div>
                         </label>
                     </div>
@@ -3375,28 +3911,30 @@
     <!-- 
         Cache Buster Version Format: YYYYMMDD.increment
         Update these versions when modifying JS/CSS files to force browser cache refresh.
-        The footer version should match: v20251218.40
+        The footer version should match: v20251219.46
     -->
-    <script src="js/db.js?v=20251218.39"></script>
-    <script src="js/trade-aggregator.js?v=20251218.36"></script>
-    <script src="js/websocket-orderbook.js?v=20251218.34"></script>
-    <script src="js/orderbook-aggregator.js?v=20251218.4"></script>
-    <script src="js/api.js?v=20251218.4"></script>
-    <script src="js/websocket.js?v=20251218.34"></script>
-    <script src="js/bb-pulse.js?v=20251218.4"></script>
-    <script src="js/chart.js?v=20251218.40"></script>
-    <script src="js/depth.js?v=20251218.4"></script>
-    <script src="js/direction.js?v=20251218.4"></script>
-    <script src="js/alpha-strike.js?v=20251218.4"></script>
-    <script src="js/whale-flow.js?v=20251218.4"></script>
-    <script src="js/flow-forecast.js?v=20251218.4"></script>
-    <script src="js/trade-panel.js?v=20251219.7"></script>
+    <script src="js/db.js?v=20251220.1"></script>
+    <script src="js/trade-aggregator.js?v=20251220.1"></script>
+    <script src="js/websocket-orderbook.js?v=20251220.1"></script>
+    <script src="js/orderbook-aggregator.js?v=20251220.1"></script>
+    <script src="js/api.js?v=20251220.1"></script>
+    <script src="js/websocket.js?v=20251220.1"></script>
+    <script src="js/bb-pulse.js?v=20251220.1"></script>
+    <!-- Premium Indicator - Hidden from GitHub -->
+    <!-- <script src="premium-indicators/dbsc.js?v=20251220.1"></script> -->
+    <script src="js/chart.js?v=20251220.1"></script>
+    <script src="js/depth.js?v=20251220.1"></script>
+    <script src="js/direction.js?v=20251220.1"></script>
+    <script src="js/alpha-strike.js?v=20251220.1"></script>
+    <script src="js/whale-flow.js?v=20251220.1"></script>
+    <script src="js/flow-forecast.js?v=20251220.1"></script>
+    <script src="js/trade-panel.js?v=20251220.1"></script>
     <!-- Coinbase API Integration -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.5.25/jsrsasign-all-min.js"></script>
-    <script src="js/coinbase-api.js?v=20251219.7"></script>
-    <script src="js/coinbase-websocket.js?v=20251218.34"></script>
-    <script src="js/coinbase-settings.js?v=20251218.34"></script>
-    <script src="js/app.js?v=20251218.40"></script>
+    <script src="js/coinbase-api.js?v=20251220.1"></script>
+    <script src="js/coinbase-websocket.js?v=20251220.1"></script>
+    <script src="js/coinbase-settings.js?v=20251220.1"></script>
+    <script src="js/app.js?v=20251220.1"></script>
     
     <!-- Global Tooltip Container -->
     <div id="globalTooltip" class="global-tooltip"></div>

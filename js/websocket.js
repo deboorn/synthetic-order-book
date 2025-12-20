@@ -65,6 +65,14 @@ class WebSocketManager {
                 OP: 'OP/USD', NEAR: 'NEAR/USD', SHIB: 'SHIB/USD', BCH: 'BCH/USD',
                 SUI: 'SUI/USD'
             },
+            binance: {
+                BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT', XRP: 'XRPUSDT',
+                DOGE: 'DOGEUSDT', ADA: 'ADAUSDT', AVAX: 'AVAXUSDT', DOT: 'DOTUSDT',
+                LINK: 'LINKUSDT', LTC: 'LTCUSDT', MATIC: 'MATICUSDT', UNI: 'UNIUSDT',
+                ATOM: 'ATOMUSDT', FIL: 'FILUSDT', APT: 'APTUSDT', ARB: 'ARBUSDT',
+                OP: 'OPUSDT', NEAR: 'NEARUSDT', SHIB: 'SHIBUSDT', BCH: 'BCHUSDT',
+                SUI: 'SUIUSDT'
+            },
             bitstamp: {
                 BTC: 'btcusd', ETH: 'ethusd', SOL: 'solusd', XRP: 'xrpusd',
                 DOGE: 'dogeusd', ADA: 'adausd', AVAX: 'avaxusd', DOT: 'dotusd',
@@ -113,8 +121,8 @@ class WebSocketManager {
         // Disconnect existing connections
         this.disconnect();
         
-        // Connect to OHLC stream (Kraken) - PRIMARY for chart data
-        this.connectKrakenOHLC();
+        // Connect to OHLC stream (Binance kline) - PRIMARY for chart data
+        this.connectBinanceKline();
         
         // Connect to price streams (for price display and fallback)
         this.connectCoinbase();
@@ -130,13 +138,13 @@ class WebSocketManager {
         
         this.interval = interval;
         
-        // Reconnect Kraken OHLC with new interval
-        if (this.connections.krakenOHLC) {
-            this.connections.krakenOHLC.close();
-            delete this.connections.krakenOHLC;
+        // Reconnect Binance kline with new interval
+        if (this.connections.binanceKline) {
+            this.connections.binanceKline.close();
+            delete this.connections.binanceKline;
         }
         
-        this.connectKrakenOHLC();
+        this.connectBinanceKline();
     }
 
     /**
@@ -242,6 +250,81 @@ class WebSocketManager {
             this.connections.krakenOHLC = ws;
         } catch (e) {
             console.warn('[Kraken OHLC] Connection failed:', e);
+        }
+    }
+
+    /**
+     * Binance Kline WebSocket - primary candle stream (keeps chart aligned with Binance history)
+     */
+    connectBinanceKline() {
+        const pair = this.getExchangeSymbol('binance', this.symbol);
+        if (!pair) {
+            console.warn(`Binance kline: ${this.symbol} not supported`);
+            return;
+        }
+
+        const streamSymbol = pair.toLowerCase();
+        const streamInterval = this.interval.toLowerCase();
+        const url = `wss://stream.binance.com:9443/ws/${streamSymbol}@kline_${streamInterval}`;
+
+        try {
+            const ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                console.log(`[Binance Kline] Connected for ${pair} @ ${this.interval}`);
+                this.ohlcConnected = true;
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.e === 'kline' && data.k) {
+                        const k = data.k;
+                        const candle = {
+                            time: Math.floor(k.t / 1000),       // start time (s)
+                            endTime: Math.floor(k.T / 1000),    // end time (s)
+                            open: parseFloat(k.o),
+                            high: parseFloat(k.h),
+                            low: parseFloat(k.l),
+                            close: parseFloat(k.c),
+                            volume: parseFloat(k.v || 0),
+                            source: 'binance_kline',
+                            closed: !!k.x
+                        };
+
+                        // Keep ohlcPrice for potential diagnostics; do not broadcast as ticker source
+                        this.ohlcPrice = candle.close;
+
+                        if (this.onOHLCUpdate) {
+                            this.onOHLCUpdate(candle);
+                        }
+                    }
+                } catch (e) {
+                    // Ignore parse errors
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.warn('[Binance Kline] WebSocket error:', error);
+                this.ohlcConnected = false;
+            };
+
+            ws.onclose = () => {
+                console.log('[Binance Kline] WebSocket closed');
+                this.ohlcConnected = false;
+                delete this.connections.binanceKline;
+
+                setTimeout(() => {
+                    if (!this.connections.binanceKline) {
+                        console.log('[Binance Kline] Reconnecting...');
+                        this.connectBinanceKline();
+                    }
+                }, this.reconnectDelay);
+            };
+
+            this.connections.binanceKline = ws;
+        } catch (e) {
+            console.warn('[Binance Kline] Connection failed:', e);
         }
     }
 

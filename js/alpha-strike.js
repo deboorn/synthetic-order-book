@@ -520,6 +520,22 @@ class AlphaStrike {
         if (newbieEl) {
             newbieEl.textContent = this.getNewbieText(signal);
         }
+        
+        // Update header badge with signal
+        const badge = this.elements.panel?.querySelector('.panel-badge');
+        if (badge) {
+            badge.classList.remove('bullish', 'bearish', 'neutral');
+            if (signal.direction === 'long') {
+                badge.textContent = 'LONG';
+                badge.classList.add('bullish');
+            } else if (signal.direction === 'short') {
+                badge.textContent = 'SHORT';
+                badge.classList.add('bearish');
+            } else {
+                badge.textContent = 'FLAT';
+                badge.classList.add('neutral');
+            }
+        }
     }
     
     /**

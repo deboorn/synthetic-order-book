@@ -50,6 +50,23 @@ class TradePanel {
         this.maxTrades = 1;              // Max number of complete trades
         this.maxTradesTriggered = false; // Flag when max trades is hit
         
+        // Only close in profit option
+        this.onlyCloseInProfit = false;
+        this.minProfitThreshold = 0.10;   // Minimum profit % required (default 0.10% for trading fees)
+        this.fundingRatePerHour = 0.02;   // Funding rate % per hour (default 0.02%)
+        
+        // Take profit option
+        this.takeProfitEnabled = false;
+        this.takeProfitThreshold = null;   // Default blank - must be set to trigger
+        this.takeProfitWaitNextBar = false; // Wait for next bar before re-entry after TP
+        
+        // Guard flag to prevent re-entry during async close
+        this.isClosingPosition = false;
+        
+        // Take profit wait-for-next-bar guard
+        this.waitingForNextBar = false;
+        this._newBarHandler = null; // Bound handler for cleanup
+        
         // Coinbase API instance (for perp modes)
         this.coinbaseApi = null;
         
@@ -88,6 +105,20 @@ class TradePanel {
         this.loadState();
         this.bindEvents();
         this.render();
+        this.setupNewBarListener();
+    }
+    
+    /**
+     * Listen for newBarOpened events to clear take-profit wait guard
+     */
+    setupNewBarListener() {
+        this._newBarHandler = () => {
+            if (this.waitingForNextBar) {
+                console.log(`[TradePanel ${this.instanceId}] New bar - clearing TP wait guard`);
+                this.waitingForNextBar = false;
+            }
+        };
+        window.addEventListener('newBarOpened', this._newBarHandler);
     }
     
     cacheElements() {
@@ -111,13 +142,26 @@ class TradePanel {
             // Max trades limiter
             limitMaxTradesCheckbox: document.getElementById(`tradeSim${id}LimitMaxTrades`),
             maxTradesInput: document.getElementById(`tradeSim${id}MaxTrades`),
+            // Only close in profit
+            onlyCloseInProfitCheckbox: document.getElementById(`tradeSim${id}OnlyCloseInProfit`),
+            minProfitInput: document.getElementById(`tradeSim${id}MinProfitThreshold`),
+            fundingRateInput: document.getElementById(`tradeSim${id}FundingRatePerHour`),
+            minProfitInputRow: document.getElementById(`tradeSim${id}MinProfitThreshold`)?.closest('.min-profit-input-row'),
+            // Take profit
+            takeProfitCheckbox: document.getElementById(`tradeSim${id}TakeProfitEnabled`),
+            takeProfitInput: document.getElementById(`tradeSim${id}TakeProfitThreshold`),
+            takeProfitInputRow: document.getElementById(`tradeSim${id}TakeProfitThreshold`)?.closest('.take-profit-input-row'),
+            takeProfitWaitCheckbox: document.getElementById(`tradeSim${id}TakeProfitWaitNextBar`),
+            takeProfitWaitRow: document.getElementById(`tradeSim${id}TakeProfitWaitNextBar`)?.closest('.take-profit-wait-row'),
             // Control buttons
             startBtn: document.getElementById(`tradeSim${id}Start`),
             stopBtn: document.getElementById(`tradeSim${id}Stop`),
             clearBtn: document.getElementById(`tradeSim${id}Clear`),
+            exportBtn: document.getElementById(`tradeSim${id}Export`),
             lockedSignal: document.getElementById(`tradeSim${id}LockedSignal`),
             positionValue: document.getElementById(`tradeSim${id}PositionValue`),
             entryPrice: document.getElementById(`tradeSim${id}EntryPrice`),
+            minProfitRequired: document.getElementById(`tradeSim${id}MinProfitRequired`),
             pnl: document.getElementById(`tradeSim${id}Pnl`),
             shortPnl: document.getElementById(`tradeSim${id}ShortPnl`),
             longPnl: document.getElementById(`tradeSim${id}LongPnl`),
@@ -228,6 +272,58 @@ class TradePanel {
         }
         this.updateMaxTradesInputVisibility();
         
+        // Load only close in profit setting
+        const savedOnlyCloseInProfit = localStorage.getItem(`${this.storagePrefix}OnlyCloseInProfit`);
+        if (savedOnlyCloseInProfit !== null) {
+            this.onlyCloseInProfit = savedOnlyCloseInProfit === 'true';
+            if (this.elements.onlyCloseInProfitCheckbox) {
+                this.elements.onlyCloseInProfitCheckbox.checked = this.onlyCloseInProfit;
+            }
+        }
+        const savedMinProfitThreshold = localStorage.getItem(`${this.storagePrefix}MinProfitThreshold`);
+        if (savedMinProfitThreshold && savedMinProfitThreshold !== 'null' && savedMinProfitThreshold !== '') {
+            const val = parseFloat(savedMinProfitThreshold);
+            this.minProfitThreshold = (!isNaN(val) && val >= 0) ? val : 0.10;
+        }
+        if (this.elements.minProfitInput) {
+            this.elements.minProfitInput.value = this.minProfitThreshold;
+        }
+        
+        const savedFundingRate = localStorage.getItem(`${this.storagePrefix}FundingRatePerHour`);
+        if (savedFundingRate && savedFundingRate !== 'null' && savedFundingRate !== '') {
+            const val = parseFloat(savedFundingRate);
+            this.fundingRatePerHour = (!isNaN(val) && val >= 0) ? val : 0.02;
+        }
+        if (this.elements.fundingRateInput) {
+            this.elements.fundingRateInput.value = this.fundingRatePerHour;
+        }
+        this.updateMinProfitInputVisibility();
+        
+        // Load take profit settings
+        const savedTakeProfitEnabled = localStorage.getItem(`${this.storagePrefix}TakeProfitEnabled`);
+        if (savedTakeProfitEnabled !== null) {
+            this.takeProfitEnabled = savedTakeProfitEnabled === 'true';
+            if (this.elements.takeProfitCheckbox) {
+                this.elements.takeProfitCheckbox.checked = this.takeProfitEnabled;
+            }
+        }
+        const savedTakeProfitThreshold = localStorage.getItem(`${this.storagePrefix}TakeProfitThreshold`);
+        if (savedTakeProfitThreshold && savedTakeProfitThreshold !== 'null') {
+            const val = parseFloat(savedTakeProfitThreshold);
+            this.takeProfitThreshold = (!isNaN(val) && val > 0) ? val : null;
+            if (this.elements.takeProfitInput) {
+                this.elements.takeProfitInput.value = this.takeProfitThreshold ?? '';
+            }
+        }
+        const savedTakeProfitWaitNextBar = localStorage.getItem(`${this.storagePrefix}TakeProfitWaitNextBar`);
+        if (savedTakeProfitWaitNextBar !== null) {
+            this.takeProfitWaitNextBar = savedTakeProfitWaitNextBar === 'true';
+            if (this.elements.takeProfitWaitCheckbox) {
+                this.elements.takeProfitWaitCheckbox.checked = this.takeProfitWaitNextBar;
+            }
+        }
+        this.updateTakeProfitInputVisibility();
+        
         // Update perp config visibility
         this.updatePerpConfigVisibility();
         
@@ -301,7 +397,7 @@ class TradePanel {
         if (this.elements.startBtn) this.elements.startBtn.disabled = true;
         if (this.elements.stopBtn) this.elements.stopBtn.disabled = false;
         if (this.elements.signalSelect) this.elements.signalSelect.disabled = true;
-        if (this.elements.thresholdInput) this.elements.thresholdInput.disabled = true;
+        // Threshold can be adjusted during trading
         if (this.elements.modeSelect) this.elements.modeSelect.disabled = true;
         if (this.elements.tradingModeSelect) this.elements.tradingModeSelect.disabled = true;
         
@@ -427,6 +523,14 @@ class TradePanel {
         // Save max trades limiter
         localStorage.setItem(`${this.storagePrefix}LimitMaxTrades`, this.limitMaxTrades.toString());
         localStorage.setItem(`${this.storagePrefix}MaxTrades`, this.maxTrades.toString());
+        // Save only close in profit setting
+        localStorage.setItem(`${this.storagePrefix}OnlyCloseInProfit`, this.onlyCloseInProfit.toString());
+        localStorage.setItem(`${this.storagePrefix}MinProfitThreshold`, this.minProfitThreshold.toString());
+        localStorage.setItem(`${this.storagePrefix}FundingRatePerHour`, this.fundingRatePerHour.toString());
+        // Save take profit settings
+        localStorage.setItem(`${this.storagePrefix}TakeProfitEnabled`, this.takeProfitEnabled.toString());
+        localStorage.setItem(`${this.storagePrefix}TakeProfitThreshold`, this.takeProfitThreshold !== null ? this.takeProfitThreshold.toString() : '');
+        localStorage.setItem(`${this.storagePrefix}TakeProfitWaitNextBar`, this.takeProfitWaitNextBar.toString());
         // Save all trades to IndexedDB (async, fire-and-forget)
         this.saveTradesToDB();
     }
@@ -618,6 +722,66 @@ class TradePanel {
             });
         }
         
+        // Only close in profit checkbox
+        if (this.elements.onlyCloseInProfitCheckbox) {
+            this.elements.onlyCloseInProfitCheckbox.addEventListener('change', (e) => {
+                this.onlyCloseInProfit = e.target.checked;
+                this.updateMinProfitInputVisibility();
+                this.saveState();
+            });
+        }
+        
+        // Min profit threshold input
+        if (this.elements.minProfitInput) {
+            this.elements.minProfitInput.addEventListener('change', (e) => {
+                const val = parseFloat(e.target.value);
+                this.minProfitThreshold = (!isNaN(val) && val >= 0) ? val : 0.10;
+                e.target.value = this.minProfitThreshold;
+                this.saveState();
+                this.renderLog();
+                this.renderPosition();
+            });
+        }
+        
+        // Funding rate per hour input
+        if (this.elements.fundingRateInput) {
+            this.elements.fundingRateInput.addEventListener('change', (e) => {
+                const val = parseFloat(e.target.value);
+                this.fundingRatePerHour = (!isNaN(val) && val >= 0) ? val : 0.02;
+                e.target.value = this.fundingRatePerHour;
+                this.saveState();
+                this.renderLog();
+                this.renderPosition();
+            });
+        }
+        
+        // Take profit checkbox
+        if (this.elements.takeProfitCheckbox) {
+            this.elements.takeProfitCheckbox.addEventListener('change', (e) => {
+                this.takeProfitEnabled = e.target.checked;
+                this.updateTakeProfitInputVisibility();
+                this.saveState();
+            });
+        }
+        
+        // Take profit threshold input
+        if (this.elements.takeProfitInput) {
+            this.elements.takeProfitInput.addEventListener('change', (e) => {
+                const val = parseFloat(e.target.value);
+                this.takeProfitThreshold = (!isNaN(val) && val > 0) ? val : null;
+                e.target.value = this.takeProfitThreshold ?? '';
+                this.saveState();
+            });
+        }
+        
+        // Take profit wait next bar checkbox
+        if (this.elements.takeProfitWaitCheckbox) {
+            this.elements.takeProfitWaitCheckbox.addEventListener('change', (e) => {
+                this.takeProfitWaitNextBar = e.target.checked;
+                this.saveState();
+            });
+        }
+        
         // Start button
         if (this.elements.startBtn) {
             this.elements.startBtn.addEventListener('click', () => this.start());
@@ -631,6 +795,11 @@ class TradePanel {
         // Clear button
         if (this.elements.clearBtn) {
             this.elements.clearBtn.addEventListener('click', () => this.clear());
+        }
+        
+        // Export button
+        if (this.elements.exportBtn) {
+            this.elements.exportBtn.addEventListener('click', () => this.exportTrades());
         }
     }
     
@@ -661,6 +830,25 @@ class TradePanel {
     }
     
     /**
+     * Show/hide take profit input row and wait checkbox based on checkbox
+     */
+    updateTakeProfitInputVisibility() {
+        const show = this.takeProfitEnabled ? 'block' : 'none';
+        if (this.elements.takeProfitInputRow) {
+            this.elements.takeProfitInputRow.style.display = show;
+        }
+        if (this.elements.takeProfitWaitRow) {
+            this.elements.takeProfitWaitRow.style.display = show;
+        }
+    }
+    
+    updateMinProfitInputVisibility() {
+        if (this.elements.minProfitInputRow) {
+            this.elements.minProfitInputRow.style.display = this.onlyCloseInProfit ? 'block' : 'none';
+        }
+    }
+    
+    /**
      * Check if perp mode (live trading)
      */
     isPerpMode() {
@@ -684,6 +872,23 @@ class TradePanel {
             return null;
         }
         return productId;
+    }
+    
+    /**
+     * Get price increment for current product
+     * BTC perps: $5 increments
+     * ETH perps: $1 increments
+     */
+    getPriceIncrement() {
+        const productId = this.getProductId();
+        if (!productId) return 1;
+        
+        if (productId.startsWith('BIP')) {
+            return 5; // BTC: $5 increments
+        } else if (productId.startsWith('ETP')) {
+            return 1; // ETH: $1 increments
+        }
+        return 1; // Default
     }
     
     async start() {
@@ -734,7 +939,16 @@ class TradePanel {
         const currentSignal = this.getCurrentSignal();
         if (currentSignal) {
             this.lastSignalDirection = currentSignal;
-            this.signalStartTime = Date.now();
+            
+            // For LV signal source, the signal is already confirmed by the LV panel
+            // so we should act immediately (set signalStartTime in the past)
+            if (this.signalSource === 'lv') {
+                // Set start time far enough in past that threshold is already met
+                this.signalStartTime = Date.now() - (this.threshold * 1000) - 100;
+                console.log(`[TradePanel ${this.instanceId}] LV signal already confirmed, will act immediately: ${currentSignal}`);
+            } else {
+                this.signalStartTime = Date.now();
+            }
         } else {
             this.lastSignalDirection = null;
             this.signalStartTime = null;
@@ -744,7 +958,7 @@ class TradePanel {
         this.elements.startBtn.disabled = true;
         this.elements.stopBtn.disabled = false;
         this.elements.signalSelect.disabled = true;
-        this.elements.thresholdInput.disabled = true;
+        // Threshold can be adjusted during trading
         if (this.elements.modeSelect) this.elements.modeSelect.disabled = true;
         if (this.elements.tradingModeSelect) this.elements.tradingModeSelect.disabled = true;
         
@@ -954,6 +1168,7 @@ class TradePanel {
         this.lastSignalDirection = null;
         this.signalConfirmed = false;
         this.lockedSignal = null;
+        this.waitingForNextBar = false;
         
         // Disconnect WebSocket
         if (this.coinbaseWs) {
@@ -1017,6 +1232,8 @@ class TradePanel {
         // Reset limiters
         this.maxLossTriggered = false;
         this.maxTradesTriggered = false;
+        this.isClosingPosition = false;
+        this.waitingForNextBar = false;
         
         // Clear active position storage and save
         this.clearActivePosition();
@@ -1024,6 +1241,87 @@ class TradePanel {
         this.render();
         
         console.log('[TradePanel] Cleared all trades');
+    }
+    
+    /**
+     * Export trades as JSON for debugging/analysis
+     * Copies to clipboard and logs to console
+     */
+    exportTrades() {
+        const exportData = {
+            instanceId: this.instanceId,
+            symbol: this.currentSymbol,
+            exportTime: new Date().toISOString(),
+            config: {
+                signalSource: this.signalSource,
+                threshold: this.threshold,
+                tradeMode: this.tradeMode,
+                tradingMode: this.tradingMode,
+                contracts: this.contracts,
+                leverage: this.leverage,
+                maxLoss: this.maxLoss,
+                limitMaxTrades: this.limitMaxTrades,
+                maxTrades: this.maxTrades,
+                onlyCloseInProfit: this.onlyCloseInProfit,
+                takeProfitEnabled: this.takeProfitEnabled,
+                takeProfitThreshold: this.takeProfitThreshold,
+                takeProfitWaitNextBar: this.takeProfitWaitNextBar
+            },
+            summary: {
+                totalPnl: this.totalPnl,
+                shortPnl: this.shortPnl,
+                longPnl: this.longPnl,
+                wins: this.wins,
+                losses: this.losses,
+                winRate: this.trades.length > 0 ? ((this.wins / (this.wins + this.losses)) * 100).toFixed(1) + '%' : 'N/A',
+                peakProfit: this.peakProfit,
+                peakLoss: this.peakLoss,
+                sessionStartTime: this.sessionStartTime,
+                totalTrades: this.trades.length
+            },
+            trades: this.trades.map(t => ({
+                id: t.id,
+                type: t.type,
+                entryPrice: t.entryPrice,
+                exitPrice: t.exitPrice,
+                pnl: t.pnl,
+                pnlPercent: t.pnlPercent,
+                entryTime: t.entryTime ? new Date(t.entryTime).toISOString() : null,
+                exitTime: t.exitTime ? new Date(t.exitTime).toISOString() : null,
+                duration: t.duration,
+                durationFormatted: t.duration ? this.formatDuration(t.duration) : null,
+                isOpen: t.isOpen,
+                closeReason: t.closeReason,
+                tradingMode: t.tradingMode,
+                contracts: t.contracts,
+                leverage: t.leverage
+            }))
+        };
+        
+        const jsonStr = JSON.stringify(exportData, null, 2);
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(jsonStr).then(() => {
+            console.log(`[TradePanel ${this.instanceId}] Exported ${this.trades.length} trades to clipboard`);
+            
+            // Show checkmark feedback
+            if (this.elements.exportBtn) {
+                const originalText = this.elements.exportBtn.textContent;
+                this.elements.exportBtn.textContent = '✓';
+                this.elements.exportBtn.classList.add('success');
+                setTimeout(() => {
+                    this.elements.exportBtn.textContent = originalText;
+                    this.elements.exportBtn.classList.remove('success');
+                }, 1500);
+            }
+        }).catch(err => {
+            console.error('[TradePanel] Failed to copy to clipboard:', err);
+        });
+        
+        // Log to console
+        console.log(`[TradePanel ${this.instanceId}] Trade Export:`, exportData);
+        
+        return exportData;
     }
     
     getCurrentSignal() {
@@ -1110,6 +1408,16 @@ class TradePanel {
                 }
                 break;
                 
+            case 'lv':
+                // Liquidity Vacuum signal - use the displayed hero signal
+                // This matches what the user sees in the LV panel
+                const lvHero = document.getElementById('lvSignalMain');
+                const lvLabel = lvHero?.querySelector('.lv-label')?.textContent?.trim()?.toLowerCase();
+                if (lvLabel === 'buy') result = 'buy';
+                else if (lvLabel === 'sell') result = 'sell';
+                else result = 'flat';
+                break;
+                
             default:
                 result = null;
         }
@@ -1132,6 +1440,7 @@ class TradePanel {
             const blockers = [];
             if (this.maxLossTriggered) blockers.push('maxLoss');
             if (this.maxTradesTriggered) blockers.push('maxTrades');
+            if (this.waitingForNextBar) blockers.push('waitNextBar');
             console.log(`[TradePanel ${this.instanceId}] Signal: ${currentSignal || 'none'} | Locked: ${this.lockedSignal || 'none'} | Confirmed: ${this.signalConfirmed} | Elapsed: ${elapsed}s / ${this.threshold}s | Position: ${this.position || 'none'}${blockers.length ? ' | BLOCKED: ' + blockers.join(',') : ''}`);
         }
         
@@ -1140,9 +1449,47 @@ class TradePanel {
             return; // Don't process signals if max trades reached
         }
         
+        // Check if waiting for next bar after take-profit (only blocks new entries, not current position)
+        if (this.waitingForNextBar && !this.position) {
+            return; // Wait for next bar before re-entry
+        }
+        
         // Update live P&L for open trades
         if (this.openTradeId) {
             this.renderLog();
+        }
+        
+        // Check take profit (with guard to prevent re-entry during async close)
+        if (this.takeProfitEnabled && this.takeProfitThreshold !== null && this.position && this.entryPrice && !this.isClosingPosition) {
+            const currentPrice = this.app?.currentPrice;
+            if (currentPrice) {
+                const unrealizedPnlGross = this.getUnrealizedPnl(currentPrice);
+                
+                // Convert fee/funding percentages to a dollar cost against entry
+                const hoursInPosition = this.entryTime ? (Date.now() - this.entryTime) / (1000 * 60 * 60) : 0;
+                const feePercent = this.minProfitThreshold || 0; // covers both sides as configured
+                const fundingPercent = this.fundingRatePerHour * hoursInPosition;
+                const totalCostPercent = feePercent + fundingPercent;
+                const estimatedCosts = this.entryPrice * (totalCostPercent / 100);
+                
+                const unrealizedPnlNet = unrealizedPnlGross - estimatedCosts;
+                
+                if (unrealizedPnlNet >= this.takeProfitThreshold) {
+                    console.log(`[TradePanel ${this.instanceId}] TAKE PROFIT triggered! Net P&L: $${unrealizedPnlNet.toFixed(2)} (gross $${unrealizedPnlGross.toFixed(2)} - costs $${estimatedCosts.toFixed(2)}) >= target $${this.takeProfitThreshold}`);
+                    this.isClosingPosition = true;
+                    
+                    // Set wait-for-next-bar guard if option enabled
+                    if (this.takeProfitWaitNextBar) {
+                        this.waitingForNextBar = true;
+                        console.log(`[TradePanel ${this.instanceId}] Waiting for next bar before re-entry`);
+                    }
+                    
+                    this.closePosition('Take profit').finally(() => {
+                        this.isClosingPosition = false;
+                    });
+                    return; // Exit after closing, wait for next signal
+                }
+            }
         }
         
         // Update session timer and rolling PNL metrics (throttled to ~1Hz)
@@ -1169,6 +1516,17 @@ class TradePanel {
             this.lastSignalDirection = currentSignal;
             this.signalStartTime = now;
             this.signalConfirmed = false;
+            
+            // For LV signal source, the signal is already confirmed by the LV panel
+            // (it has its own 30s confirmation), so act immediately on signal change
+            if (this.signalSource === 'lv' && this.lockedSignal !== currentSignal) {
+                console.log(`[TradePanel ${this.instanceId}] LV SIGNAL CHANGE! ${this.lockedSignal || 'none'} → ${currentSignal} (acting immediately)`);
+                this.signalConfirmed = true;
+                this.lockedSignal = currentSignal;
+                this.renderLockedSignal();
+                this.saveActivePosition();
+                this.onSignalConfirmed(currentSignal);
+            }
             return;
         }
         
@@ -1219,7 +1577,25 @@ class TradePanel {
                 console.log(`[TradePanel ${this.instanceId}] Cannot trade ${tradeDirection} - mode restriction`);
             }
         } else if (this.position !== tradeDirection) {
-            // Opposite signal - close current position
+            // Opposite signal - check if we can close
+            
+            // Check "only close in profit" setting
+            if (this.onlyCloseInProfit) {
+                const unrealizedPnl = this.getUnrealizedPnl(price);
+                const profitPercent = (unrealizedPnl / this.entryPrice) * 100;
+                
+                // Calculate hours in position for funding cost
+                const hoursInPosition = this.entryTime ? (Date.now() - this.entryTime) / (1000 * 60 * 60) : 0;
+                const fundingCost = this.fundingRatePerHour * hoursInPosition;
+                const minProfitPercent = this.minProfitThreshold + fundingCost;
+                
+                if (profitPercent < minProfitPercent) {
+                    console.log(`[TradePanel ${this.instanceId}] Blocking close - profit ${profitPercent.toFixed(3)}% below min threshold ${minProfitPercent.toFixed(3)}% (base ${this.minProfitThreshold}% + funding ${fundingCost.toFixed(3)}% for ${hoursInPosition.toFixed(1)}h)`);
+                    return; // Don't close or flip
+                }
+            }
+            
+            // Close current position
             await this.closePosition('Signal reversed');
             
             // Open new position if allowed
@@ -1230,10 +1606,65 @@ class TradePanel {
         // Same direction - do nothing (already in position)
     }
     
+    /**
+     * Calculate unrealized P&L for current position
+     */
+    getUnrealizedPnl(currentPrice) {
+        if (!this.position || !this.entryPrice) return 0;
+        
+        const price = currentPrice || this.app?.currentPrice || this.entryPrice;
+        if (this.position === 'long') {
+            return price - this.entryPrice;
+        } else {
+            return this.entryPrice - price;
+        }
+    }
+    
     canTradeDirection(direction) {
         if (this.tradeMode === 'both') return true;
         if (this.tradeMode === 'long' && direction === 'long') return true;
         if (this.tradeMode === 'short' && direction === 'short') return true;
+        
+        // BB%B & Lighting mode - dynamically determined by indicator state
+        if (this.tradeMode === 'bbl') {
+            const bblState = this.app?.lastBBLightingState;
+            if (!bblState || bblState.mode === 'wait') {
+                return false; // No trades when waiting
+            }
+            if (bblState.mode === 'both') {
+                return true; // Allow both directions during conflict
+            }
+            if (bblState.mode === 'long' && direction === 'long') {
+                return true;
+            }
+            if (bblState.mode === 'short' && direction === 'short') {
+                return true;
+            }
+            return false;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Check if we should exit a position in BBL mode
+     * In BBL mode, opposite signal closes but doesn't flip
+     */
+    shouldExitOnlyInBBLMode(signalDirection) {
+        if (this.tradeMode !== 'bbl') return false;
+        
+        const bblState = this.app?.lastBBLightingState;
+        if (!bblState) return false;
+        
+        // In BBL mode with single-direction allowed:
+        // If we're in a position and get opposite signal, exit only (don't flip)
+        if (bblState.mode === 'long' && this.position === 'long' && signalDirection === 'short') {
+            return true; // Exit long on short signal, but don't go short
+        }
+        if (bblState.mode === 'short' && this.position === 'short' && signalDirection === 'long') {
+            return true; // Exit short on long signal, but don't go long
+        }
+        
         return false;
     }
     
@@ -1315,6 +1746,34 @@ class TradePanel {
         
         let exitPrice = this.app?.currentPrice || this.entryPrice;
         
+        // Calculate minimum acceptable price if "only close in profit" is enabled
+        let minAcceptablePrice = null;
+        if (this.onlyCloseInProfit) {
+            const hoursInPosition = this.entryTime ? (Date.now() - this.entryTime) / (1000 * 60 * 60) : 0;
+            const fundingCost = this.fundingRatePerHour * hoursInPosition;
+            const minProfitPercent = this.minProfitThreshold + fundingCost;
+            
+            if (this.position === 'long') {
+                // For long: exit price must be above entry + min profit
+                minAcceptablePrice = this.entryPrice * (1 + minProfitPercent / 100);
+                if (this.isPerpMode()) {
+                    // Round UP to price increment for perps (ensures we meet threshold)
+                    const increment = this.getPriceIncrement();
+                    minAcceptablePrice = Math.ceil(minAcceptablePrice / increment) * increment;
+                }
+            } else {
+                // For short: exit price must be below entry - min profit
+                minAcceptablePrice = this.entryPrice * (1 - minProfitPercent / 100);
+                if (this.isPerpMode()) {
+                    // Round DOWN to price increment for perps (ensures we meet threshold)
+                    const increment = this.getPriceIncrement();
+                    minAcceptablePrice = Math.floor(minAcceptablePrice / increment) * increment;
+                }
+            }
+            
+            console.log(`[TradePanel ${this.instanceId}] Min acceptable price: $${minAcceptablePrice.toFixed(2)} (${this.position}, entry: $${this.entryPrice.toFixed(2)}, min profit: ${minProfitPercent.toFixed(3)}%)`);
+        }
+        
         // For perp modes, execute live close order
         if (this.isPerpMode() && this.coinbaseApi) {
             // Use actual open position contracts (not config, in case of partial fills)
@@ -1323,18 +1782,41 @@ class TradePanel {
             this.contracts = closeContracts; // Temporarily set for executeLiveOrder
             
             try {
-                const result = await this.executeLiveOrder(this.position, exitPrice, 'close');
+                // Use minimum acceptable price as limit if set, otherwise current market
+                const limitPrice = minAcceptablePrice || exitPrice;
+                const result = await this.executeLiveOrder(this.position, limitPrice, 'close', minAcceptablePrice);
                 if (!result.success) {
                     console.error('[TradePanel] Live close order failed:', result.error);
                     // Still close locally but log the failure
                 } else if (result.fillPrice) {
                     exitPrice = result.fillPrice;
+                    
+                    // Verify fill price meets our threshold
+                    if (minAcceptablePrice) {
+                        const meetsThreshold = this.position === 'long' 
+                            ? exitPrice >= minAcceptablePrice 
+                            : exitPrice <= minAcceptablePrice;
+                        
+                        if (!meetsThreshold) {
+                            console.warn(`[TradePanel ${this.instanceId}] ⚠️ Fill price $${exitPrice.toFixed(2)} violated min threshold $${minAcceptablePrice.toFixed(2)}!`);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('[TradePanel] Live close order error:', error);
             } finally {
                 this.contracts = savedContracts; // Restore config value
             }
+        } else if (minAcceptablePrice) {
+            // Simulation mode with profit protection - use min acceptable price
+            if (this.position === 'long') {
+                // For long: ensure exit price is at least min acceptable
+                exitPrice = Math.max(exitPrice, minAcceptablePrice);
+            } else {
+                // For short: ensure exit price is at most min acceptable  
+                exitPrice = Math.min(exitPrice, minAcceptablePrice);
+            }
+            console.log(`[TradePanel ${this.instanceId}] Simulation close with profit protection: exit $${exitPrice.toFixed(2)}`);
         }
         
         const exitTime = Date.now();
@@ -1425,8 +1907,8 @@ class TradePanel {
      * 6. For opens: check signal validity before each retry
      * 7. For closes: always complete (unlimited retries)
      */
-    async executeLiveOrder(direction, price, action = 'open') {
-        console.log(`[TradePanel ${this.instanceId}] executeLiveOrder: direction=${direction} price=${price} action=${action}`);
+    async executeLiveOrder(direction, price, action = 'open', minAcceptablePrice = null) {
+        console.log(`[TradePanel ${this.instanceId}] executeLiveOrder: direction=${direction} price=${price} action=${action} minPrice=${minAcceptablePrice}`);
         
         if (!this.coinbaseApi) {
             console.error(`[TradePanel ${this.instanceId}] executeLiveOrder: Coinbase API not initialized!`);
@@ -1453,8 +1935,20 @@ class TradePanel {
             side = direction === 'long' ? 'SELL' : 'BUY';
         }
         
-        // Get price callback (always use latest market price)
-        const getPriceCallback = () => this.app?.currentPrice || price;
+        // Get price callback - use min acceptable price for closes with profit protection
+        const getPriceCallback = () => {
+            const currentPrice = this.app?.currentPrice || price;
+            
+            // For close orders with minimum price protection, use minAcceptablePrice as limit
+            // Limit orders automatically fill at best available price up to the limit:
+            // - SELL limit fills at limit or HIGHER (protecting our minimum sell price)
+            // - BUY limit fills at limit or LOWER (protecting our maximum buy price)
+            if (action === 'close' && minAcceptablePrice) {
+                return minAcceptablePrice;
+            }
+            
+            return currentPrice;
+        };
         
         console.log(`[TradePanel ${this.instanceId}] ${action.toUpperCase()} ${direction}: ${totalContracts} contracts (timeout: ${this.orderTimeout}s)`);
         
@@ -1927,16 +2421,30 @@ class TradePanel {
         if (!this.elements.positionValue) return;
         
         if (this.position) {
-            this.elements.positionValue.textContent = this.position.toUpperCase();
+            this.elements.positionValue.textContent = this.position === 'long' ? 'L' : 'S';
             this.elements.positionValue.className = 'position-value ' + this.position;
             
             if (this.entryPrice) {
                 this.elements.entryPrice.textContent = `@ $${this.entryPrice.toFixed(2)}`;
             }
+            
+            // Show min profit required if onlyCloseInProfit is enabled
+            if (this.elements.minProfitRequired && this.onlyCloseInProfit) {
+                const hoursInPosition = this.entryTime ? (Date.now() - this.entryTime) / (1000 * 60 * 60) : 0;
+                const fundingCost = this.fundingRatePerHour * hoursInPosition;
+                const minProfitPercent = this.minProfitThreshold + fundingCost;
+                this.elements.minProfitRequired.textContent = `min ${minProfitPercent.toFixed(2)}%`;
+                this.elements.minProfitRequired.style.display = 'inline';
+            } else if (this.elements.minProfitRequired) {
+                this.elements.minProfitRequired.style.display = 'none';
+            }
         } else {
             this.elements.positionValue.textContent = 'None';
             this.elements.positionValue.className = 'position-value none';
             this.elements.entryPrice.textContent = '';
+            if (this.elements.minProfitRequired) {
+                this.elements.minProfitRequired.style.display = 'none';
+            }
         }
     }
     
@@ -2041,7 +2549,9 @@ class TradePanel {
         }
         
         let html = '';
-        for (const trade of this.trades) { // Show all trades in session
+        for (const trade of this.trades) {
+            const typeLabel = trade.type === 'long' ? 'L' : 'S';
+            
             if (trade.isOpen) {
                 // Open trade - show live P&L and duration
                 const currentPrice = this.app?.currentPrice || trade.entryPrice;
@@ -2053,34 +2563,66 @@ class TradePanel {
                 }
                 const livePnlPercent = (livePnl / trade.entryPrice) * 100;
                 const liveDuration = Date.now() - trade.entryTime;
-                const pnlClass = livePnl >= 0 ? 'profit' : 'loss';
-                const sign = livePnl >= 0 ? '+' : '';
+                
+                // Calculate estimated fees
+                const hoursOpen = liveDuration / (1000 * 60 * 60);
+                const estFeePercent = this.minProfitThreshold + (this.fundingRatePerHour * hoursOpen);
+                const estFeeDollar = (estFeePercent / 100) * trade.entryPrice;
+                const netPnl = livePnl - estFeeDollar;
+                const netPnlPercent = livePnlPercent - estFeePercent;
+                
+                const pnlClass = netPnl >= 0 ? 'profit' : 'loss';
+                const grossClass = livePnl >= 0 ? 'profit' : 'loss';
                 
                 html += `
                     <div class="trade-log-entry open ${pnlClass}" data-trade-id="${trade.id}">
-                        <span class="trade-type ${trade.type}">${trade.type.toUpperCase()}</span>
-                        <span class="trade-duration">${this.formatDuration(liveDuration)}</span>
-                        <span class="trade-pnl-group">
-                            <span class="trade-pnl-dollar">${sign}$${livePnl.toFixed(2)}</span>
-                            <span class="trade-pnl-percent">${sign}${livePnlPercent.toFixed(2)}%</span>
-                        </span>
+                        <div class="trade-row-top">
+                            <span class="trade-type ${trade.type}">${typeLabel}</span>
+                            <span class="trade-duration">${this.formatDuration(liveDuration)}</span>
+                            <span class="trade-gross ${grossClass}">${livePnl >= 0 ? '+' : '-'}$${Math.abs(livePnl).toFixed(2)} <span class="gross-pct">${livePnlPercent >= 0 ? '+' : ''}${livePnlPercent.toFixed(2)}%</span></span>
+                        </div>
+                        <div class="trade-row-fee">
+                            <span class="trade-fee-icon">−</span>
+                            <span class="trade-fee-value">$${estFeeDollar.toFixed(2)} fees <span class="fee-pct">(${estFeePercent.toFixed(2)}%)</span></span>
+                        </div>
+                        <div class="trade-row-net">
+                            <span class="trade-net-label">NET</span>
+                            <span class="trade-net-dollar ${pnlClass}">${netPnl >= 0 ? '+' : '-'}$${Math.abs(netPnl).toFixed(2)}</span>
+                            <span class="trade-net-percent ${pnlClass}">${netPnlPercent >= 0 ? '+' : ''}${netPnlPercent.toFixed(2)}%</span>
+                        </div>
                     </div>
                 `;
             } else {
                 // Closed trade
-                const pnlClass = trade.pnl >= 0 ? 'profit' : 'loss';
-                const sign = trade.pnl >= 0 ? '+' : '';
                 const pnlPercent = trade.pnlPercent || (trade.pnl / trade.entryPrice) * 100;
                 const duration = trade.duration || (trade.exitTime - trade.entryTime);
                 
+                // Calculate fees
+                const hoursHeld = duration / (1000 * 60 * 60);
+                const feePercent = this.minProfitThreshold + (this.fundingRatePerHour * hoursHeld);
+                const feeDollar = (feePercent / 100) * trade.entryPrice;
+                const netPnl = trade.pnl - feeDollar;
+                const netPnlPercent = pnlPercent - feePercent;
+                
+                const pnlClass = netPnl >= 0 ? 'profit' : 'loss';
+                const grossClass = trade.pnl >= 0 ? 'profit' : 'loss';
+                
                 html += `
                     <div class="trade-log-entry ${pnlClass}" data-trade-id="${trade.id}">
-                        <span class="trade-type ${trade.type}">${trade.type.toUpperCase()}</span>
-                        <span class="trade-duration">${this.formatDuration(duration)}</span>
-                        <span class="trade-pnl-group">
-                            <span class="trade-pnl-dollar">${sign}$${trade.pnl.toFixed(2)}</span>
-                            <span class="trade-pnl-percent">${sign}${pnlPercent.toFixed(2)}%</span>
-                        </span>
+                        <div class="trade-row-top">
+                            <span class="trade-type ${trade.type}">${typeLabel}</span>
+                            <span class="trade-duration">${this.formatDuration(duration)}</span>
+                            <span class="trade-gross ${grossClass}">${trade.pnl >= 0 ? '+' : '-'}$${Math.abs(trade.pnl).toFixed(2)} <span class="gross-pct">${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%</span></span>
+                        </div>
+                        <div class="trade-row-fee">
+                            <span class="trade-fee-icon">−</span>
+                            <span class="trade-fee-value">$${feeDollar.toFixed(2)} fees <span class="fee-pct">(${feePercent.toFixed(2)}%)</span></span>
+                        </div>
+                        <div class="trade-row-net">
+                            <span class="trade-net-label">NET</span>
+                            <span class="trade-net-dollar ${pnlClass}">${netPnl >= 0 ? '+' : '-'}$${Math.abs(netPnl).toFixed(2)}</span>
+                            <span class="trade-net-percent ${pnlClass}">${netPnlPercent >= 0 ? '+' : ''}${netPnlPercent.toFixed(2)}%</span>
+                        </div>
                     </div>
                 `;
             }
@@ -2135,10 +2677,6 @@ class TradePanel {
                         <span class="detail-label">${trade.isOpen ? 'Current Price' : 'Exit Price'}</span>
                         <span class="detail-value" id="modalExitPrice">—</span>
                     </div>
-                    <div class="trade-detail-row highlight" id="modalPnlRow">
-                        <span class="detail-label">P&L</span>
-                        <span class="detail-value" id="modalPnlValue">—</span>
-                    </div>
                     <div class="trade-detail-row">
                         <span class="detail-label">Duration</span>
                         <span class="detail-value" id="modalDuration">—</span>
@@ -2151,6 +2689,37 @@ class TradePanel {
                         <span class="detail-label">Exit Time</span>
                         <span class="detail-value" id="modalExitTime">${trade.isOpen ? 'Active' : new Date(trade.exitTime).toLocaleTimeString()}</span>
                     </div>
+                    
+                    <div class="trade-detail-divider"></div>
+                    
+                    <div class="trade-detail-row highlight" id="modalGrossRow">
+                        <span class="detail-label">Gross P&L</span>
+                        <span class="detail-value" id="modalGrossValue">—</span>
+                    </div>
+                    
+                    <div class="trade-detail-section">
+                        <div class="trade-detail-section-title">Fee Settings</div>
+                        <div class="trade-detail-inputs">
+                            <div class="detail-input-group">
+                                <label>Fees %</label>
+                                <input type="number" id="modalFeesInput" value="${this.minProfitThreshold}" min="0" step="0.01">
+                            </div>
+                            <div class="detail-input-group">
+                                <label>Fund/hr %</label>
+                                <input type="number" id="modalFundingInput" value="${this.fundingRatePerHour}" min="0" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="trade-detail-row">
+                        <span class="detail-label">Est. Fees</span>
+                        <span class="detail-value fee-color" id="modalFeesValue">—</span>
+                    </div>
+                    
+                    <div class="trade-detail-row highlight net-row" id="modalNetRow">
+                        <span class="detail-label">Net P&L</span>
+                        <span class="detail-value" id="modalNetValue">—</span>
+                    </div>
                 </div>
             </div>
         `;
@@ -2160,9 +2729,18 @@ class TradePanel {
         // Get references to dynamic elements
         const contentEl = modal.querySelector('.trade-detail-content');
         const exitPriceEl = modal.querySelector('#modalExitPrice');
-        const pnlRowEl = modal.querySelector('#modalPnlRow');
-        const pnlValueEl = modal.querySelector('#modalPnlValue');
+        const grossRowEl = modal.querySelector('#modalGrossRow');
+        const grossValueEl = modal.querySelector('#modalGrossValue');
+        const feesValueEl = modal.querySelector('#modalFeesValue');
+        const netRowEl = modal.querySelector('#modalNetRow');
+        const netValueEl = modal.querySelector('#modalNetValue');
         const durationEl = modal.querySelector('#modalDuration');
+        const feesInputEl = modal.querySelector('#modalFeesInput');
+        const fundingInputEl = modal.querySelector('#modalFundingInput');
+        
+        // Local copies of thresholds for modal editing
+        let modalFees = this.minProfitThreshold;
+        let modalFunding = this.fundingRatePerHour;
         
         // Update function for modal values
         const updateModalValues = () => {
@@ -2189,18 +2767,55 @@ class TradePanel {
                 exitPrice = currentTrade.exitPrice;
             }
             
-            const pnlClass = pnl >= 0 ? 'profit' : 'loss';
-            const sign = pnl >= 0 ? '+' : '';
+            // Calculate fees
+            const hoursHeld = duration / (1000 * 60 * 60);
+            const feePercent = modalFees + (modalFunding * hoursHeld);
+            const feeDollar = (feePercent / 100) * currentTrade.entryPrice;
+            const netPnl = pnl - feeDollar;
+            const netPnlPercent = pnlPercent - feePercent;
+            
+            const grossClass = pnl >= 0 ? 'profit' : 'loss';
+            const netClass = netPnl >= 0 ? 'profit' : 'loss';
+            const grossSign = pnl >= 0 ? '+' : '';
+            const netSign = netPnl >= 0 ? '+' : '-';
             
             // Update DOM
             exitPriceEl.textContent = `$${exitPrice.toFixed(2)}`;
-            pnlValueEl.textContent = `${sign}$${pnl.toFixed(2)} (${sign}${pnlPercent.toFixed(3)}%)`;
+            grossValueEl.textContent = `${grossSign}$${Math.abs(pnl).toFixed(2)} (${grossSign}${pnlPercent.toFixed(2)}%)`;
+            feesValueEl.textContent = `-$${feeDollar.toFixed(2)} (${feePercent.toFixed(2)}%)`;
+            netValueEl.textContent = `${netSign}$${Math.abs(netPnl).toFixed(2)} (${netPnlPercent >= 0 ? '+' : ''}${netPnlPercent.toFixed(2)}%)`;
             durationEl.textContent = this.formatDuration(duration);
             
             // Update classes
-            contentEl.className = `trade-detail-content ${pnlClass}`;
-            pnlRowEl.className = `trade-detail-row highlight ${pnlClass}`;
+            contentEl.className = `trade-detail-content ${netClass}`;
+            grossRowEl.className = `trade-detail-row highlight ${grossClass}`;
+            netRowEl.className = `trade-detail-row highlight net-row ${netClass}`;
         };
+        
+        // Fee input handlers
+        feesInputEl.addEventListener('change', (e) => {
+            const val = parseFloat(e.target.value);
+            modalFees = (!isNaN(val) && val >= 0) ? val : 0.10;
+            e.target.value = modalFees;
+            this.minProfitThreshold = modalFees;
+            if (this.elements.minProfitInput) this.elements.minProfitInput.value = modalFees;
+            this.saveState();
+            this.renderLog();
+            this.renderPosition();
+            updateModalValues();
+        });
+        
+        fundingInputEl.addEventListener('change', (e) => {
+            const val = parseFloat(e.target.value);
+            modalFunding = (!isNaN(val) && val >= 0) ? val : 0.02;
+            e.target.value = modalFunding;
+            this.fundingRatePerHour = modalFunding;
+            if (this.elements.fundingRateInput) this.elements.fundingRateInput.value = modalFunding;
+            this.saveState();
+            this.renderLog();
+            this.renderPosition();
+            updateModalValues();
+        });
         
         // Initial update
         updateModalValues();

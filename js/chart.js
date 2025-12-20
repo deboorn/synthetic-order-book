@@ -142,9 +142,16 @@ class OrderBookChart {
             markers: []     // Store signal markers
         };
         
-        // Bulls vs Bears Signal - order book pressure direction
+        // BB %B Direction - shows momentum direction based on BB%B rising/falling
+        this.bbPercentBDirection = {
+            enabled: localStorage.getItem('showBBPercentBDirection') === 'true', // Default OFF
+            markers: [],     // Historical direction markers (yellow triangles)
+            lastDirection: null  // 'up', 'down', or 'flat'
+        };
+        
+        // Bulls vs Bears Signal - order book pressure direction (Support/Resistance Levels)
         this.bullsBears = {
-            enabled: localStorage.getItem('showBullsBears') === 'true',
+            enabled: localStorage.getItem('showBullsBears') !== 'false', // Default ON
             method: localStorage.getItem('bullsBearsMethod') || 'firstLevel', // 'firstLevel' | 'percentRange'
             percentRange: 20,         // For percentRange method (20% above/below)
             markers: [],              // Historical frozen markers
@@ -220,6 +227,58 @@ class OrderBookChart {
             lastBarTime: null
         };
         
+        // LV (Liquidity Vacuum) Signal - shows where liquidity is thin (path of least resistance)
+        this.lvSignal = {
+            enabled: localStorage.getItem('showLVSignal') === 'true', // Default OFF
+            markers: [],              // Historical markers (one per bar)
+            liveMarker: null,         // Current marker (always live)
+            lastSignal: null,         // Last computed signal
+            lastBarTime: null,        // Track which bar we're on
+            // Signal confirmation tracking for chart markers
+            pendingSignal: null,      // Signal waiting for confirmation
+            pendingStartTime: null,   // When pending signal started
+            confirmedSignal: 'flat',  // Last confirmed signal for chart
+            // Signal History Circles - track both buy and sell occurrences per bar
+            historyEnabled: localStorage.getItem('showLVSignalHistory') === 'true', // Default OFF
+            historyMarkers: [],       // Circle markers showing both buy/sell per bar (historical)
+            liveHistoryMarkers: [],   // Circle markers for current bar (real-time)
+            buyTriggeredThisBar: false,   // Did BUY fire at any point this bar?
+            sellTriggeredThisBar: false,  // Did SELL fire at any point this bar?
+            buyPeakRatio: null,       // Peak ratio when BUY was active
+            sellMinRatio: null        // Min ratio when SELL was active
+        };
+        
+        // LV Ratio Threshold - configurable signal sensitivity (default 1.01 = 50.2%)
+        this.lvRatioThreshold = parseFloat(localStorage.getItem('lvRatioThreshold')) || 1.01;
+        
+        // LV Confirmation Time - seconds signal must stay stable before showing on chart (default 5s)
+        this.lvConfirmTime = parseInt(localStorage.getItem('lvConfirmTime')) || 30;
+        
+        // Alpha Lead Score Threshold - distance from 50 needed for signal (default 10 means BUY at 60+, SELL at 40-)
+        this.alphaLeadScoreThreshold = parseInt(localStorage.getItem('alphaLeadScoreThreshold')) || 1;
+        
+        // Alpha Lead Confirmation Time - seconds signal must stay stable before confirming (default 6s)
+        this.alphaLeadConfirmTime = parseInt(localStorage.getItem('alphaLeadConfirmTime')) || 10;
+        
+        // Alpha Lead Signal - leading indicator combining LV + momentum
+        this.alphaLeadSignal = {
+            enabled: localStorage.getItem('showAlphaLeadSignal') === 'true', // Default OFF
+            markers: [],              // Historical markers (one per bar)
+            liveMarker: null,         // Current marker (always live)
+            lastSignal: null,         // Last computed signal ('buy', 'sell', 'neutral')
+            lastBarTime: null,        // Track which bar we're on
+            peakScore: null,          // Highest score this bar (for BUY signals)
+            minScore: null,           // Lowest score this bar (for SELL signals)
+            // Signal History Circles - track both buy and sell occurrences per bar
+            historyEnabled: localStorage.getItem('showALSignalHistory') === 'true', // Default OFF
+            historyMarkers: [],       // Circle markers showing both buy/sell per bar (historical)
+            liveHistoryMarkers: [],   // Circle markers for current bar (real-time)
+            buyTriggeredThisBar: false,   // Did BUY fire at any point this bar?
+            sellTriggeredThisBar: false,  // Did SELL fire at any point this bar?
+            buyPeakScore: null,       // Peak score when BUY was active
+            sellMinScore: null        // Min score when SELL was active
+        };
+        
         // Cluster Strike Panel - Separate visualization of current bar walls
         this.clusterStrike = {
             canvas: null,
@@ -282,6 +341,28 @@ class OrderBookChart {
             ifvBuckets: new Map(),            // bucketPrice => hits  
             vwmpBuckets: new Map(),           // bucketPrice => hits
             fvSampleCount: 0                  // Fair value samples this bar
+        };
+        
+        this.dbsc = {
+            enabled: localStorage.getItem('showDBSC') === 'true', // Default OFF
+            showSetup: localStorage.getItem('dbscShowSetup') !== 'false', // Default ON
+            showTDST: localStorage.getItem('dbscShowTDST') !== 'false', // Default ON
+            showSequential: localStorage.getItem('dbscShowSequential') !== 'false', // Default ON
+            showCombo: localStorage.getItem('dbscShowCombo') === 'true', // Default OFF
+            cleanMode: localStorage.getItem('dbscCleanMode') === 'true', // Default OFF
+            showAllCounts: localStorage.getItem('dbscShowAllCounts') === 'true', // Default OFF
+            markers: [],              // Historical markers for setup/countdown counts
+            tdstLines: [],            // TDST price lines (isolated from this.priceLines)
+            riskLines: [],            // Risk level price lines (isolated)
+            lastBarTime: null,        // Track which bar we're on
+            calculator: null,         // DBSCIndicator instance (created on first use)
+            lastResult: null,         // Cached calculation result
+            // MTF (Multi-Timeframe) support
+            mtfTimeframe: localStorage.getItem('dbscMtfTimeframe') || '', // '' = same as chart
+            mtfCandles: [],           // Candles fetched for MTF timeframe
+            mtfResult: null,          // Calculation result from MTF candles
+            mtfLastFetch: null,       // Timestamp of last MTF fetch
+            mtfFetching: false        // Flag to prevent concurrent fetches
         };
 
         // Alert markers (plotted when alerts fire)
@@ -434,6 +515,11 @@ class OrderBookChart {
         // Sync level history with new symbol
         if (this.levelHistory && this.levelHistory.enabled) {
             this.onLevelHistorySymbolChange(symbol);
+        }
+        
+        // Reset DB SC state for new symbol
+        if (this.dbsc) {
+            this.resetDBSCState();
         }
     }
 
@@ -618,6 +704,11 @@ class OrderBookChart {
         if (this.levelHistory && this.levelHistory.enabled) {
             this.onLevelHistoryIntervalChange(interval);
         }
+        
+        // Reset DB SC state for new interval
+        if (this.dbsc) {
+            this.resetDBSCState();
+        }
     }
 
     init() {
@@ -733,6 +824,10 @@ class OrderBookChart {
             // Always cache data regardless of display setting
             if (this.levelHistory) {
                 this.snapshotLevelHistory(e.detail?.time);
+            }
+            // Update DB SC on new bar (always calculate for panel, markers depend on enabled)
+            if (this.dbsc) {
+                this.updateDBSCSignals();
             }
         });
 
@@ -999,6 +1094,13 @@ class OrderBookChart {
         
         const now = Math.floor(Date.now() / 1000);
         const currentBarTime = this.getBarTime(now, this.currentInterval);
+        const updateLocalHistory = (candle) => {
+            if (!this.localCandles) return;
+            this.localCandles.set(candle.time, {
+                ...candle,
+                volume: candle.volume ?? 0
+            });
+        };
         
         // Initialize lastCandle if needed
         if (!this.lastCandle) {
@@ -1010,6 +1112,7 @@ class OrderBookChart {
                 close: price
             };
             this.candleSeries.update(this.lastCandle);
+            updateLocalHistory(this.lastCandle);
             this.currentPrice = price;
             this.updatePriceLine(price);
             return;
@@ -1021,6 +1124,7 @@ class OrderBookChart {
             // First, finalize the previous bar
             this.candleSeries.update(this.lastCandle);
             this.previousCandle = { ...this.lastCandle }; // Store it to fill gaps later
+            updateLocalHistory(this.lastCandle);
             
             // Create new bar
             this.lastCandle = {
@@ -1032,6 +1136,7 @@ class OrderBookChart {
             };
             
             this.candleSeries.update(this.lastCandle);
+            updateLocalHistory(this.lastCandle);
             
             // Also update volume for new bar
             if (this.showVolume && this.volumeSeries) {
@@ -1060,10 +1165,29 @@ class OrderBookChart {
             
             // Force the chart to update by passing the complete candle
             this.candleSeries.update(this.lastCandle);
+            updateLocalHistory(this.lastCandle);
         }
         
         this.currentPrice = price;
         this.updatePriceLine(price);
+        
+        // Keep indicator signals in sync with live price updates (throttled)
+        const nowMs = Date.now();
+        if (!this._lastSignalUpdate) this._lastSignalUpdate = 0;
+        const signalThrottle = 2000;
+        if ((nowMs - this._lastSignalUpdate) >= signalThrottle) {
+            this._lastSignalUpdate = nowMs;
+            
+            if (this.bbPulse && this.bbPulse.enabled) {
+                this.updateBBPulse(false);
+            }
+            
+            if (this.bbPercentBDirection && this.bbPercentBDirection.enabled) {
+                this.updateBBPercentBDirection(false);
+            }
+            
+            this.updateAllSignalMarkers();
+        }
     }
     
     // Update the live price line (separated for performance)
@@ -1268,6 +1392,11 @@ class OrderBookChart {
                 this.updateBBPulse(false);
             }
             
+            // Update BB %B Direction markers if enabled
+            if (this.bbPercentBDirection && this.bbPercentBDirection.enabled) {
+                this.updateBBPercentBDirection(false);
+            }
+            
             // Update all signal markers (BB Pulse, EMA signals, ZEMA signals)
             this.updateAllSignalMarkers();
         }
@@ -1311,6 +1440,11 @@ class OrderBookChart {
         }
         
         console.log(`[Chart] Initialized ${this.localCandles.size} candles from API`);
+        
+        // Update DB SC signals now that candles are loaded (always for panel)
+        if (this.dbsc) {
+            this.updateDBSCSignals();
+        }
         
         // View restoration disabled - chart always shows current price on load
         // if (!this._viewRestored) {
@@ -3083,6 +3217,11 @@ class OrderBookChart {
             allMarkers = allMarkers.concat(this.bbPulse.markers);
         }
         
+        // Add BB %B Direction markers if enabled
+        if (this.bbPercentBDirection && this.bbPercentBDirection.enabled && this.bbPercentBDirection.markers) {
+            allMarkers = allMarkers.concat(this.bbPercentBDirection.markers);
+        }
+        
         // Add Bulls vs Bears signals if enabled
         if (this.bullsBears && this.bullsBears.enabled) {
             // Add historical frozen markers
@@ -3141,6 +3280,59 @@ class OrderBookChart {
             if (this.liveDrift.liveMarker) {
                 allMarkers.push(this.liveDrift.liveMarker);
             }
+        }
+        
+        // Add LV (Liquidity Vacuum) signal if enabled (with history)
+        if (this.lvSignal && this.lvSignal.enabled) {
+            // Add historical markers
+            if (this.lvSignal.markers && this.lvSignal.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.lvSignal.markers);
+            }
+            // Add live marker for current bar
+            if (this.lvSignal.liveMarker) {
+                allMarkers.push(this.lvSignal.liveMarker);
+            }
+        }
+        
+        // Add LV Signal History circles if enabled (shows both buy AND sell occurrences per bar)
+        if (this.lvSignal && this.lvSignal.historyEnabled) {
+            // Historical markers from completed bars
+            if (this.lvSignal.historyMarkers && this.lvSignal.historyMarkers.length > 0) {
+                allMarkers = allMarkers.concat(this.lvSignal.historyMarkers);
+            }
+            // Live markers for current bar (real-time)
+            if (this.lvSignal.liveHistoryMarkers && this.lvSignal.liveHistoryMarkers.length > 0) {
+                allMarkers = allMarkers.concat(this.lvSignal.liveHistoryMarkers);
+            }
+        }
+        
+        // Add Alpha Lead signal if enabled (with history)
+        if (this.alphaLeadSignal && this.alphaLeadSignal.enabled) {
+            // Add historical markers
+            if (this.alphaLeadSignal.markers && this.alphaLeadSignal.markers.length > 0) {
+                allMarkers = allMarkers.concat(this.alphaLeadSignal.markers);
+            }
+            // Add live marker for current bar
+            if (this.alphaLeadSignal.liveMarker) {
+                allMarkers.push(this.alphaLeadSignal.liveMarker);
+            }
+        }
+        
+        // Add Alpha Lead Signal History circles if enabled (shows both buy AND sell occurrences per bar)
+        if (this.alphaLeadSignal && this.alphaLeadSignal.historyEnabled) {
+            // Historical markers from completed bars
+            if (this.alphaLeadSignal.historyMarkers && this.alphaLeadSignal.historyMarkers.length > 0) {
+                allMarkers = allMarkers.concat(this.alphaLeadSignal.historyMarkers);
+            }
+            // Live markers for current bar (real-time)
+            if (this.alphaLeadSignal.liveHistoryMarkers && this.alphaLeadSignal.liveHistoryMarkers.length > 0) {
+                allMarkers = allMarkers.concat(this.alphaLeadSignal.liveHistoryMarkers);
+            }
+        }
+        
+        // Add DB SC markers if enabled
+        if (this.dbsc && this.dbsc.enabled && this.dbsc.markers && this.dbsc.markers.length > 0) {
+            allMarkers = allMarkers.concat(this.dbsc.markers);
         }
         
         // Add EMA grid signals if enabled
@@ -3339,6 +3531,22 @@ class OrderBookChart {
                 }
             }
         }
+        
+        // Update header badge with signal
+        const clusterBadge = document.querySelector('#clusterSignalsPanel .panel-badge');
+        if (clusterBadge) {
+            clusterBadge.classList.remove('bullish', 'bearish', 'neutral');
+            if (finalCombo === 'up') {
+                clusterBadge.textContent = 'UP';
+                clusterBadge.classList.add('bullish');
+            } else if (finalCombo === 'down') {
+                clusterBadge.textContent = 'DOWN';
+                clusterBadge.classList.add('bearish');
+            } else {
+                clusterBadge.textContent = 'FLAT';
+                clusterBadge.classList.add('neutral');
+            }
+        }
     }
     
     // ==========================================
@@ -3385,13 +3593,14 @@ class OrderBookChart {
             return;
         }
         
-        // Store latest BB Pulse signal state for Alpha Strike panel
+        // Store latest BB Pulse signal state for panel display
+        // IMPORTANT: Only use lBuySignal1 and lSellSignal1 - these are the only ones drawn on chart
         const signals = data.signals;
         const lastIdx = signals.lBuySignal1.length - 1;
         if (lastIdx >= 0) {
             this.lastBBPulseSignal = {
-                buySignal: signals.lBuySignal1[lastIdx] || signals.lBuySignal2[lastIdx] || signals.lBuySignal3[lastIdx],
-                sellSignal: signals.lSellSignal1[lastIdx] || signals.lSellSignal2[lastIdx]
+                buySignal: signals.lBuySignal1[lastIdx],   // Only signal 1 (period low)
+                sellSignal: signals.lSellSignal1[lastIdx]  // Only signal 1 (period high)
             };
         }
         
@@ -3462,6 +3671,1268 @@ class OrderBookChart {
         this.bbPulse.markers = [];
         // Update combined markers (will still show EMA/ZEMA if enabled)
         this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // BB %B Direction Indicators (Yellow Triangles)
+    // ==========================================
+    
+    /**
+     * Toggle BB %B Direction markers (yellow triangles showing momentum direction)
+     */
+    toggleBBPercentBDirection(show) {
+        this.bbPercentBDirection.enabled = show;
+        console.log('[Chart] toggleBBPercentBDirection:', show);
+        
+        if (show) {
+            this.updateBBPercentBDirection();
+        } else {
+            this.clearBBPercentBDirection();
+        }
+        
+        localStorage.setItem('showBBPercentBDirection', show);
+    }
+    
+    /**
+     * Update BB %B Direction markers
+     * Shows yellow up/down triangles based on BB%B momentum
+     * BB%B > BB%B[1] = rising (up triangle), BB%B < BB%B[1] = falling (down triangle)
+     */
+    updateBBPercentBDirection(updateCombinedMarkers = true) {
+        if (!this.bbPercentBDirection.enabled || !this.chart || !this.candleSeries) {
+            return;
+        }
+        if (typeof bbPulseLighting === 'undefined') {
+            console.log('[Chart] updateBBPercentBDirection skipped - bbPulseLighting not loaded');
+            return;
+        }
+        
+        const candles = this.getCandles();
+        if (!candles || candles.length < 200) {
+            return;
+        }
+        
+        // Calculate indicator using BB Pulse (which uses OPEN prices - no repaint!)
+        const data = bbPulseLighting.calculate(candles);
+        if (!data || !data.bbb || !data.bbb.bbr) {
+            return;
+        }
+        
+        const bbr = data.bbb.bbr; // BB %B values
+        const markers = [];
+        
+        // BB%B array starts at candle index (bbbLen - 1)
+        const bbrStartIdx = bbPulseLighting.bbbLen - 1;
+        
+        // Need at least 2 BB%B values to compare direction
+        for (let i = 1; i < bbr.length; i++) {
+            const candleIdx = bbrStartIdx + i;
+            if (candleIdx >= candles.length) break;
+            
+            const currentBBR = bbr[i];
+            const prevBBR = bbr[i - 1];
+            const time = candles[candleIdx].time;
+            
+            // Determine direction with small threshold to avoid noise
+            const threshold = 0.005; // 0.5% minimum change
+            const diff = currentBBR - prevBBR;
+            
+            if (diff > threshold) {
+                // Rising - bullish momentum
+                markers.push({
+                    time: time,
+                    position: 'belowBar',
+                    color: 'rgba(251, 191, 36, 0.5)', // Yellow 50% transparent
+                    shape: 'arrowUp',
+                    text: ''
+                });
+            } else if (diff < -threshold) {
+                // Falling - bearish momentum
+                markers.push({
+                    time: time,
+                    position: 'aboveBar',
+                    color: 'rgba(251, 191, 36, 0.5)', // Yellow 50% transparent
+                    shape: 'arrowDown',
+                    text: ''
+                });
+            }
+            // If flat (within threshold), no marker
+        }
+        
+        // Store markers
+        this.bbPercentBDirection.markers = markers;
+        
+        // Update last direction for trade panel use
+        if (bbr.length >= 2) {
+            const lastDiff = bbr[bbr.length - 1] - bbr[bbr.length - 2];
+            if (lastDiff > 0.005) {
+                this.bbPercentBDirection.lastDirection = 'up';
+            } else if (lastDiff < -0.005) {
+                this.bbPercentBDirection.lastDirection = 'down';
+            } else {
+                this.bbPercentBDirection.lastDirection = 'flat';
+            }
+        }
+        
+        console.log('[Chart] BB %B Direction:', this.bbPercentBDirection.lastDirection, '| Markers:', markers.length);
+        
+        // Update all signal markers
+        if (updateCombinedMarkers) {
+            this.updateAllSignalMarkers();
+        }
+    }
+    
+    /**
+     * Clear BB %B Direction markers
+     */
+    clearBBPercentBDirection() {
+        this.bbPercentBDirection.markers = [];
+        this.bbPercentBDirection.lastDirection = null;
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Get combined BB%B & Lighting signal state
+     * Determines allowed trade direction based on BB%B momentum + Pulse signals
+     * Always computes BB%B direction regardless of chart display setting
+     * @returns {Object} { mode: 'long'|'short'|'both'|'flat', bbDirection: string, lighting: string }
+     */
+    getBBLightingState() {
+        // Always compute BB%B direction from candle data (independent of display setting)
+        let bbDirection = 'flat';
+        
+        if (typeof bbPulseLighting !== 'undefined') {
+            const candles = this.getCandles();
+            if (candles && candles.length >= 200) {
+                // Use bbPulseLighting.calculate() to get BBR values
+                const data = bbPulseLighting.calculate(candles);
+                if (data && data.bbb && data.bbb.bbr) {
+                    const bbr = data.bbb.bbr;
+                    if (bbr.length >= 2) {
+                        const lastDiff = bbr[bbr.length - 1] - bbr[bbr.length - 2];
+                        if (lastDiff > 0.005) {
+                            bbDirection = 'up';
+                        } else if (lastDiff < -0.005) {
+                            bbDirection = 'down';
+                        } else {
+                            bbDirection = 'flat';
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Get latest BB Pulse signal
+        let lighting = 'none';
+        if (this.lastBBPulseSignal) {
+            if (this.lastBBPulseSignal.buySignal) {
+                lighting = 'buy';
+            } else if (this.lastBBPulseSignal.sellSignal) {
+                lighting = 'sell';
+            }
+        }
+        
+        // Determine allowed trade mode
+        let mode = 'flat';
+        
+        if (bbDirection === 'up' && lighting === 'buy') {
+            // Confluence: Both bullish - long only
+            mode = 'long';
+        } else if (bbDirection === 'down' && lighting === 'sell') {
+            // Confluence: Both bearish - short only
+            mode = 'short';
+        } else if (bbDirection === 'up' && lighting === 'sell') {
+            // Conflict: Direction up but sell signal - allow both (potential reversal)
+            mode = 'both';
+        } else if (bbDirection === 'down' && lighting === 'buy') {
+            // Conflict: Direction down but buy signal - allow both (potential reversal)
+            mode = 'both';
+        } else if (bbDirection === 'flat') {
+            // No clear direction - flat
+            mode = 'flat';
+        } else if (lighting === 'none') {
+            // No lighting signal - follow direction only
+            if (bbDirection === 'up') {
+                mode = 'long';
+            } else if (bbDirection === 'down') {
+                mode = 'short';
+            }
+        }
+        
+        return {
+            mode: mode,
+            bbDirection: bbDirection,
+            lighting: lighting
+        };
+    }
+    /**
+     * Toggle DB SC Indicator
+     */
+    setDBSCEnabled(enabled) {
+        this.dbsc.enabled = enabled;
+        localStorage.setItem('showDBSC', enabled);
+        console.log('[Chart] setDBSCEnabled:', enabled);
+        
+        if (enabled) {
+            this.updateDBSCSignals(); // Calculate and draw markers
+        } else {
+            this.clearDBSCSignals(); // Clear markers from chart
+            // Panel continues to show data via updateDBSCSignals calls
+        }
+    }
+    
+    /**
+     * Set DB SC sub-setting (display flags)
+     */
+    setDBSCSetting(key, value) {
+        console.log('[Chart] setDBSCSetting:', key, '=', value);
+        
+        if (this.dbsc.hasOwnProperty(key)) {
+            this.dbsc[key] = value;
+            const storageKey = `dbsc${key.charAt(0).toUpperCase() + key.slice(1)}`;
+            localStorage.setItem(storageKey, value);
+            console.log('[Chart] Saved to localStorage:', storageKey, '=', value);
+            
+            // Always recalculate (panel always shows data)
+            console.log('[Chart] DB SC setting changed, calling updateDBSCSignals');
+            this.updateDBSCSignals();
+        } else {
+            console.warn('[Chart] setDBSCSetting: key not found in this.dbsc:', key);
+        }
+    }
+    
+    /**
+     * Set DB SC calculator setting (affects calculation logic)
+     */
+    setDBSCCalculatorSetting(key, value) {
+        // Update localStorage
+        localStorage.setItem(`dbscCalc${key.charAt(0).toUpperCase() + key.slice(1)}`, value);
+        
+        // Update calculator if exists
+        if (this.dbsc.calculator && this.dbsc.calculator.settings.hasOwnProperty(key)) {
+            this.dbsc.calculator.settings[key] = value;
+            
+            // Always recalculate (panel always shows data)
+            this.updateDBSCSignals();
+        }
+    }
+    
+    /**
+     * Set DB SC MTF (Multi-Timeframe) timeframe
+     * @param {string} timeframe - Timeframe string (e.g., '1d', '4h') or '' for same as chart
+     */
+    setDBSCMTFTimeframe(timeframe) {
+        this.dbsc.mtfTimeframe = timeframe;
+        localStorage.setItem('dbscMtfTimeframe', timeframe);
+        console.log('[Chart] DB SC MTF timeframe set to:', timeframe || 'Same as Chart');
+        
+        // Clear MTF cache
+        this.dbsc.mtfCandles = [];
+        this.dbsc.mtfResult = null;
+        this.dbsc.mtfLastFetch = null;
+        
+        // Always fetch and recalculate (panel always shows data)
+        if (timeframe) {
+            this.fetchDBSCMTFCandles().then(() => {
+                this.updateDBSCSignals();
+            });
+        } else {
+            this.updateDBSCSignals();
+        }
+    }
+    
+    /**
+     * Fetch candles for DB SC MTF calculation
+     * @returns {Promise<void>}
+     */
+    async fetchDBSCMTFCandles() {
+        // Skip if no MTF timeframe set or already fetching
+        if (!this.dbsc.mtfTimeframe || this.dbsc.mtfFetching) {
+            return;
+        }
+        
+        // Check if we have recent data (cache for 1 minute)
+        const now = Date.now();
+        if (this.dbsc.mtfLastFetch && (now - this.dbsc.mtfLastFetch) < 60000 && this.dbsc.mtfCandles.length > 0) {
+            return;
+        }
+        
+        this.dbsc.mtfFetching = true;
+        
+        try {
+            const symbol = this.symbol + 'USDT';
+            const interval = this.dbsc.mtfTimeframe;
+            // Use Binance Vision API (CORS-friendly, no API key needed)
+            const url = `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=500`;
+            
+            console.log(`[Chart] Fetching MTF candles: ${symbol} @ ${interval}`);
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Convert Binance kline format to our candle format
+            this.dbsc.mtfCandles = data.map(k => ({
+                time: Math.floor(k[0] / 1000), // Convert ms to seconds
+                open: parseFloat(k[1]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                close: parseFloat(k[4]),
+                volume: parseFloat(k[5])
+            }));
+            
+            this.dbsc.mtfLastFetch = now;
+            console.log(`[Chart] Fetched ${this.dbsc.mtfCandles.length} MTF candles for ${interval}`);
+            
+        } catch (error) {
+            console.error('[Chart] Failed to fetch MTF candles:', error);
+            this.dbsc.mtfCandles = [];
+        } finally {
+            this.dbsc.mtfFetching = false;
+        }
+    }
+    
+    /**
+     * Get MTF timeframe label for display
+     * @param {string} tf - Timeframe string
+     * @returns {string} - Short label (e.g., 'D', '4H', 'W')
+     */
+    getMTFLabel(tf) {
+        const labels = {
+            '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '12h': '12H',
+            '1d': 'D', '3d': '3D', '1w': 'W'
+        };
+        return labels[tf] || tf.toUpperCase();
+    }
+    
+    /**
+     * Get interval in seconds for a timeframe
+     * @param {string} tf - Timeframe string
+     * @returns {number} - Interval in seconds
+     */
+    getIntervalSeconds(tf) {
+        const intervals = {
+            '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800,
+            '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '12h': 43200,
+            '1d': 86400, '3d': 259200, '1w': 604800
+        };
+        return intervals[tf] || 3600;
+    }
+    
+    /**
+     * Map MTF signals to chart bar timestamps
+     * Places each MTF signal at the first chart bar that falls within the MTF bar period
+     * @param {Array} mtfSignals - Signals from MTF calculation
+     * @param {Array} chartCandles - Current chart candles
+     * @param {string} mtfTimeframe - MTF timeframe string
+     * @returns {Array} - Signals with timestamps mapped to chart bars
+     */
+    mapMTFSignalsToChart(mtfSignals, chartCandles, mtfTimeframe) {
+        if (!mtfSignals || !chartCandles || chartCandles.length === 0) {
+            return [];
+        }
+        
+        const mtfIntervalSecs = this.getIntervalSeconds(mtfTimeframe);
+        const mappedSignals = [];
+        
+        // Create a map of chart bar times for quick lookup
+        const chartBarTimes = new Set(chartCandles.map(c => c.time));
+        const sortedChartTimes = chartCandles.map(c => c.time).sort((a, b) => a - b);
+        
+        for (const mtfSignal of mtfSignals) {
+            const mtfBarStart = mtfSignal.time;
+            const mtfBarEnd = mtfBarStart + mtfIntervalSecs;
+            
+            // Find the first chart bar that falls within this MTF bar period
+            let targetChartTime = null;
+            for (const chartTime of sortedChartTimes) {
+                if (chartTime >= mtfBarStart && chartTime < mtfBarEnd) {
+                    targetChartTime = chartTime;
+                    break;
+                }
+            }
+            
+            // If no chart bar found in the MTF period, try to find the closest one after
+            if (targetChartTime === null) {
+                for (const chartTime of sortedChartTimes) {
+                    if (chartTime >= mtfBarStart) {
+                        targetChartTime = chartTime;
+                        break;
+                    }
+                }
+            }
+            
+            // Only add signal if we found a valid chart bar
+            if (targetChartTime !== null && chartBarTimes.has(targetChartTime)) {
+                mappedSignals.push({
+                    time: targetChartTime,
+                    signals: mtfSignal.signals,
+                    mtfTime: mtfBarStart, // Keep original MTF time for reference
+                    index: mtfSignal.index
+                });
+            }
+        }
+        
+        return mappedSignals;
+    }
+    
+    /**
+     * Update DB SC Signals - calculate and render markers
+     * Always calculates for panel display, markers only shown when enabled
+     */
+    updateDBSCSignals() {
+        if (!this.chart || !this.candleSeries) {
+            return;
+        }
+        
+        // Check if DBSCIndicator class is loaded
+        if (typeof DBSCIndicator === 'undefined') {
+            console.log('[Chart] updateDBSCSignals skipped - DBSCIndicator not loaded');
+            return;
+        }
+        
+        const chartCandles = this.getCandles();
+        if (!chartCandles || chartCandles.length < 10) {
+            return;
+        }
+        
+        // Create calculator instance if not exists
+        if (!this.dbsc.calculator) {
+            this.dbsc.calculator = new DBSCIndicator();
+        }
+        
+        // Determine if using MTF mode
+        const useMTF = this.dbsc.mtfTimeframe && this.dbsc.mtfCandles.length > 0;
+        const mtfLabel = useMTF ? this.getMTFLabel(this.dbsc.mtfTimeframe) + ':' : '';
+        
+        // Get candles to use for calculation
+        const candles = useMTF ? this.dbsc.mtfCandles : chartCandles;
+        
+        // Calculate all signals
+        const result = this.dbsc.calculator.calculate(candles);
+        
+        // Store result (in appropriate location for MTF vs local)
+        if (useMTF) {
+            this.dbsc.mtfResult = result;
+            this.dbsc.lastResult = result; // Also update lastResult for panel
+        } else {
+            this.dbsc.lastResult = result;
+        }
+        
+        // Always update panel with latest data
+        this.updateDBSCPanel();
+        
+        // Only build markers if indicator is enabled (chart display)
+        if (!this.dbsc.enabled) {
+            return;
+        }
+        
+        // Build markers from signals
+        const markers = [];
+        const { barsToSetup, barsToCountdown } = this.dbsc.calculator.settings;
+        
+        // For MTF mode, map signals to chart bar timestamps
+        const signalsToProcess = useMTF 
+            ? this.mapMTFSignalsToChart(result.signals, chartCandles, this.dbsc.mtfTimeframe)
+            : result.signals;
+        
+        for (const item of signalsToProcess) {
+            const { time, signals } = item;
+            
+            // Determine which counts to show based on settings
+            const showCount = (count, isSetup) => {
+                if (this.dbsc.cleanMode) {
+                    // Clean mode: only 9/13 completions
+                    if (isSetup) {
+                        return count === barsToSetup;
+                    } else {
+                        return count === barsToCountdown || count === 'R' || 
+                               (typeof count === 'string' && count.startsWith('+'));
+                    }
+                } else if (this.dbsc.showAllCounts) {
+                    return true;
+                } else {
+                    // Key counts only: 1-3, 7-9 for setup; 1-3, 8, 13 for countdown
+                    if (isSetup) {
+                        return count <= 3 || count >= barsToSetup - 2;
+                    } else {
+                        const numCount = typeof count === 'number' ? count : 
+                                        (count === 'R' ? barsToCountdown : parseInt(count));
+                        return numCount <= 3 || numCount === 8 || numCount >= barsToCountdown ||
+                               (typeof count === 'string' && count.startsWith('+'));
+                    }
+                }
+            };
+            
+            // Track markers per position to handle overlap
+            let belowBarSetup = null;
+            let belowBarCountdown = null;
+            let aboveBarSetup = null;
+            let aboveBarCountdown = null;
+            
+            // Collect Buy Setup (below bar)
+            if (this.dbsc.showSetup && signals.buySetup && showCount(signals.buySetup.count, true)) {
+                const count = signals.buySetup.count;
+                const isPerfected = signals.buySetup.perfected && count === barsToSetup;
+                const isCompletion = count === barsToSetup;
+                const baseText = isPerfected ? '9+' : String(count);
+                belowBarSetup = {
+                    text: mtfLabel + baseText,
+                    color: isCompletion ? '#14b8a6' : 'rgba(20, 184, 166, 0.8)',
+                    isCompletion
+                };
+            }
+            
+            // Collect Sell Setup (above bar)
+            if (this.dbsc.showSetup && signals.sellSetup && showCount(signals.sellSetup.count, true)) {
+                const count = signals.sellSetup.count;
+                const isPerfected = signals.sellSetup.perfected && count === barsToSetup;
+                const isCompletion = count === barsToSetup;
+                const baseText = isPerfected ? '9+' : String(count);
+                aboveBarSetup = {
+                    text: mtfLabel + baseText,
+                    color: isCompletion ? '#ef4444' : 'rgba(239, 68, 68, 0.8)',
+                    isCompletion
+                };
+            }
+            
+            // Collect Buy Countdown (below bar)
+            if (this.dbsc.showSequential && signals.buyCountdown) {
+                const count = signals.buyCountdown.count;
+                const isCompletion = count === barsToCountdown || signals.buyCountdown.completed;
+                const isRecycled = count === 'R' || signals.buyCountdown.recycled;
+                
+                if (showCount(count, false)) {
+                    const baseText = isRecycled ? 'R' : String(count);
+                    belowBarCountdown = {
+                        text: mtfLabel + baseText,
+                        color: isCompletion ? '#00ffff' : 'rgba(0, 255, 255, 0.7)',
+                        isCompletion
+                    };
+                }
+            }
+            
+            // Collect Sell Countdown (above bar)
+            if (this.dbsc.showSequential && signals.sellCountdown) {
+                const count = signals.sellCountdown.count;
+                const isCompletion = count === barsToCountdown || signals.sellCountdown.completed;
+                const isRecycled = count === 'R' || signals.sellCountdown.recycled;
+                
+                if (showCount(count, false)) {
+                    const baseText = isRecycled ? 'R' : String(count);
+                    aboveBarCountdown = {
+                        text: mtfLabel + baseText,
+                        color: isCompletion ? '#ff00ff' : 'rgba(255, 0, 255, 0.7)',
+                        isCompletion
+                    };
+                }
+            }
+            
+            // Handle below bar markers (setup and countdown may overlap)
+            if (belowBarSetup && belowBarCountdown) {
+                // Both exist - combine into one marker with format "setup/countdown"
+                const isAnyCompletion = belowBarSetup.isCompletion || belowBarCountdown.isCompletion;
+                markers.push({
+                    time: time,
+                    position: 'belowBar',
+                    color: belowBarCountdown.isCompletion ? '#00ffff' : belowBarSetup.color,
+                    shape: isAnyCompletion ? 'arrowUp' : 'text',
+                    text: `${belowBarSetup.text}/${belowBarCountdown.text}`
+                });
+            } else if (belowBarSetup) {
+                markers.push({
+                    time: time,
+                    position: 'belowBar',
+                    color: belowBarSetup.color,
+                    shape: belowBarSetup.isCompletion ? 'arrowUp' : 'text',
+                    text: belowBarSetup.text
+                });
+            } else if (belowBarCountdown) {
+                markers.push({
+                    time: time,
+                    position: 'belowBar',
+                    color: belowBarCountdown.color,
+                    shape: belowBarCountdown.isCompletion ? 'arrowUp' : 'text',
+                    text: belowBarCountdown.text
+                });
+            }
+            
+            // Handle above bar markers (setup and countdown may overlap)
+            if (aboveBarSetup && aboveBarCountdown) {
+                // Both exist - combine into one marker with format "setup/countdown"
+                const isAnyCompletion = aboveBarSetup.isCompletion || aboveBarCountdown.isCompletion;
+                markers.push({
+                    time: time,
+                    position: 'aboveBar',
+                    color: aboveBarCountdown.isCompletion ? '#ff00ff' : aboveBarSetup.color,
+                    shape: isAnyCompletion ? 'arrowDown' : 'text',
+                    text: `${aboveBarSetup.text}/${aboveBarCountdown.text}`
+                });
+            } else if (aboveBarSetup) {
+                markers.push({
+                    time: time,
+                    position: 'aboveBar',
+                    color: aboveBarSetup.color,
+                    shape: aboveBarSetup.isCompletion ? 'arrowDown' : 'text',
+                    text: aboveBarSetup.text
+                });
+            } else if (aboveBarCountdown) {
+                markers.push({
+                    time: time,
+                    position: 'aboveBar',
+                    color: aboveBarCountdown.color,
+                    shape: aboveBarCountdown.isCompletion ? 'arrowDown' : 'text',
+                    text: aboveBarCountdown.text
+                });
+            }
+            
+            // Combo markers (separate - usually don't overlap with Sequential)
+            // Combo Buy markers (below bar) - use inBar position to avoid overlap
+            if (this.dbsc.showCombo && signals.comboBuy) {
+                const count = signals.comboBuy.count;
+                const isCompletion = count >= barsToCountdown || signals.comboBuy.completed;
+                
+                if (showCount(count, false)) {
+                    markers.push({
+                        time: time,
+                        position: 'inBar',
+                        color: isCompletion ? '#00d4aa' : 'rgba(0, 212, 170, 0.7)',
+                        shape: 'text',
+                        text: `${mtfLabel}C${count}`
+                    });
+                }
+            }
+            
+            // Combo Sell markers (above bar) - prefix with 'C' to distinguish
+            if (this.dbsc.showCombo && signals.comboSell) {
+                const count = signals.comboSell.count;
+                const isCompletion = count >= barsToCountdown || signals.comboSell.completed;
+                
+                if (showCount(count, false)) {
+                    markers.push({
+                        time: time,
+                        position: 'inBar',
+                        color: isCompletion ? '#ff6b6b' : 'rgba(255, 107, 107, 0.7)',
+                        shape: 'text',
+                        text: `${mtfLabel}C${count}`
+                    });
+                }
+            }
+        }
+        
+        // Store markers
+        this.dbsc.markers = markers;
+        console.log('[Chart] DB SC markers:', markers.length, useMTF ? `(MTF: ${this.dbsc.mtfTimeframe})` : '(Local)');
+        
+        // Draw TDST lines if enabled
+        if (this.dbsc.showTDST) {
+            this.drawDBSCTDSTLines(result);
+        }
+        
+        // Update combined markers
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Draw TDST price lines
+     */
+    drawDBSCTDSTLines(result) {
+        // Clear existing TDST lines
+        this.clearDBSCLines();
+        
+        if (!this.candleSeries || !result) return;
+        
+        // Buy TDST (resistance line from buy setup)
+        if (result.buySetupTDST !== null) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.buySetupTDST,
+                    color: result.buyTDSTQualified ? '#14b8a6' : 'rgba(20, 184, 166, 0.6)',
+                    lineWidth: 2,
+                    lineStyle: result.buyTDSTQualified ? 
+                        LightweightCharts.LineStyle.Solid : 
+                        LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.tdstLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create buy TDST line:', e);
+            }
+        }
+        
+        // Sell TDST (support line from sell setup)
+        if (result.sellSetupTDST !== null) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.sellSetupTDST,
+                    color: result.sellTDSTQualified ? '#ef4444' : 'rgba(239, 68, 68, 0.6)',
+                    lineWidth: 2,
+                    lineStyle: result.sellTDSTQualified ? 
+                        LightweightCharts.LineStyle.Solid : 
+                        LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.tdstLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create sell TDST line:', e);
+            }
+        }
+        
+        // Buy Countdown Risk Level
+        if (result.buyCountdownRisk !== null) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.buyCountdownRisk,
+                    color: 'rgba(0, 255, 255, 0.4)',
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.riskLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create buy countdown risk line:', e);
+            }
+        }
+        
+        // Sell Countdown Risk Level
+        if (result.sellCountdownRisk !== null) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.sellCountdownRisk,
+                    color: 'rgba(255, 0, 255, 0.4)',
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.riskLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create sell countdown risk line:', e);
+            }
+        }
+        
+        // Buy Setup Risk Level (stop level below price for buy signal)
+        if (result.buySetupRisk !== null && result.buySetupRisk !== result.buyCountdownRisk) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.buySetupRisk,
+                    color: 'rgba(20, 184, 166, 0.35)',
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.riskLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create buy setup risk line:', e);
+            }
+        }
+        
+        // Sell Setup Risk Level (stop level above price for sell signal)
+        if (result.sellSetupRisk !== null && result.sellSetupRisk !== result.sellCountdownRisk) {
+            try {
+                const line = this.candleSeries.createPriceLine({
+                    price: result.sellSetupRisk,
+                    color: 'rgba(239, 68, 68, 0.35)',
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
+                    axisLabelVisible: false,
+                    title: ''
+                });
+                this.dbsc.riskLines.push(line);
+            } catch (e) {
+                console.warn('[Chart] Failed to create sell setup risk line:', e);
+            }
+        }
+    }
+    
+    /**
+     * Clear all DB SC lines from chart
+     */
+    clearDBSCLines() {
+        if (!this.candleSeries) return;
+        
+        // Remove TDST lines
+        for (const line of this.dbsc.tdstLines) {
+            try {
+                this.candleSeries.removePriceLine(line);
+            } catch (e) {
+                // Line may already be removed
+            }
+        }
+        this.dbsc.tdstLines = [];
+        
+        // Remove risk lines
+        for (const line of this.dbsc.riskLines) {
+            try {
+                this.candleSeries.removePriceLine(line);
+            } catch (e) {
+                // Line may already be removed
+            }
+        }
+        this.dbsc.riskLines = [];
+    }
+    
+    /**
+     * Clear DB SC signals (markers and lines)
+     */
+    clearDBSCSignals() {
+        this.dbsc.markers = [];
+        this.clearDBSCLines();
+        
+        // Reset calculator if exists
+        if (this.dbsc.calculator) {
+            this.dbsc.calculator.reset();
+        }
+        this.dbsc.lastResult = null;
+        this.dbsc.lastBarTime = null;
+        
+        // Update combined markers
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Reset DB SC state (for symbol/interval changes)
+     */
+    resetDBSCState() {
+        this.clearDBSCSignals();
+        this.updateDBSCPanel(); // Reset panel display
+        console.log('[Chart] DB SC state reset');
+    }
+    
+    /**
+     * Update DB SC Panel with current indicator state
+     */
+    updateDBSCPanel() {
+        // Get DOM elements
+        const panel = document.getElementById('dbscPanel');
+        if (!panel) return;
+        
+        const badge = document.getElementById('dbscBadge');
+        const signalMain = document.getElementById('dbscSignalMain');
+        const signalDesc = document.getElementById('dbscSignalDesc');
+        const interpSection = document.getElementById('dbscInterpretation');
+        const interpText = document.getElementById('dbscInterpText');
+        
+        // Progress elements
+        const buySetupCount = document.getElementById('dbscBuySetupCount');
+        const sellSetupCount = document.getElementById('dbscSellSetupCount');
+        const buySetupFill = document.getElementById('dbscBuySetupFill');
+        const sellSetupFill = document.getElementById('dbscSellSetupFill');
+        const buyCountdownCount = document.getElementById('dbscBuyCountdownCount');
+        const sellCountdownCount = document.getElementById('dbscSellCountdownCount');
+        const buyCountdownFill = document.getElementById('dbscBuyCountdownFill');
+        const sellCountdownFill = document.getElementById('dbscSellCountdownFill');
+        
+        // TDST elements
+        const buyTDSTEl = document.getElementById('dbscBuyTDST');
+        const sellTDSTEl = document.getElementById('dbscSellTDST');
+        const buyTDSTValue = document.getElementById('dbscBuyTDSTValue');
+        const sellTDSTValue = document.getElementById('dbscSellTDSTValue');
+        
+        // Panel always shows data - indicator enabled/disabled only controls chart markers
+        // If no dbsc object, initialize it
+        if (!this.dbsc) {
+            return;
+        }
+        
+        // Check if using MTF mode
+        const useMTF = this.dbsc.mtfTimeframe && this.dbsc.mtfCandles.length > 0;
+        const mtfLabel = useMTF ? this.getMTFLabel(this.dbsc.mtfTimeframe) : '';
+        
+        // Get current state from calculator
+        const result = this.dbsc.lastResult;
+        const state = result ? result.state : null;
+        
+        if (!state) {
+            // No data yet
+            if (badge) {
+                badge.textContent = useMTF ? `${mtfLabel}:Loading` : 'Loading';
+                badge.className = 'panel-badge active';
+            }
+            return;
+        }
+        
+        // Extract counts
+        const buySetup = state.buySetup.count || 0;
+        const sellSetup = state.sellSetup.count || 0;
+        const buyCountdown = state.buyCountdown.count || 0;
+        const sellCountdown = state.sellCountdown.count || 0;
+        const buyCountdownActive = state.buyCountdown.active;
+        const sellCountdownActive = state.sellCountdown.active;
+        
+        // Determine exhaustion signal
+        let exhaustionSignal = 'neutral';
+        let signalArrow = '―';
+        let signalLabel = 'NEUTRAL';
+        let signalDescText = 'No active exhaustion signals';
+        let interpClass = '';
+        let interpretation = 'Trend may continue. Watch for setup or countdown completions.';
+        
+        // Check for buy exhaustion (completed buy setup or countdown = potential bottom)
+        const buySetupComplete = buySetup >= 9;
+        const buyCountdownComplete = buyCountdown >= 13;
+        const sellSetupComplete = sellSetup >= 9;
+        const sellCountdownComplete = sellCountdown >= 13;
+        
+        if (buyCountdownComplete) {
+            exhaustionSignal = 'buy-exhaustion';
+            signalArrow = '▲';
+            signalLabel = 'BUY EXHAUSTION';
+            signalDescText = 'Countdown 13 complete!';
+            interpClass = 'buy';
+            interpretation = '🎯 HIGH PROBABILITY reversal zone! Downtrend exhaustion confirmed. Look for long entry opportunities.';
+        } else if (sellCountdownComplete) {
+            exhaustionSignal = 'sell-exhaustion';
+            signalArrow = '▼';
+            signalLabel = 'SELL EXHAUSTION';
+            signalDescText = 'Countdown 13 complete!';
+            interpClass = 'sell';
+            interpretation = '🎯 HIGH PROBABILITY reversal zone! Uptrend exhaustion confirmed. Look for short entry opportunities.';
+        } else if (buySetupComplete) {
+            exhaustionSignal = 'buy-exhaustion';
+            signalArrow = '▲';
+            signalLabel = 'BUY SETUP';
+            signalDescText = 'Setup 9 complete' + (state.buySetup.perfected ? '+' : '');
+            interpClass = 'buy';
+            interpretation = '⚠️ Downtrend may be weakening. Setup complete' + (state.buySetup.perfected ? ' (perfected)' : '') + '. Watch for countdown confirmation.';
+        } else if (sellSetupComplete) {
+            exhaustionSignal = 'sell-exhaustion';
+            signalArrow = '▼';
+            signalLabel = 'SELL SETUP';
+            signalDescText = 'Setup 9 complete' + (state.sellSetup.perfected ? '+' : '');
+            interpClass = 'sell';
+            interpretation = '⚠️ Uptrend may be weakening. Setup complete' + (state.sellSetup.perfected ? ' (perfected)' : '') + '. Watch for countdown confirmation.';
+        } else if (buyCountdownActive && buyCountdown >= 8) {
+            exhaustionSignal = 'buy-exhaustion';
+            signalArrow = '▲';
+            signalLabel = 'COUNTDOWN';
+            signalDescText = `Buy countdown ${buyCountdown}/13`;
+            interpClass = 'buy';
+            interpretation = `📊 Buy countdown progressing (${buyCountdown}/13). Downtrend exhaustion building.`;
+        } else if (sellCountdownActive && sellCountdown >= 8) {
+            exhaustionSignal = 'sell-exhaustion';
+            signalArrow = '▼';
+            signalLabel = 'COUNTDOWN';
+            signalDescText = `Sell countdown ${sellCountdown}/13`;
+            interpClass = 'sell';
+            interpretation = `📊 Sell countdown progressing (${sellCountdown}/13). Uptrend exhaustion building.`;
+        } else if (buySetup >= 7) {
+            signalDescText = `Buy setup building (${buySetup}/9)`;
+            interpretation = `Building buy setup (${buySetup}/9). Downtrend may be losing steam.`;
+        } else if (sellSetup >= 7) {
+            signalDescText = `Sell setup building (${sellSetup}/9)`;
+            interpretation = `Building sell setup (${sellSetup}/9). Uptrend may be losing steam.`;
+        } else if (buyCountdownActive) {
+            signalDescText = `Buy countdown active (${buyCountdown}/13)`;
+            interpretation = `Buy countdown in progress. Watching for exhaustion signal.`;
+        } else if (sellCountdownActive) {
+            signalDescText = `Sell countdown active (${sellCountdown}/13)`;
+            interpretation = `Sell countdown in progress. Watching for exhaustion signal.`;
+        }
+        
+        // Update badge (include MTF prefix if enabled, show chart status)
+        if (badge) {
+            const badgePrefix = useMTF ? `${mtfLabel}:` : '';
+            const chartOff = !this.dbsc.enabled;
+            
+            if (exhaustionSignal === 'buy-exhaustion') {
+                badge.textContent = badgePrefix + 'BUY' + (chartOff ? ' ⊘' : '');
+                badge.className = 'panel-badge signal-buy';
+            } else if (exhaustionSignal === 'sell-exhaustion') {
+                badge.textContent = badgePrefix + 'SELL' + (chartOff ? ' ⊘' : '');
+                badge.className = 'panel-badge signal-sell';
+            } else {
+                badge.textContent = (useMTF ? mtfLabel : 'Active') + (chartOff ? ' ⊘' : '');
+                badge.className = 'panel-badge active';
+            }
+        }
+        
+        // Update signal hero
+        if (signalMain) {
+            signalMain.className = `dbsc-signal-main ${exhaustionSignal}`;
+            signalMain.querySelector('.dbsc-arrow').textContent = signalArrow;
+            signalMain.querySelector('.dbsc-label').textContent = signalLabel;
+        }
+        
+        if (signalDesc) {
+            const mtfIndicator = useMTF ? ` [${mtfLabel}]` : '';
+            signalDesc.querySelector('.dbsc-desc-text').textContent = signalDescText + mtfIndicator;
+        }
+        
+        // Update interpretation (add MTF context if enabled)
+        if (interpSection) {
+            interpSection.className = `dbsc-interpretation ${interpClass}`;
+        }
+        if (interpText) {
+            const mtfContext = useMTF ? ` [${mtfLabel} timeframe]` : '';
+            interpText.textContent = interpretation + mtfContext;
+        }
+        
+        // Update setup progress
+        const setupMax = 9;
+        if (buySetupCount) buySetupCount.textContent = `${buySetup}/${setupMax}`;
+        if (sellSetupCount) sellSetupCount.textContent = `${sellSetup}/${setupMax}`;
+        if (buySetupFill) buySetupFill.style.width = `${(buySetup / setupMax) * 100}%`;
+        if (sellSetupFill) sellSetupFill.style.width = `${(sellSetup / setupMax) * 100}%`;
+        
+        // Add completed class for animation
+        const buySetupItem = buySetupFill?.closest('.dbsc-progress-item');
+        const sellSetupItem = sellSetupFill?.closest('.dbsc-progress-item');
+        if (buySetupItem) buySetupItem.classList.toggle('completed', buySetupComplete);
+        if (sellSetupItem) sellSetupItem.classList.toggle('completed', sellSetupComplete);
+        
+        // Update countdown progress
+        const countdownMax = 13;
+        if (buyCountdownCount) buyCountdownCount.textContent = `${buyCountdown}/${countdownMax}`;
+        if (sellCountdownCount) sellCountdownCount.textContent = `${sellCountdown}/${countdownMax}`;
+        if (buyCountdownFill) buyCountdownFill.style.width = `${(buyCountdown / countdownMax) * 100}%`;
+        if (sellCountdownFill) sellCountdownFill.style.width = `${(sellCountdown / countdownMax) * 100}%`;
+        
+        // Add completed class for animation
+        const buyCountdownItem = buyCountdownFill?.closest('.dbsc-progress-item');
+        const sellCountdownItem = sellCountdownFill?.closest('.dbsc-progress-item');
+        if (buyCountdownItem) buyCountdownItem.classList.toggle('completed', buyCountdownComplete);
+        if (sellCountdownItem) sellCountdownItem.classList.toggle('completed', sellCountdownComplete);
+        
+        // Get current price for level calculations
+        const currentPrice = this.lastPrice || 0;
+        
+        // Key Levels Section
+        const resistanceLevel = document.getElementById('dbscResistanceLevel');
+        const supportLevel = document.getElementById('dbscSupportLevel');
+        const resistancePrice = document.getElementById('dbscResistancePrice');
+        const supportPrice = document.getElementById('dbscSupportPrice');
+        const resistanceDist = document.getElementById('dbscResistanceDist');
+        const supportDist = document.getElementById('dbscSupportDist');
+        const riskLevels = document.getElementById('dbscRiskLevels');
+        const buyRisk = document.getElementById('dbscBuyRisk');
+        const sellRisk = document.getElementById('dbscSellRisk');
+        const buyRiskValue = document.getElementById('dbscBuyRiskValue');
+        const sellRiskValue = document.getElementById('dbscSellRiskValue');
+        
+        // Action Box
+        const actionBox = document.getElementById('dbscActionBox');
+        const actionIcon = document.getElementById('dbscActionIcon');
+        const actionTitle = document.getElementById('dbscActionTitle');
+        const actionText = document.getElementById('dbscActionText');
+        
+        // Update Resistance (TDST from Buy Setup)
+        const hasResistance = result.buySetupTDST !== null && result.buySetupTDST !== undefined;
+        if (resistanceLevel) {
+            resistanceLevel.style.display = 'flex';
+            if (hasResistance) {
+                if (resistancePrice) resistancePrice.textContent = result.buySetupTDST.toFixed(2);
+                if (resistanceDist && currentPrice > 0) {
+                    const distPercent = ((result.buySetupTDST - currentPrice) / currentPrice * 100);
+                    const distClass = Math.abs(distPercent) < 0.5 ? 'at' : (Math.abs(distPercent) < 2 ? 'near' : '');
+                    resistanceDist.textContent = `${distPercent >= 0 ? '+' : ''}${distPercent.toFixed(2)}%`;
+                    resistanceDist.className = `dbsc-level-distance ${distClass}`;
+                }
+            } else {
+                if (resistancePrice) resistancePrice.textContent = '—';
+                if (resistanceDist) {
+                    resistanceDist.textContent = 'awaiting setup';
+                    resistanceDist.className = 'dbsc-level-distance';
+                }
+            }
+        }
+        
+        // Update Support (TDST from Sell Setup)
+        const hasSupport = result.sellSetupTDST !== null && result.sellSetupTDST !== undefined;
+        if (supportLevel) {
+            supportLevel.style.display = 'flex';
+            if (hasSupport) {
+                if (supportPrice) supportPrice.textContent = result.sellSetupTDST.toFixed(2);
+                if (supportDist && currentPrice > 0) {
+                    const distPercent = ((result.sellSetupTDST - currentPrice) / currentPrice * 100);
+                    const distClass = Math.abs(distPercent) < 0.5 ? 'at' : (Math.abs(distPercent) < 2 ? 'near' : '');
+                    supportDist.textContent = `${distPercent >= 0 ? '+' : ''}${distPercent.toFixed(2)}%`;
+                    supportDist.className = `dbsc-level-distance ${distClass}`;
+                }
+            } else {
+                if (supportPrice) supportPrice.textContent = '—';
+                if (supportDist) {
+                    supportDist.textContent = 'awaiting setup';
+                    supportDist.className = 'dbsc-level-distance';
+                }
+            }
+        }
+        
+        // Update Risk Levels
+        const hasBuyRisk = result.buySetupRisk || result.buyCountdownRisk;
+        const hasSellRisk = result.sellSetupRisk || result.sellCountdownRisk;
+        if (riskLevels) {
+            riskLevels.style.display = (hasBuyRisk || hasSellRisk) ? 'flex' : 'none';
+        }
+        if (buyRisk && buyRiskValue) {
+            const riskVal = result.buyCountdownRisk || result.buySetupRisk;
+            if (riskVal) {
+                buyRisk.style.display = 'flex';
+                buyRiskValue.textContent = riskVal.toFixed(2);
+            } else {
+                buyRisk.style.display = 'none';
+            }
+        }
+        if (sellRisk && sellRiskValue) {
+            const riskVal = result.sellCountdownRisk || result.sellSetupRisk;
+            if (riskVal) {
+                sellRisk.style.display = 'flex';
+                sellRiskValue.textContent = riskVal.toFixed(2);
+            } else {
+                sellRisk.style.display = 'none';
+            }
+        }
+        
+        // Generate Actionable Advice
+        if (actionBox && actionIcon && actionTitle && actionText) {
+            let actionClass = '';
+            let icon = '📋';
+            let title = 'Action Plan';
+            let advice = '';
+            
+            // Determine action based on signal and levels
+            if (buyCountdownComplete) {
+                actionClass = 'buy-action';
+                icon = '🎯';
+                title = 'BUY OPPORTUNITY';
+                advice = `<strong>Downtrend exhaustion confirmed!</strong><br>`;
+                if (hasSupport) {
+                    advice += `• Entry zone near current price<br>`;
+                    advice += `• Support at <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> (stop loss below)<br>`;
+                }
+                if (hasResistance) {
+                    advice += `• Target: <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> resistance`;
+                } else {
+                    advice += `• Watch for resistance on rally`;
+                }
+            } else if (sellCountdownComplete) {
+                actionClass = 'sell-action';
+                icon = '🎯';
+                title = 'SELL OPPORTUNITY';
+                advice = `<strong>Uptrend exhaustion confirmed!</strong><br>`;
+                if (hasResistance) {
+                    advice += `• Entry zone near current price<br>`;
+                    advice += `• Resistance at <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> (stop loss above)<br>`;
+                }
+                if (hasSupport) {
+                    advice += `• Target: <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> support`;
+                } else {
+                    advice += `• Watch for support on decline`;
+                }
+            } else if (buySetupComplete) {
+                actionClass = 'caution-action';
+                icon = '⚠️';
+                title = 'WATCH FOR BUY';
+                advice = `<strong>Buy setup complete${state.buySetup.perfected ? ' (perfected)' : ''}.</strong><br>`;
+                advice += `• Potential bottom forming<br>`;
+                if (hasSupport) {
+                    advice += `• Key support: <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span><br>`;
+                }
+                advice += `• Wait for countdown confirmation or test of support`;
+            } else if (sellSetupComplete) {
+                actionClass = 'caution-action';
+                icon = '⚠️';
+                title = 'WATCH FOR SELL';
+                advice = `<strong>Sell setup complete${state.sellSetup.perfected ? ' (perfected)' : ''}.</strong><br>`;
+                advice += `• Potential top forming<br>`;
+                if (hasResistance) {
+                    advice += `• Key resistance: <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span><br>`;
+                }
+                advice += `• Wait for countdown confirmation or test of resistance`;
+            } else if (currentPrice > 0) {
+                // Price-relative advice - check if levels make sense
+                const resistanceAbove = hasResistance && result.buySetupTDST > currentPrice;
+                const supportBelow = hasSupport && result.sellSetupTDST < currentPrice;
+                
+                if (resistanceAbove && supportBelow) {
+                    // Both levels valid - price is between them
+                    const distToResist = (result.buySetupTDST - currentPrice) / currentPrice * 100;
+                    const distToSupport = (currentPrice - result.sellSetupTDST) / currentPrice * 100;
+                    
+                    if (distToResist < 1) {
+                        actionClass = 'sell-action';
+                        icon = '🚨';
+                        title = 'NEAR RESISTANCE';
+                        advice = `Price approaching resistance <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> (${distToResist.toFixed(1)}% away)<br>`;
+                        advice += `• Watch for rejection or breakout<br>`;
+                        advice += `• Support below at <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span>`;
+                    } else if (distToSupport < 1) {
+                        actionClass = 'buy-action';
+                        icon = '🚨';
+                        title = 'NEAR SUPPORT';
+                        advice = `Price approaching support <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> (${distToSupport.toFixed(1)}% away)<br>`;
+                        advice += `• Watch for bounce or breakdown<br>`;
+                        advice += `• Resistance above at <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span>`;
+                    } else {
+                        icon = '📊';
+                        title = 'BETWEEN LEVELS';
+                        advice = `Trading between TDST levels:<br>`;
+                        advice += `• Resistance: <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> (+${distToResist.toFixed(1)}%)<br>`;
+                        advice += `• Support: <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> (-${distToSupport.toFixed(1)}%)`;
+                    }
+                } else if (resistanceAbove) {
+                    // Only resistance valid (above price)
+                    const distToResist = (result.buySetupTDST - currentPrice) / currentPrice * 100;
+                    icon = '📈';
+                    title = 'RESISTANCE ABOVE';
+                    advice = `TDST Resistance at <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> (+${distToResist.toFixed(1)}%)<br>`;
+                    advice += `• Potential ceiling for rallies`;
+                } else if (supportBelow) {
+                    // Only support valid (below price)
+                    const distToSupport = (currentPrice - result.sellSetupTDST) / currentPrice * 100;
+                    icon = '📉';
+                    title = 'SUPPORT BELOW';
+                    advice = `TDST Support at <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> (-${distToSupport.toFixed(1)}%)<br>`;
+                    advice += `• Potential floor for pullbacks`;
+                } else if (hasResistance || hasSupport) {
+                    // Levels exist but are on wrong side of price (invalidated)
+                    icon = '⚡';
+                    title = 'LEVELS BROKEN';
+                    advice = `TDST levels have been broken:<br>`;
+                    if (hasResistance && result.buySetupTDST <= currentPrice) {
+                        advice += `• Former resistance <span class="sell-level">${result.buySetupTDST.toFixed(2)}</span> broken (now below price)<br>`;
+                    }
+                    if (hasSupport && result.sellSetupTDST >= currentPrice) {
+                        advice += `• Former support <span class="buy-level">${result.sellSetupTDST.toFixed(2)}</span> broken (now above price)`;
+                    }
+                } else {
+                    // No valid levels
+                    icon = '👀';
+                    title = 'MONITORING';
+                    advice = `No valid TDST levels.<br>`;
+                    advice += `• Waiting for setup completion (9-count)`;
+                }
+            } else if (buyCountdownActive || sellCountdownActive) {
+                icon = '⏳';
+                title = 'COUNTDOWN ACTIVE';
+                if (buyCountdownActive) {
+                    advice = `Buy countdown in progress (${buyCountdown}/13)<br>`;
+                    advice += `• Watching for downtrend exhaustion`;
+                } else {
+                    advice = `Sell countdown in progress (${sellCountdown}/13)<br>`;
+                    advice += `• Watching for uptrend exhaustion`;
+                }
+            } else {
+                icon = '👀';
+                title = 'MONITORING';
+                advice = `No active signals. Watching for:<br>`;
+                advice += `• Setup formation (9-count)<br>`;
+                advice += `• Countdown completion (13-count)`;
+            }
+            
+            actionBox.className = `dbsc-action-box ${actionClass}`;
+            actionIcon.textContent = icon;
+            actionTitle.textContent = title;
+            actionText.innerHTML = advice;
+        }
     }
     
     // ==========================================
@@ -4626,6 +6097,513 @@ class OrderBookChart {
     }
     
     // ==========================================
+    // LV (Liquidity Vacuum) Signal
+    // Dynamic signal showing where liquidity is thin
+    // ==========================================
+    
+    /**
+     * Toggle LV Signal display on chart
+     * Note: LV always tracks in background - this only controls chart display
+     */
+    toggleLVSignal(show) {
+        this.lvSignal.enabled = show;
+        localStorage.setItem('showLVSignal', show);
+        console.log('[Chart] toggleLVSignal:', show);
+        
+        // Don't clear liveMarker/lastSignal - we want to keep tracking in background
+        // The enabled flag only controls whether markers appear on chart
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Toggle LV Signal History circles on chart
+     * Shows both buy AND sell occurrences per bar (circles with ratios)
+     */
+    toggleLVSignalHistory(show) {
+        this.lvSignal.historyEnabled = show;
+        localStorage.setItem('showLVSignalHistory', show);
+        console.log('[Chart] toggleLVSignalHistory:', show);
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Update LV Signal - creates marker based on liquidity vacuum analysis
+     * Called from updateLVPanel in app.js
+     * Uses confirmation time setting - signal must be stable before showing on chart
+     */
+    updateLVSignal(lvData, barTime) {
+        if (!lvData || !barTime) return;
+        
+        // Check if bar changed - save previous bar's final marker to history
+        if (this.lvSignal.lastBarTime && this.lvSignal.lastBarTime !== barTime) {
+            if (this.lvSignal.liveMarker) {
+                // Save to history with peak ratio
+                const historyMarker = { ...this.lvSignal.liveMarker };
+                // Use peak ratio for historical marker
+                if (this.lvSignal.peakRatio) {
+                    historyMarker.text = `LV\n${this.lvSignal.peakRatio.toFixed(2)}`;
+                }
+                this.lvSignal.markers.push(historyMarker);
+                // Cap history
+                if (this.lvSignal.markers.length > 500) {
+                    this.lvSignal.markers = this.lvSignal.markers.slice(-500);
+                }
+                this.saveLVSignalHistory();
+            }
+            
+            // Save history circle markers for previous bar (track both buy AND sell occurrences)
+            const prevBarTime = this.lvSignal.lastBarTime;
+            if (this.lvSignal.buyTriggeredThisBar && this.lvSignal.buyPeakRatio !== null) {
+                this.lvSignal.historyMarkers.push({
+                    time: prevBarTime,
+                    position: 'belowBar', // BUY = below bar (matches arrows)
+                    color: '#14b8a6', // Teal
+                    shape: 'circle',
+                    text: `LV ${this.lvSignal.buyPeakRatio.toFixed(2)}`,
+                    size: 1
+                });
+            }
+            if (this.lvSignal.sellTriggeredThisBar && this.lvSignal.sellMinRatio !== null) {
+                this.lvSignal.historyMarkers.push({
+                    time: prevBarTime,
+                    position: 'aboveBar', // SELL = above bar (matches arrows)
+                    color: '#ef4444', // Red
+                    shape: 'circle',
+                    text: `LV ${this.lvSignal.sellMinRatio.toFixed(2)}`,
+                    size: 1
+                });
+            }
+            // Cap history markers
+            if (this.lvSignal.historyMarkers.length > 1000) {
+                this.lvSignal.historyMarkers = this.lvSignal.historyMarkers.slice(-1000);
+            }
+            // Save history circles to IndexedDB
+            this.saveLVSignalHistoryCircles();
+            
+            // Reset tracking for new bar
+            this.lvSignal.peakRatio = null;
+            this.lvSignal.buyTriggeredThisBar = false;
+            this.lvSignal.sellTriggeredThisBar = false;
+            this.lvSignal.buyPeakRatio = null;
+            this.lvSignal.sellMinRatio = null;
+        }
+        this.lvSignal.lastBarTime = barTime;
+        
+        // Store signal regardless of enabled state (for panel)
+        this.lvSignal.lastSignal = lvData;
+        
+        // Use the signal directly from lvData (already confirmed by app.js)
+        // This ensures the chart matches the panel display exactly
+        const displaySignal = lvData.signal;
+        
+        // Legacy: Keep tracking for backwards compatibility but don't use for display
+        const confirmTime = parseInt(localStorage.getItem('lvConfirmTime')) || 0;
+        const now = Date.now();
+        
+        if (confirmTime > 0 && lvData.signal !== this.lvSignal.pendingSignal) {
+            this.lvSignal.pendingSignal = lvData.signal;
+            this.lvSignal.pendingStartTime = now;
+        }
+        
+        // Check if confirmed (for tracking purposes only - display already uses confirmed signal from app.js)
+        if (confirmTime > 0 && this.lvSignal.pendingStartTime) {
+            const elapsed = (now - this.lvSignal.pendingStartTime) / 1000;
+            if (elapsed >= confirmTime) {
+                this.lvSignal.confirmedSignal = lvData.signal;
+            }
+        }
+        
+        // Calculate ratio for display (larger / smaller)
+        const above = lvData.aboveLiq || 0;
+        const below = lvData.belowLiq || 0;
+        const larger = Math.max(above, below);
+        const smaller = Math.min(above, below) || 0.001;
+        const currentRatio = larger / smaller;
+        
+        // Track peak ratio for this bar
+        if (!this.lvSignal.peakRatio || currentRatio > this.lvSignal.peakRatio) {
+            this.lvSignal.peakRatio = currentRatio;
+        }
+        
+        // Track signal history - capture when buy/sell triggers (use raw signal, not confirmed)
+        // This tracks every moment a signal triggers, not just the final confirmed state
+        if (lvData.signal === 'buy') {
+            this.lvSignal.buyTriggeredThisBar = true;
+            // Track peak ratio while buy is active
+            if (this.lvSignal.buyPeakRatio === null || currentRatio > this.lvSignal.buyPeakRatio) {
+                this.lvSignal.buyPeakRatio = currentRatio;
+            }
+        } else if (lvData.signal === 'sell') {
+            this.lvSignal.sellTriggeredThisBar = true;
+            // Track min ratio while sell is active (actually track peak - strongest signal)
+            if (this.lvSignal.sellMinRatio === null || currentRatio > this.lvSignal.sellMinRatio) {
+                this.lvSignal.sellMinRatio = currentRatio;
+            }
+        }
+        
+        // Create live history circle markers for current bar (real-time display)
+        this.lvSignal.liveHistoryMarkers = [];
+        if (this.lvSignal.buyTriggeredThisBar && this.lvSignal.buyPeakRatio !== null) {
+            this.lvSignal.liveHistoryMarkers.push({
+                time: barTime,
+                position: 'belowBar', // BUY = below bar (matches arrows)
+                color: '#14b8a6', // Teal
+                shape: 'circle',
+                text: `LV ${this.lvSignal.buyPeakRatio.toFixed(2)}`,
+                size: 1
+            });
+        }
+        if (this.lvSignal.sellTriggeredThisBar && this.lvSignal.sellMinRatio !== null) {
+            this.lvSignal.liveHistoryMarkers.push({
+                time: barTime,
+                position: 'aboveBar', // SELL = above bar (matches arrows)
+                color: '#ef4444', // Red
+                shape: 'circle',
+                text: `LV ${this.lvSignal.sellMinRatio.toFixed(2)}`,
+                size: 1
+            });
+        }
+        
+        // Only create marker if confirmed signal has direction
+        if (displaySignal === 'buy' || displaySignal === 'sell') {
+            const direction = displaySignal;
+            // Display peak ratio (more useful historically)
+            const displayRatio = this.lvSignal.peakRatio.toFixed(2);
+            
+            this.lvSignal.liveMarker = {
+                time: barTime,
+                position: direction === 'buy' ? 'belowBar' : 'aboveBar',
+                color: direction === 'buy' ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)',
+                shape: direction === 'buy' ? 'arrowUp' : 'arrowDown',
+                text: `LV\n${displayRatio}`,
+                size: 2
+            };
+        } else {
+            this.lvSignal.liveMarker = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Save LV Signal markers to IndexedDB
+     */
+    saveLVSignalHistory() {
+        try {
+            db.saveSignalMarkers('lvSignal', this.lvSignal.markers);
+        } catch (e) {
+            console.error('[Chart] Error saving LV Signal history:', e);
+        }
+    }
+    
+    /**
+     * Load LV Signal markers from IndexedDB
+     */
+    async loadLVSignalHistory() {
+        try {
+            const markers = await db.getSignalMarkers('lvSignal');
+            if (markers && markers.length > 0) {
+                this.lvSignal.markers = markers;
+                console.log('[Chart] Loaded', this.lvSignal.markers.length, 'LV Signal markers from IndexedDB');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading LV Signal history:', e);
+            this.lvSignal.markers = [];
+        }
+    }
+    
+    /**
+     * Save LV Signal History Circles to IndexedDB
+     */
+    saveLVSignalHistoryCircles() {
+        try {
+            db.saveSignalMarkers('lvSignalHistoryCircles', this.lvSignal.historyMarkers);
+        } catch (e) {
+            console.error('[Chart] Error saving LV Signal history circles:', e);
+        }
+    }
+    
+    /**
+     * Load LV Signal History Circles from IndexedDB
+     */
+    async loadLVSignalHistoryCircles() {
+        try {
+            const markers = await db.getSignalMarkers('lvSignalHistoryCircles');
+            if (markers && markers.length > 0) {
+                this.lvSignal.historyMarkers = markers;
+                console.log('[Chart] Loaded', this.lvSignal.historyMarkers.length, 'LV Signal history circles from IndexedDB');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading LV Signal history circles:', e);
+            this.lvSignal.historyMarkers = [];
+        }
+    }
+    
+    /**
+     * Clear LV Signal markers
+     */
+    clearLVSignals() {
+        this.lvSignal.markers = [];
+        this.lvSignal.historyMarkers = [];
+        this.lvSignal.liveHistoryMarkers = [];
+        this.lvSignal.liveMarker = null;
+        this.lvSignal.lastSignal = null;
+        this.lvSignal.lastBarTime = null;
+        this.lvSignal.buyTriggeredThisBar = false;
+        this.lvSignal.sellTriggeredThisBar = false;
+        this.lvSignal.buyPeakRatio = null;
+        this.lvSignal.sellMinRatio = null;
+        localStorage.removeItem('lvSignalMarkers');
+        db.saveSignalMarkers('lvSignalHistoryCircles', []);
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
+    // Alpha Lead Signal (chart arrows)
+    // Leading indicator combining LV + momentum
+    // ==========================================
+    
+    /**
+     * Toggle Alpha Lead Signal display on chart
+     * Note: Alpha Lead always tracks in background - this only controls chart display
+     */
+    toggleAlphaLeadSignal(show) {
+        this.alphaLeadSignal.enabled = show;
+        localStorage.setItem('showAlphaLeadSignal', show);
+        console.log('[Chart] toggleAlphaLeadSignal:', show);
+        
+        // Don't clear liveMarker/lastSignal - we want to keep tracking in background
+        // The enabled flag only controls whether markers appear on chart
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Toggle Alpha Lead Signal History circles on chart
+     * Shows both buy AND sell occurrences per bar (circles with scores)
+     */
+    toggleALSignalHistory(show) {
+        this.alphaLeadSignal.historyEnabled = show;
+        localStorage.setItem('showALSignalHistory', show);
+        console.log('[Chart] toggleALSignalHistory:', show);
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Update Alpha Lead Signal - creates marker based on alpha lead analysis
+     * Called from app.js after calculating alpha lead
+     */
+    updateAlphaLeadSignal(alphaLeadData, barTime) {
+        if (!alphaLeadData || !barTime) return;
+        
+        // Check if bar changed - save previous bar's final marker to history
+        if (this.alphaLeadSignal.lastBarTime && this.alphaLeadSignal.lastBarTime !== barTime) {
+            if (this.alphaLeadSignal.liveMarker) {
+                // Update marker text with peak/min score before saving
+                const peakScore = this.alphaLeadSignal.peakScore;
+                const minScore = this.alphaLeadSignal.minScore;
+                if (this.alphaLeadSignal.liveMarker.shape === 'arrowUp' && peakScore !== null) {
+                    this.alphaLeadSignal.liveMarker.text = `αL ${peakScore}`;
+                } else if (this.alphaLeadSignal.liveMarker.shape === 'arrowDown' && minScore !== null) {
+                    this.alphaLeadSignal.liveMarker.text = `αL ${minScore}`;
+                }
+                
+                // Save to history
+                this.alphaLeadSignal.markers.push({ ...this.alphaLeadSignal.liveMarker });
+                // Cap history
+                if (this.alphaLeadSignal.markers.length > 500) {
+                    this.alphaLeadSignal.markers = this.alphaLeadSignal.markers.slice(-500);
+                }
+                // Save to IndexedDB
+                this.saveAlphaLeadSignalHistory();
+            }
+            
+            // Save history circle markers for previous bar (track both buy AND sell occurrences)
+            const prevBarTime = this.alphaLeadSignal.lastBarTime;
+            if (this.alphaLeadSignal.buyTriggeredThisBar && this.alphaLeadSignal.buyPeakScore !== null) {
+                this.alphaLeadSignal.historyMarkers.push({
+                    time: prevBarTime,
+                    position: 'belowBar', // BUY = below bar (matches arrows)
+                    color: '#3b82f6', // Blue (match AL buy color)
+                    shape: 'circle',
+                    text: `αL ${this.alphaLeadSignal.buyPeakScore}`,
+                    size: 1
+                });
+            }
+            if (this.alphaLeadSignal.sellTriggeredThisBar && this.alphaLeadSignal.sellMinScore !== null) {
+                this.alphaLeadSignal.historyMarkers.push({
+                    time: prevBarTime,
+                    position: 'aboveBar', // SELL = above bar (matches arrows)
+                    color: '#ec4899', // Pink (match AL sell color)
+                    shape: 'circle',
+                    text: `αL ${this.alphaLeadSignal.sellMinScore}`,
+                    size: 1
+                });
+            }
+            // Cap history markers
+            if (this.alphaLeadSignal.historyMarkers.length > 1000) {
+                this.alphaLeadSignal.historyMarkers = this.alphaLeadSignal.historyMarkers.slice(-1000);
+            }
+            // Save history circles to IndexedDB
+            this.saveALSignalHistoryCircles();
+            
+            // Reset tracking for new bar
+            this.alphaLeadSignal.peakScore = null;
+            this.alphaLeadSignal.minScore = null;
+            this.alphaLeadSignal.buyTriggeredThisBar = false;
+            this.alphaLeadSignal.sellTriggeredThisBar = false;
+            this.alphaLeadSignal.buyPeakScore = null;
+            this.alphaLeadSignal.sellMinScore = null;
+        }
+        this.alphaLeadSignal.lastBarTime = barTime;
+        
+        // Track peak (for buy) and min (for sell) scores
+        const score = alphaLeadData.score;
+        if (this.alphaLeadSignal.peakScore === null || score > this.alphaLeadSignal.peakScore) {
+            this.alphaLeadSignal.peakScore = score;
+        }
+        if (this.alphaLeadSignal.minScore === null || score < this.alphaLeadSignal.minScore) {
+            this.alphaLeadSignal.minScore = score;
+        }
+        
+        // Track signal history - capture when buy/sell triggers
+        if (alphaLeadData.signal === 'buy') {
+            this.alphaLeadSignal.buyTriggeredThisBar = true;
+            // Track peak score while buy is active
+            if (this.alphaLeadSignal.buyPeakScore === null || score > this.alphaLeadSignal.buyPeakScore) {
+                this.alphaLeadSignal.buyPeakScore = score;
+            }
+        } else if (alphaLeadData.signal === 'sell') {
+            this.alphaLeadSignal.sellTriggeredThisBar = true;
+            // Track min score while sell is active
+            if (this.alphaLeadSignal.sellMinScore === null || score < this.alphaLeadSignal.sellMinScore) {
+                this.alphaLeadSignal.sellMinScore = score;
+            }
+        }
+        
+        // Create live history circle markers for current bar (real-time display)
+        this.alphaLeadSignal.liveHistoryMarkers = [];
+        if (this.alphaLeadSignal.buyTriggeredThisBar && this.alphaLeadSignal.buyPeakScore !== null) {
+            this.alphaLeadSignal.liveHistoryMarkers.push({
+                time: barTime,
+                position: 'belowBar', // BUY = below bar (matches arrows)
+                color: '#3b82f6', // Blue (match AL buy color)
+                shape: 'circle',
+                text: `αL ${this.alphaLeadSignal.buyPeakScore}`,
+                size: 1
+            });
+        }
+        if (this.alphaLeadSignal.sellTriggeredThisBar && this.alphaLeadSignal.sellMinScore !== null) {
+            this.alphaLeadSignal.liveHistoryMarkers.push({
+                time: barTime,
+                position: 'aboveBar', // SELL = above bar (matches arrows)
+                color: '#ec4899', // Pink (match AL sell color)
+                shape: 'circle',
+                text: `αL ${this.alphaLeadSignal.sellMinScore}`,
+                size: 1
+            });
+        }
+        
+        // Store signal regardless of enabled state (for panel)
+        this.alphaLeadSignal.lastSignal = alphaLeadData;
+        
+        // Only create marker if signal has direction
+        if (alphaLeadData.signal === 'buy' || alphaLeadData.signal === 'sell') {
+            const direction = alphaLeadData.signal;
+            // Show peak score for buy (highest), min score for sell (lowest)
+            const displayScore = direction === 'buy' ? this.alphaLeadSignal.peakScore : this.alphaLeadSignal.minScore;
+            this.alphaLeadSignal.liveMarker = {
+                time: barTime,
+                position: direction === 'buy' ? 'belowBar' : 'aboveBar',
+                color: direction === 'buy' ? 'rgba(59, 130, 246, 0.7)' : 'rgba(236, 72, 153, 0.7)', // Blue for buy, pink for sell
+                shape: direction === 'buy' ? 'arrowUp' : 'arrowDown',
+                text: `αL ${displayScore}`,
+                size: 2
+            };
+        } else {
+            this.alphaLeadSignal.liveMarker = null;
+        }
+        
+        this.updateAllSignalMarkers();
+    }
+    
+    /**
+     * Save Alpha Lead Signal markers to IndexedDB
+     */
+    saveAlphaLeadSignalHistory() {
+        try {
+            db.saveSignalMarkers('alphaLeadSignal', this.alphaLeadSignal.markers);
+        } catch (e) {
+            console.error('[Chart] Error saving Alpha Lead Signal history:', e);
+        }
+    }
+    
+    /**
+     * Load Alpha Lead Signal markers from IndexedDB
+     */
+    async loadAlphaLeadSignalHistory() {
+        try {
+            const markers = await db.getSignalMarkers('alphaLeadSignal');
+            if (markers && markers.length > 0) {
+                this.alphaLeadSignal.markers = markers;
+                console.log('[Chart] Loaded', this.alphaLeadSignal.markers.length, 'Alpha Lead Signal markers from IndexedDB');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading Alpha Lead Signal history:', e);
+            this.alphaLeadSignal.markers = [];
+        }
+    }
+    
+    /**
+     * Save Alpha Lead Signal History Circles to IndexedDB
+     */
+    saveALSignalHistoryCircles() {
+        try {
+            db.saveSignalMarkers('alphaLeadSignalHistoryCircles', this.alphaLeadSignal.historyMarkers);
+        } catch (e) {
+            console.error('[Chart] Error saving Alpha Lead Signal history circles:', e);
+        }
+    }
+    
+    /**
+     * Load Alpha Lead Signal History Circles from IndexedDB
+     */
+    async loadALSignalHistoryCircles() {
+        try {
+            const markers = await db.getSignalMarkers('alphaLeadSignalHistoryCircles');
+            if (markers && markers.length > 0) {
+                this.alphaLeadSignal.historyMarkers = markers;
+                console.log('[Chart] Loaded', this.alphaLeadSignal.historyMarkers.length, 'Alpha Lead Signal history circles from IndexedDB');
+            }
+        } catch (e) {
+            console.error('[Chart] Error loading Alpha Lead Signal history circles:', e);
+            this.alphaLeadSignal.historyMarkers = [];
+        }
+    }
+    
+    /**
+     * Clear Alpha Lead Signal markers
+     */
+    clearAlphaLeadSignals() {
+        this.alphaLeadSignal.markers = [];
+        this.alphaLeadSignal.historyMarkers = [];
+        this.alphaLeadSignal.liveHistoryMarkers = [];
+        this.alphaLeadSignal.liveMarker = null;
+        this.alphaLeadSignal.lastSignal = null;
+        this.alphaLeadSignal.lastBarTime = null;
+        this.alphaLeadSignal.peakScore = null;
+        this.alphaLeadSignal.minScore = null;
+        this.alphaLeadSignal.buyTriggeredThisBar = false;
+        this.alphaLeadSignal.sellTriggeredThisBar = false;
+        this.alphaLeadSignal.buyPeakScore = null;
+        this.alphaLeadSignal.sellMinScore = null;
+        localStorage.removeItem('alphaLeadSignalMarkers');
+        db.saveSignalMarkers('alphaLeadSignalHistoryCircles', []);
+        this.updateAllSignalMarkers();
+    }
+    
+    // ==========================================
     // Cluster Strike Panel
     // Separate visualization of current bar walls
     // ==========================================
@@ -5744,6 +7722,14 @@ class OrderBookChart {
         if (this.liveDrift.enabled) {
             this.loadLiveDriftHistory();
         }
+        
+        // Load LV Signal history (always load - tracks in background even if display disabled)
+        this.loadLVSignalHistory();
+        this.loadLVSignalHistoryCircles();
+        
+        // Load Alpha Lead Signal history (always load - tracks in background even if display disabled)
+        this.loadAlphaLeadSignalHistory();
+        this.loadALSignalHistoryCircles();
         
         // Subscribe to chart changes with rAF throttling
         if (this.chart) {
@@ -8813,6 +10799,263 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     }
     
     /**
+     * Calculate LV (Liquidity Vacuum) Signal
+     * Detects where liquidity is THIN - the path of least resistance
+     * 
+     * @param {Array} levels - Order book levels
+     * @param {number} currentPrice - Current price
+     * @returns {Object} { signal: 'buy'|'sell'|'flat', strength: 0-100, aboveLiq: number, belowLiq: number }
+     */
+    calculateLiquidityVacuum(levels, currentPrice) {
+        if (!levels || levels.length === 0 || !currentPrice) {
+            return { signal: 'flat', strength: 0, aboveLiq: 0, belowLiq: 0, ratio: 1 };
+        }
+        
+        const validLevels = levels.filter(l => parseFloat(l.price) > 0);
+        
+        // Calculate liquidity above and below price within a range (e.g., 2% from price)
+        const RANGE_PERCENT = 2.0; // Look within 2% of current price
+        const upperBound = currentPrice * (1 + RANGE_PERCENT / 100);
+        const lowerBound = currentPrice * (1 - RANGE_PERCENT / 100);
+        
+        let liquidityAbove = 0;  // Ask/resistance liquidity
+        let liquidityBelow = 0;  // Bid/support liquidity
+        
+        validLevels.forEach(level => {
+            const price = parseFloat(level.price);
+            const volume = parseFloat(level.volume);
+            const distancePercent = Math.abs((price - currentPrice) / currentPrice) * 100;
+            
+            // Weight closer levels more heavily (exponential decay)
+            const weight = Math.exp(-distancePercent / 1.5);
+            const weightedVolume = volume * weight;
+            
+            const isAsk = (level.type === 'resistance') || (level.side === 'ask');
+            const isBid = (level.type === 'support') || (level.side === 'bid');
+            
+            if (price > currentPrice && price <= upperBound && isAsk) {
+                liquidityAbove += weightedVolume;
+            } else if (price < currentPrice && price >= lowerBound && isBid) {
+                liquidityBelow += weightedVolume;
+            }
+        });
+        
+        // Calculate vacuum ratio
+        // If liquidityAbove is LOW compared to liquidityBelow, there's a vacuum above (BUY signal)
+        // If liquidityBelow is LOW compared to liquidityAbove, there's a vacuum below (SELL signal)
+        
+        const total = liquidityAbove + liquidityBelow;
+        if (total === 0) {
+            return { signal: 'flat', strength: 0, aboveLiq: 0, belowLiq: 0, ratio: 1 };
+        }
+        
+        const abovePercent = (liquidityAbove / total) * 100;
+        const belowPercent = (liquidityBelow / total) * 100;
+        
+        // Ratio: >1 means more below (vacuum above = BUY), <1 means more above (vacuum below = SELL)
+        const ratio = liquidityBelow / (liquidityAbove || 0.001);
+        
+        // Determine signal based on imbalance
+        // Use configurable ratio threshold (default 1.22 = 55%)
+        const ratioThreshold = this.lvRatioThreshold || 1.22;
+        // Convert ratio to percentage: ratio / (1 + ratio) * 100
+        const THRESHOLD = (ratioThreshold / (1 + ratioThreshold)) * 100;
+        
+        let signal = 'flat';
+        let strength = 0;
+        
+        if (belowPercent >= THRESHOLD) {
+            // More liquidity below = vacuum is ABOVE = price moves up easier = BUY
+            signal = 'buy';
+            strength = Math.min(100, Math.round((belowPercent - 50) * 2));
+        } else if (abovePercent >= THRESHOLD) {
+            // More liquidity above = vacuum is BELOW = price moves down easier = SELL
+            signal = 'sell';
+            strength = Math.min(100, Math.round((abovePercent - 50) * 2));
+        } else {
+            // Balanced liquidity = no clear vacuum
+            signal = 'flat';
+            strength = 0;
+        }
+        
+        // Store for panel access
+        this.lastLVSignal = { signal, strength, aboveLiq: liquidityAbove, belowLiq: liquidityBelow, ratio };
+        
+        return this.lastLVSignal;
+    }
+    
+    /**
+     * Calculate Alpha Lead Score (0-100)
+     * LEADING indicator that predicts price movement direction
+     * Unlike Alpha Score (lagging/confirmatory), this uses:
+     * - Liquidity Vacuum (where is it thin?)
+     * - LD/BPR momentum (rate of change)
+     * - Gap asymmetry (room to run)
+     * 
+     * @param {Object} lv - Liquidity Vacuum result { signal, strength }
+     * @param {Object} signals - Regime engine signals { ld_roc_z, bpr_roc, support_gap, resist_gap }
+     * @returns {Object} { score: 0-100, signal: 'buy'|'sell'|'neutral', components }
+     */
+    calculateAlphaLead(lv, signals) {
+        if (!lv || !signals) {
+            return { score: 50, signal: 'neutral', components: {} };
+        }
+        
+        // Component 1: LV (Liquidity Vacuum) - 30%
+        // Where is liquidity THIN? That's the path of least resistance
+        // lv.signal = 'buy' means vacuum above (price moves up easier)
+        let lvNorm = 0.5;
+        if (lv.signal === 'buy') {
+            lvNorm = 0.5 + (lv.strength / 200); // 0.5 to 1.0
+        } else if (lv.signal === 'sell') {
+            lvNorm = 0.5 - (lv.strength / 200); // 0.0 to 0.5
+        }
+        
+        // Component 2: LD Momentum (ld_roc_z) - 30%
+        // Is buying pressure ACCELERATING? Positive = bullish momentum building
+        // Z-score typically ranges -3 to +3, normalize to 0-1
+        const ldRocZ = signals.ld_roc_z || 0;
+        const ldMomNorm = Math.max(0, Math.min(1, (ldRocZ + 2) / 4)); // -2 to +2 maps to 0-1
+        
+        // Component 3: BPR Momentum (bpr_roc) - 20%
+        // Is bid/ask ratio IMPROVING? Positive = bids strengthening
+        // bpr_roc typically ranges -0.2 to +0.2
+        const bprRoc = signals.bpr_roc || 0;
+        const bprMomNorm = Math.max(0, Math.min(1, (bprRoc * 2.5 + 0.5))); // -0.2 to +0.2 maps to 0-1
+        
+        // Component 4: Gap Asymmetry - 20%
+        // More room to run UP (larger resist_gap) = bullish
+        // support_gap = distance to nearest support cluster (% from price)
+        // resist_gap = distance to nearest resistance cluster (% from price)
+        const supportGap = Math.abs(signals.support_gap || 0);
+        const resistGap = Math.abs(signals.resist_gap || 0);
+        const totalGap = supportGap + resistGap;
+        let gapNorm = 0.5; // Default neutral
+        if (totalGap > 0.001) { // Only calculate if we have meaningful gaps
+            // More resist_gap means more room to run up = bullish
+            gapNorm = resistGap / totalGap;
+        }
+        
+        // Weighted combination
+        const weights = {
+            lv: 0.30,      // Liquidity Vacuum (path of least resistance)
+            ldMom: 0.30,   // LD momentum (buying pressure acceleration)
+            bprMom: 0.20,  // BPR momentum (bid strength improvement)
+            gap: 0.20      // Gap asymmetry (room to run)
+        };
+        
+        const alphaLeadRaw = (
+            weights.lv * lvNorm +
+            weights.ldMom * ldMomNorm +
+            weights.bprMom * bprMomNorm +
+            weights.gap * gapNorm
+        );
+        
+        const score = Math.round(Math.max(0, Math.min(100, alphaLeadRaw * 100)));
+        
+        // Use configurable score threshold (default 10 means BUY at 60+, SELL at 40-)
+        const scoreThreshold = this.alphaLeadScoreThreshold || 1;
+        const buyThreshold = 50 + scoreThreshold;
+        const sellThreshold = 50 - scoreThreshold;
+        
+        // Determine raw signal based on score
+        let rawSignal = 'neutral';
+        if (score >= buyThreshold) {
+            rawSignal = 'buy';
+        } else if (score <= sellThreshold) {
+            rawSignal = 'sell';
+        }
+        
+        // Stabilization: Require signal to sustain for configurable time before changing
+        const now = Date.now();
+        const confirmTime = this.alphaLeadConfirmTime || 10;
+        const SIGNAL_LOCK_MS = confirmTime * 1000;
+        
+        // Initialize tracking
+        if (!this._alphaLeadSignalState) {
+            this._alphaLeadSignalState = {
+                confirmedSignal: 'neutral',
+                pendingSignal: null,
+                pendingStartTime: null,
+                lastChangeTime: 0
+            };
+        }
+        
+        const state = this._alphaLeadSignalState;
+        let signal = state.confirmedSignal;
+        
+        // If confirmation time is 0, use raw signal directly (instant confirmation)
+        if (SIGNAL_LOCK_MS === 0) {
+            if (rawSignal !== state.confirmedSignal) {
+                state.confirmedSignal = rawSignal;
+                signal = rawSignal;
+                console.log('[Alpha Lead] Instant signal:', signal.toUpperCase(), '| Score:', score);
+            }
+        } else {
+            // Check if we need to change signal
+            if (rawSignal !== state.confirmedSignal) {
+                // New pending signal?
+                if (rawSignal !== state.pendingSignal) {
+                    // Start tracking this new signal
+                    state.pendingSignal = rawSignal;
+                    state.pendingStartTime = now;
+                    console.log('[Alpha Lead] Pending:', rawSignal.toUpperCase(), '| Score:', score, 
+                        '| Need', confirmTime + 's to confirm');
+                } else {
+                    // Same pending signal - check if it has sustained long enough
+                    const sustainedMs = now - state.pendingStartTime;
+                    if (sustainedMs >= SIGNAL_LOCK_MS) {
+                        // Signal has sustained - confirm it
+                        state.confirmedSignal = rawSignal;
+                        state.lastChangeTime = now;
+                        state.pendingSignal = null;
+                        state.pendingStartTime = null;
+                        signal = rawSignal;
+                        
+                        console.log('[Alpha Lead] Signal CONFIRMED:', signal.toUpperCase(), '| Score:', score,
+                            '| Sustained for', Math.round(sustainedMs/1000) + 's');
+                    }
+                }
+            } else {
+                // Raw signal matches confirmed - clear pending
+                if (state.pendingSignal) {
+                    console.log('[Alpha Lead] Pending RESET - score returned to confirmed range');
+                }
+                state.pendingSignal = null;
+                state.pendingStartTime = null;
+            }
+        }
+        
+        // Store for access
+        this.lastAlphaLead = {
+            score,
+            signal, // Use stabilized signal
+            rawSignal, // Include raw for debugging
+            buyThreshold,
+            sellThreshold,
+            pendingSignal: state.pendingSignal,
+            pendingStartTime: state.pendingStartTime,
+            confirmTimeMs: SIGNAL_LOCK_MS,
+            components: {
+                lv: Math.round(lvNorm * 100),
+                ldMom: Math.round(ldMomNorm * 100),
+                bprMom: Math.round(bprMomNorm * 100),
+                gap: Math.round(gapNorm * 100)
+            },
+            raw: {
+                lvSignal: lv.signal,
+                lvStrength: lv.strength,
+                ldRocZ: ldRocZ,
+                bprRoc: bprRoc,
+                supportGap: supportGap,
+                resistGap: resistGap
+            }
+        };
+        
+        return this.lastAlphaLead;
+    }
+    
+    /**
      * Initialize LD History tracking for divergence detection
      */
     initLDHistory() {
@@ -9474,7 +11717,7 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
             return { label: 'BUY', color: 'bullish', icon: '🟢' };
         }
         if (mcs > -40) {
-            return { label: 'WAIT / NEUTRAL', color: 'neutral', icon: '🟡' };
+            return { label: 'FLAT', color: 'neutral', icon: '🟡' };
         }
         if (mcs > -70) {
             return { label: 'SELL', color: 'bearish', icon: '🔴' };
@@ -9597,17 +11840,6 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         const fmtK = (price) => price >= 1000 ? (price/1000).toFixed(0) + 'k' : price.toFixed(0);
         const fmtPct = (pct) => (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
         const fmtBias = (score) => (score >= 0 ? '+' : '') + score;
-        
-        // Stripe: shows MM / Swing / HTF bias colors (must match header stripe)
-        const stripeEl = document.getElementById('mcsStripe');
-        if (stripeEl) {
-            const getStripeColor = (bias) => bias >= 10 ? 'bullish' : bias <= -10 ? 'bearish' : 'neutral';
-            stripeEl.innerHTML = `
-                <div class="stripe-segment ${getStripeColor(mc.mmBias)}" title="MM: ${fmtBias(mc.mmBias)}"></div>
-                <div class="stripe-segment ${getStripeColor(mc.swingBias)}" title="Swing: ${fmtBias(mc.swingBias)}"></div>
-                <div class="stripe-segment ${getStripeColor(mc.htfBias)}" title="HTF: ${fmtBias(mc.htfBias)}"></div>
-            `;
-        }
         
         // Header with confidence & dots
         const headerEl = document.getElementById('mcsHeader');
@@ -9773,6 +12005,14 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         if (newbieEl) {
             const newbie = this.generateMCSNewbie(mc);
             newbieEl.innerHTML = newbie;
+        }
+        
+        // Update header badge with signal
+        const mcsBadge = panel.querySelector('.panel-badge');
+        if (mcsBadge) {
+            mcsBadge.classList.remove('bullish', 'bearish', 'neutral');
+            mcsBadge.textContent = mc.mcsInfo.label;
+            mcsBadge.classList.add(mc.mcsInfo.color);
         }
         
         // Update header MCS (mobile snapshot)
@@ -11812,28 +14052,61 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
     
     /**
      * Calculate Liquidity Structure - gaps and volume shares
+     * Uses volume-weighted average distance for more meaningful gap analysis
      */
     calculateLiquidityStructure(levels, currentPrice) {
         const validLevels = levels.filter(l => parseFloat(l.price) > 0);
         
-        // Get supports and resistances
+        // Get all supports and resistances (handle both type and side formats)
         const supports = validLevels
-            .filter(l => l.type === 'support' && parseFloat(l.price) < currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => b.price - a.price); // Nearest first
+            .filter(l => {
+                const isBid = l.type === 'support' || l.side === 'bid';
+                return isBid && parseFloat(l.price) < currentPrice;
+            })
+            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }));
             
         const resistances = validLevels
-            .filter(l => l.type === 'resistance' && parseFloat(l.price) > currentPrice)
-            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }))
-            .sort((a, b) => a.price - b.price); // Nearest first
+            .filter(l => {
+                const isAsk = l.type === 'resistance' || l.side === 'ask';
+                return isAsk && parseFloat(l.price) > currentPrice;
+            })
+            .map(l => ({ price: parseFloat(l.price), volume: parseFloat(l.volume) }));
         
-        // Find nearest support and resistance
-        const nearestSupport = supports.length > 0 ? supports[0].price : currentPrice * 0.9;
-        const nearestResist = resistances.length > 0 ? resistances[0].price : currentPrice * 1.1;
+        // Calculate volume-weighted average distance (VWAD)
+        // This gives us a sense of where the "center of gravity" of liquidity is
+        // rather than just the nearest level
+        const totalSupportVol = supports.reduce((sum, s) => sum + s.volume, 0);
+        const totalResistVol = resistances.reduce((sum, r) => sum + r.volume, 0);
         
-        // Calculate gaps (as percentage)
-        const supportGap = (currentPrice - nearestSupport) / currentPrice;
-        const resistGap = (nearestResist - currentPrice) / currentPrice;
+        // VWAD for supports (how far away is the bulk of support?)
+        let vwadSupport = currentPrice * 0.05; // Default 5% if no data
+        if (totalSupportVol > 0) {
+            const weightedSum = supports.reduce((sum, s) => {
+                const dist = currentPrice - s.price;
+                return sum + (dist * s.volume);
+            }, 0);
+            vwadSupport = weightedSum / totalSupportVol;
+        }
+        
+        // VWAD for resistances (how far away is the bulk of resistance?)
+        let vwadResist = currentPrice * 0.05; // Default 5% if no data
+        if (totalResistVol > 0) {
+            const weightedSum = resistances.reduce((sum, r) => {
+                const dist = r.price - currentPrice;
+                return sum + (dist * r.volume);
+            }, 0);
+            vwadResist = weightedSum / totalResistVol;
+        }
+        
+        // Calculate gaps as percentage (VWAD / currentPrice)
+        const supportGap = vwadSupport / currentPrice;
+        const resistGap = vwadResist / currentPrice;
+        
+        // Find nearest for display purposes
+        const sortedSupports = [...supports].sort((a, b) => b.price - a.price);
+        const sortedResists = [...resistances].sort((a, b) => a.price - b.price);
+        const nearestSupport = sortedSupports.length > 0 ? sortedSupports[0].price : currentPrice * 0.95;
+        const nearestResist = sortedResists.length > 0 ? sortedResists[0].price : currentPrice * 1.05;
         
         // Calculate volume shares within a dynamic range (tighter for large caps)
         let rangePercent = 0.20;
@@ -12428,6 +14701,21 @@ The Alpha Score is ${alpha}/100 — that's NEUTRAL. The market can't decide whic
         // Update Regime Transition Probabilities
         const probabilities = this.computeRegimeProbabilities(signals, regime.type);
         this.updateRegimeTransitionUI(probabilities, signals);
+        
+        // Update header badge with regime type
+        const regimeStatusBadge = document.getElementById('regimeStatus');
+        if (regimeStatusBadge) {
+            regimeStatusBadge.classList.remove('bullish', 'bearish', 'neutral', 'live');
+            const regimeText = regime.name.toUpperCase();
+            regimeStatusBadge.textContent = regimeText;
+            if (regime.type.includes('uptrend') || regime.type.includes('accumulation') || regime.type === 'expansion_up') {
+                regimeStatusBadge.classList.add('bullish');
+            } else if (regime.type.includes('downtrend') || regime.type.includes('distribution') || regime.type === 'expansion_down') {
+                regimeStatusBadge.classList.add('bearish');
+            } else {
+                regimeStatusBadge.classList.add('neutral');
+            }
+        }
     }
     
     /**

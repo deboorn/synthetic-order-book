@@ -455,7 +455,7 @@ class OrderBookDB {
      * Clear all signal markers for current symbol
      */
     async clearSignalMarkers() {
-        const types = ['bullsBears', 'clusterProximity', 'clusterDrift', 'liveProximity', 'liveDrift'];
+        const types = ['bullsBears', 'clusterProximity', 'clusterDrift', 'liveProximity', 'liveDrift', 'lvSignal'];
         for (const type of types) {
             try {
                 const tx = this.db.transaction(this.stores.signalMarkers, 'readwrite');
